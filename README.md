@@ -1,228 +1,66 @@
 <div align="center">
 
-# 📊 Automated Corporate Finance Valuation Engine
-
-**A full-stack, model-driven intrinsic valuation platform — from live market data to a discounted cash flow verdict, end to end.**
+# Autonomous S&P 100 Valuation & Backtesting Engine
 
 [![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100%2B-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![Next.js](https://img.shields.io/badge/Next.js-16-000000?logo=next.js&logoColor=white)](https://nextjs.org/)
-[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4-06B6D4?logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
-[![Status](https://img.shields.io/badge/status-active_development-yellow)]()
+[![yfinance](https://img.shields.io/badge/Data-yfinance-333333)](https://github.com/ranaroussi/yfinance)
+[![Status](https://img.shields.io/badge/status-research_%2F_phase_1-yellow)]()
 
 </div>
 
 ---
 
-## Executive Summary
+## Objective
 
-The Automated Corporate Finance Valuation Engine ingests live financial statement and market data for any publicly traded company and produces a fully-modeled, discounted cash flow (DCF) intrinsic valuation in seconds. It pairs a modular Python valuation core — WACC estimation, five-year Free Cash Flow projection, and Gordon Growth terminal value — with a real-time Next.js dashboard, so analysts can adjust core assumptions and see the resulting intrinsic value per share instantly.
-
----
-
-## Table of Contents
-
-1. [Features](#features)
-2. [Financial Methodology](#financial-methodology)
-3. [Tech Stack](#tech-stack)
-4. [Project Structure](#project-structure)
-5. [Local Setup Instructions](#local-setup-instructions)
-6. [API Reference](#api-reference)
-7. [Disclaimer](#disclaimer)
+This repository is a Python-based quantitative screener that evaluates the S&P 100 using a **dynamic Discounted Cash Flow (DCF) model** paired with a **Growth At a Reasonable Price (GARP) Conviction framework**. Rather than applying one generic set of growth/margin assumptions across every name, the engine derives each company's DCF inputs from its own historical financials, screens the resulting universe for a strict margin of safety, ranks survivors by a composite conviction score, and backtests the resulting portfolio against the S&P 500 (SPY).
 
 ---
 
-## Features
+## Core Architecture
 
-### 🧮 Automated DCF Math
-The valuation core (`src/dcf_model/`) is a fully modular, independently-testable implementation of a standard unlevered DCF: CAPM-based WACC, a configurable five-year Free Cash Flow projection, Gordon Growth terminal value, and present-value discounting down to an intrinsic value per share — no spreadsheet required.
+The pipeline runs in three stages, each its own module:
 
-### 📡 Live Data Ingestion
-The ingestion layer (`src/data_ingestion/`) pulls income statements, balance sheets, cash flow statements, current share price, shares outstanding, and beta directly from Yahoo Finance via `yfinance`, with every field degrading gracefully — never crashing — when a data point is unavailable for a given ticker.
+1. **Point-in-time data ingestion** (`src/data_ingestion/`, `src/backtesting/historical_tester.py`) — pulls income statements, balance sheets, cash flow statements, price, and share count via `yfinance`. For backtesting, every statement is filtered to only the fiscal periods that existed on or before the target date, so no future data ever leaks into a historical valuation.
 
-### ⚡ Dynamic Next.js Dashboard
-The frontend (`frontend/`) is a dark, institutional-grade dashboard built on Next.js 16 (App Router) and Tailwind CSS v4. Analysts can adjust Revenue Growth Rate, Operating Margin, and Terminal Growth Rate via live sliders and re-run the full valuation against the FastAPI backend on demand, with loading and error states handled gracefully.
+2. **Dynamic DCF valuation** (`src/dcf_model/dcf.py`) — instead of static assumptions, each ticker's inputs are derived from its own history:
+   - **WACC** is calculated per company via CAPM cost of equity and after-tax cost of debt, weighted by market-value capital structure.
+   - **Revenue growth** defaults to the company's own historical Revenue CAGR — **capped at a 25% ceiling** so a hyper-growth outlier (e.g. a semiconductor name mid-AI-cycle) can't distort the terminal value math or produce a divergent WACC-minus-growth spread.
+   - **Operating margin** defaults to the company's own historical average Operating Margin (EBIT / Revenue) across all available periods, rather than a single generic figure.
+   - Any input that can't be derived (missing EBIT, insufficient history, etc.) falls back to a conservative default and is logged, rather than silently failing.
 
-### 🔗 Decoupled, API-First Architecture
-The backend exposes a single, well-typed REST endpoint (`GET /api/evaluate/{ticker}`) via FastAPI, with CORS enabled so the valuation engine can be consumed by any frontend, internal tool, or downstream service — not just the bundled dashboard.
-
----
-
-## Financial Methodology
-
-All valuation logic lives in [`src/dcf_model/dcf.py`](src/dcf_model/dcf.py). Each step below is an independent, unit-testable function.
-
-### 1. Weighted Average Cost of Capital (WACC)
-
-Cost of equity is estimated via the **Capital Asset Pricing Model (CAPM)**:
-
-```
-Cost of Equity (Re) = Risk-Free Rate + Beta × Equity Risk Premium
-```
-
-Cost of debt is applied on an **after-tax basis**, using the effective tax rate derived from the income statement:
-
-```
-After-Tax Cost of Debt (Rd) = Pre-Tax Cost of Debt × (1 − Tax Rate)
-```
-
-The two are blended using market-value capital weights — equity weighted by market capitalization (current price × shares outstanding), debt weighted by book value of total debt:
-
-```
-WACC = (E / (E + D)) × Re  +  (D / (E + D)) × Rd
-```
-
-If beta, cost of debt, or tax rate cannot be derived from the fetched financials, the engine falls back to conservative defaults (β = 1.0, Kd = 5.0%, tax rate = 21.0%) and logs a warning rather than failing the valuation.
-
-### 2. Free Cash Flow Projection
-
-Free Cash Flow is projected forward for a configurable number of years (five, by default) using a constant revenue growth rate and operating margin:
-
-```
-Revenue(t)  = Revenue(t-1) × (1 + Revenue Growth Rate)
-EBIT(t)     = Revenue(t) × Operating Margin
-NOPAT(t)    = EBIT(t) × (1 − Tax Rate)
-FCF(t)      = NOPAT(t) + D&A(t) − CapEx(t) − ΔNWC(t)
-```
-
-Depreciation & Amortization, Capital Expenditures, and the change in Net Working Capital are each modeled as a constant percentage of projected revenue, isolating **Revenue Growth Rate** and **Operating Margin** as the two primary levers exposed to the analyst.
-
-### 3. Terminal Value — Gordon Growth Model
-
-Value beyond the explicit forecast horizon is captured via the **perpetuity growth (Gordon Growth) method**:
-
-```
-Terminal Value = [ FCF(n) × (1 + Terminal Growth Rate) ] / ( WACC − Terminal Growth Rate )
-```
-
-The engine enforces `WACC > Terminal Growth Rate` at runtime — the model raises a descriptive error rather than returning a divergent, meaningless result.
-
-### 4. Present Value & Intrinsic Value per Share
-
-Each projected FCF and the terminal value are discounted back to the present at the WACC, summed into Enterprise Value, and bridged to Equity Value:
-
-```
-Enterprise Value = Σ [ FCF(t) / (1 + WACC)^t ]  +  [ Terminal Value / (1 + WACC)^n ]
-Equity Value      = Enterprise Value − Total Debt + Cash & Equivalents
-Intrinsic Value / Share = Equity Value / Diluted Shares Outstanding
-```
+3. **Screening & backtesting** (`src/backtesting/historical_tester.py`) — applies a Margin of Safety filter, computes a Conviction Score for survivors, ranks the top N, and measures their actual forward price performance against SPY over the same window.
 
 ---
 
-## Tech Stack
+## Phase 1 Backtest Findings — August 2024
 
-| Layer | Technology | Purpose |
-|---|---|---|
-| **Frontend** | [Next.js](https://nextjs.org/) 16 (App Router, TypeScript) | Interactive, client-rendered valuation dashboard |
-| **Styling** | [Tailwind CSS](https://tailwindcss.com/) v4 | Dark, institutional-grade UI system |
-| **Backend API** | [FastAPI](https://fastapi.tiangolo.com/) | Typed, async REST layer exposing the DCF engine |
-| **Language** | [Python](https://www.python.org/) 3.10+ | Core valuation and data ingestion logic |
-| **Market Data** | [yfinance](https://github.com/ranaroussi/yfinance) | Live financial statements, pricing, and beta |
-| **Data Handling** | pandas, numpy | Statement parsing and numerical computation |
-| **Server** | Uvicorn | ASGI server for local and production FastAPI deployment |
+**Universe:** The 100 largest S&P 500 constituents by market capitalization. **Target date:** 2024-08-01.
 
----
+### The filter worked as designed
 
-## Project Structure
+A strict Margin of Safety filter (**P/IV ≤ 1.0** — only tickers trading at or below their model-derived intrinsic value are eligible) cut the 100-name universe down to 20 survivors. The top 10 by Conviction Score — a defensive, value-tilted basket (DE, MCD, T, PEP, PGR, VZ, BRK-B, CB, PG, BMY) — returned **+22.5%** from August 2024 through today, successfully identifying a set of undervalued compounders that appreciated meaningfully.
 
-```
-Valuation Engine/
-├── src/
-│   ├── data_ingestion/
-│   │   └── fetch_financials.py   # yfinance ingestion: statements, price, shares, beta
-│   ├── dcf_model/
-│   │   └── dcf.py                # WACC, FCF projection, terminal value, PV, orchestration
-│   └── api/
-│       └── main.py               # FastAPI application (GET /api/evaluate/{ticker})
-├── frontend/
-│   └── src/app/
-│       └── page.tsx              # Next.js valuation dashboard (client component)
-├── tests/                        # Unit and integration tests
-├── requirements.txt              # Backend Python dependencies
-└── README.md
-```
+### The honest Alpha number: −20.3% vs. SPY
+
+Over the same window, SPY returned +42.8%, putting the portfolio **20.3 percentage points behind the benchmark**. This is not a modeling error — it is the direct, structural consequence of the filter itself. Every mega-cap tech name in the universe (NVDA, AAPL, MSFT, AMZN, GOOGL/GOOG, META, TSLA) was excluded at the P/IV ≤ 1.0 gate, each trading well above its DCF-derived intrinsic value at the time. Because 2024–2026 was a tech- and AI-led bull market disproportionately driven by exactly those excluded names, a strict absolute-valuation cutoff effectively turned this engine into a **defensive value portfolio during a growth-led rally** — the opposite of the market's actual leadership. The takeaway isn't that the valuation logic is wrong; it's that an absolute (rather than sector-relative) margin-of-safety threshold has a structural blind spot for periods when richly-valued growth sectors are also the sectors doing the winning. This directly motivates the sector-relative filtering work in the roadmap below.
+
+### Engineering fix: retroactive stock-split asymmetry
+
+While validating these results, NFLX initially screened as one of the cheapest names in the universe (P/IV ≈ 0.33x) — which didn't hold up under scrutiny. The root cause: NFLX executed a 10-for-1 stock split in November 2025. Standard financial APIs like `yfinance` retroactively split-adjust *price* history through the present day, but the historical *shares outstanding* series (`Ticker.get_shares_full`) is **not** adjusted for splits that happen after the queried date. Naively combining the two understated NFLX's true August 2024 market capitalization by roughly 10x (~$27B computed vs. ~$268B actual), which cascaded into a distorted WACC and a falsely cheap-looking valuation.
+
+The fix (`_cumulative_split_factor_since` in `src/backtesting/historical_tester.py`) detects every stock split that occurred between the target date and today and scales the historical share count by that cumulative ratio, bringing it back onto the same split-adjusted basis as the price series. This restored NFLX's correct ~$268B historical market cap and removed it from the eligible universe entirely — a reminder that point-in-time backtesting on free data sources requires actively auditing for exactly this class of silent data integrity issue.
 
 ---
 
-## Local Setup Instructions
+## Development Roadmap
 
-The engine runs as two independent services — a FastAPI backend and a Next.js frontend — that must be running **simultaneously** in separate terminal sessions.
-
-### Prerequisites
-
-- Python 3.10+
-- Node.js 18.18+ and npm
-
-### 1 — Start the Backend (Terminal 1)
-
-```bash
-# From the project root
-python3 -m venv venv
-source venv/bin/activate          # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn src.api.main:app --reload
-```
-
-The API is now live at **`http://127.0.0.1:8000`**. Interactive Swagger docs are available at `http://127.0.0.1:8000/docs`.
-
-### 2 — Start the Frontend (Terminal 2)
-
-```bash
-# From the project root
-cd frontend
-npm install
-npm run dev
-```
-
-The dashboard is now live at **`http://localhost:3000`**.
-
-### 3 — Run a Valuation
-
-With both services running, open `http://localhost:3000`, enter a ticker (e.g. `AAPL`), optionally adjust the Revenue Growth Rate, Operating Margin, and Terminal Growth Rate sliders, and click **Run Valuation**.
-
-> **Note:** The frontend calls the backend directly at `http://localhost:8000`. Both services must be running locally for the dashboard to return results.
-
----
-
-## API Reference
-
-### `GET /api/evaluate/{ticker}`
-
-Runs a full DCF valuation for the given ticker using live market data.
-
-**Query Parameters** *(all optional)*
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `revenue_growth_rate` | float | `0.08` | Constant annual revenue growth assumption |
-| `operating_margin` | float | `0.25` | Constant EBIT margin applied to projected revenue |
-| `terminal_growth_rate` | float | `0.025` | Perpetuity growth rate used in the terminal value |
-
-**Example**
-
-```bash
-curl "http://127.0.0.1:8000/api/evaluate/AAPL?revenue_growth_rate=0.08&operating_margin=0.30&terminal_growth_rate=0.025"
-```
-
-**Response**
-
-```json
-{
-  "ticker": "AAPL",
-  "current_price": 303.42,
-  "wacc": 0.0985,
-  "enterprise_value": 1704647222534.16,
-  "equity_value": 1641924222534.16,
-  "intrinsic_value_per_share": 111.79,
-  "projected_free_cash_flows": [ { "year": 1, "revenue": 449453880000.0, "...": "..." } ],
-  "assumptions": { "revenue_growth_rate": 0.08, "operating_margin": 0.3, "terminal_growth_rate": 0.025, "projection_years": 5 }
-}
-```
-
-Missing or insufficient financial data for a ticker returns a `422` with a descriptive `detail` message rather than a server error.
+- **Sector-Relative Valuation Filtering** — replace (or supplement) the absolute P/IV ≤ 1.0 cutoff with a sector-relative threshold, so structurally higher-multiple sectors (e.g. technology) aren't uniformly excluded regardless of relative attractiveness within their peer group.
+- **Live Paper Trading Execution via the Alpaca API** — automate execution of the top-N Conviction Score picks into a paper trading account, enabling continuous, forward (rather than purely historical) validation of the screening methodology.
+- **Next.js Frontend Dashboard** — expand the existing single-ticker valuation dashboard (`frontend/`) into a full research UI covering universe screening, Conviction Score rankings, and backtest visualization.
 
 ---
 
 ## Disclaimer
 
-This tool is intended for **educational and research purposes only**. All outputs are model-based estimates that depend entirely on user-supplied assumptions and the completeness of third-party data sources. Nothing produced by this engine constitutes investment advice, and it should not be relied upon for any actual investment or trading decision.
+This tool is intended for **educational and research purposes only**. All outputs are model-based estimates dependent on historical data quality, the completeness of third-party data sources, and the stated assumptions. Nothing in this repository constitutes investment advice, and past backtested performance is not indicative of future results.
