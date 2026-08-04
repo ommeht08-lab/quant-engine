@@ -22,6 +22,7 @@ ENV/
 # Environment variables / secrets
 .env
 .env.*
+!.env.example
 *.pem
 
 # Testing / coverage

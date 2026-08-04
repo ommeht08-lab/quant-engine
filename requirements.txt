@@ -4,3 +4,5 @@ requests
 fastapi
 yfinance
 uvicorn[standard]
+python-dotenv
+alpaca-py
