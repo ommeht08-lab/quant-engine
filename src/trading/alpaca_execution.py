@@ -5,9 +5,19 @@ Score strategy.
 Runs the exact same two-pass sector-relative DCF scan as the backtester
 (`src.backtesting.historical_tester`) — but as of *today* instead of a
 past date — over the 100-ticker universe, takes the Top 10 by Conviction
-Score, and rebalances an Alpaca account to hold each at a 10% of-equity
-target weight: liquidating anything held that fell out of the Top 10,
-then buying the remaining top picks up to their target weight.
+Score, and rebalances an Alpaca account to hold each at a dynamic,
+risk-adjusted target weight: liquidating anything held that fell out of
+the Top 10, then buying the remaining top picks up to their target
+weight.
+
+Position sizing: Inverse Volatility Weighting on beta
+-------------------------------------------------------
+Rather than an equal weight per Top-N ticker, each pick's target weight
+is `(1 / max(beta, 0.5)) / sum(1 / max(beta, 0.5) for all picks)` — so
+lower-beta (less volatile) tickers receive proportionally more equity
+than higher-beta ones. Beta is floored at 0.5 before inverting so an
+artificially low-beta ticker can't dominate the allocation. See
+`rebalance_target_positions` / `_inverse_risk`.
 
 Reusing today's date through the point-in-time machinery
 -----------------------------------------------------------
@@ -81,13 +91,13 @@ from src.backtesting.historical_tester import (
     compute_valuation,
     score_ticker,
 )
-from src.dcf_model.dcf import DCFAssumptions
+from src.dcf_model.dcf import DEFAULT_BETA, DCFAssumptions
 from src.utils.db import log_trade
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
-TARGET_WEIGHT_PER_TICKER = 0.10  # 10% of account equity per Top-N ticker
+MIN_BETA_FLOOR = 0.5  # floor beta at this level to prevent overallocating to low-beta anomalies
 MIN_ORDER_NOTIONAL_USD = 1.00  # Alpaca's own minimum notional order size
 
 
@@ -339,19 +349,29 @@ def liquidate_non_target_positions(
     return results
 
 
+def _inverse_risk(beta: Optional[float]) -> float:
+    """1 / beta, flooring beta at MIN_BETA_FLOOR to cap overallocation to
+    artificially low-beta anomalies. Missing beta falls back to DEFAULT_BETA
+    (matching the same fallback `calculate_wacc` uses)."""
+    return 1.0 / max(beta if beta is not None else DEFAULT_BETA, MIN_BETA_FLOOR)
+
+
 def rebalance_target_positions(
     trading_client: TradingClient,
     positions: Dict[str, object],
     top_picks: List[TickerAnalysis],
     equity: float,
-    target_weight: float,
     dry_run: bool,
 ) -> List[dict]:
     """
-    Buy each Top-N ticker up to its target (equity * target_weight)
-    notional value. Tickers already at or above target are skipped;
-    tickers with an existing position only get an order for the
-    remaining delta, not the full target amount again.
+    Buy each Top-N ticker up to a dynamic, risk-adjusted target notional
+    value using Inverse Volatility Weighting on beta: total_equity is
+    allocated across the Top-N picks proportionally to each ticker's
+    inverse beta (1 / beta, floored at MIN_BETA_FLOOR), so lower-beta
+    (less volatile) tickers receive a larger weight than higher-beta ones.
+    Tickers already at or above target are skipped; tickers with an
+    existing position only get an order for the remaining delta, not the
+    full target amount again.
 
     Args:
         trading_client: An initialized alpaca-py TradingClient.
@@ -359,7 +379,6 @@ def rebalance_target_positions(
             liquidation only touches non-target symbols), keyed by symbol.
         top_picks: This run's Top-N TickerAnalysis, ranked by Conviction Score.
         equity: Current account equity.
-        target_weight: Target weight per ticker, e.g. 0.10 for 10%.
         dry_run: If True, log what would be bought without submitting
             any order.
 
@@ -367,11 +386,14 @@ def rebalance_target_positions(
         A list of {"symbol", "target_notional", "current_notional",
         "order_notional", "status"} dicts, one per Top-N ticker.
     """
-    target_notional = equity * target_weight
+    total_inverse_risk = sum(_inverse_risk(pick.beta) for pick in top_picks)
     results = []
 
     for pick in top_picks:
         symbol = pick.ticker
+        weight = _inverse_risk(pick.beta) / total_inverse_risk
+        target_notional = equity * weight
+
         current_position = positions.get(symbol)
         current_notional = float(current_position.market_value) if current_position else 0.0
         order_notional = target_notional - current_notional
@@ -475,7 +497,7 @@ def print_execution_report(
     else:
         print("  (none — no held position fell out of the Top N)")
 
-    print(f"\nBuys / Rebalances (target {TARGET_WEIGHT_PER_TICKER:.0%} of equity each):")
+    print("\nBuys / Rebalances (inverse-beta risk-adjusted target weight each):")
     for record in buys:
         print(
             f"  - {record['symbol']:<6} target=${record['target_notional']:>10,.2f}  "
@@ -537,7 +559,7 @@ def main() -> None:
         trading_client, positions, target_tickers, analyses_by_ticker, args.dry_run
     )
     buys = rebalance_target_positions(
-        trading_client, positions, top_picks, equity_before, TARGET_WEIGHT_PER_TICKER, args.dry_run
+        trading_client, positions, top_picks, equity_before, args.dry_run
     )
 
     equity_after = None
