@@ -9,13 +9,21 @@ tickers by a "Conviction Score", and measures how a theoretical portfolio
 of the top-ranked names actually performed from that date to today versus
 the S&P 500 (SPY).
 
-Margin of Safety filter
-------------------------
-Before a Conviction Score is even calculated, each ticker's Price /
-Intrinsic Value (P/IV) ratio as of the target date is checked. Tickers
-trading above their historical intrinsic value (P/IV > 1.0) are
-considered overvalued and skipped entirely — only names at or below
-intrinsic value (P/IV <= 1.0) are ranked.
+Sector-Relative Valuation filter
+----------------------------------
+Rather than screening every ticker against one absolute P/IV threshold,
+the backtester runs in two passes:
+
+    Pass 1 — value every ticker in the universe (`compute_valuation`) and
+    record its Price / Intrinsic Value (P/IV) ratio and GICS sector.
+    Group P/IV ratios by sector and take each sector's median.
+
+    Pass 2 — a ticker is only eligible to be scored and ranked
+    (`score_ticker`) if its own P/IV is <= its sector's median P/IV
+    within the current universe. This avoids uniformly excluding entire
+    sectors that structurally trade at higher multiples (e.g.
+    technology), since the bar is relative to sector peers rather than a
+    fixed 1.0x cutoff.
 
 Conviction Score
 -----------------
@@ -48,10 +56,11 @@ Two additional approximations are used, both logged when triggered:
 """
 
 import logging
+import statistics
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
@@ -62,6 +71,7 @@ from src.data_ingestion.fetch_financials import (
     get_beta,
     get_cash_flow_statement,
     get_income_statement,
+    get_sector,
     get_shares_outstanding,
     get_ticker_object,
 )
@@ -95,23 +105,54 @@ DEFAULT_SP500_TOP_100_TICKERS = [
 DEFAULT_BENCHMARK_TICKER = "SPY"
 DEFAULT_TOP_N = 10
 
-# Margin of Safety filter: tickers trading above this Price / Intrinsic
-# Value ratio are considered overvalued and skipped before ranking.
-MAX_PRICE_TO_INTRINSIC_VALUE = 1.0
-
 
 # --------------------------------------------------------------------------
 # Data structures
 # --------------------------------------------------------------------------
 
 @dataclass
-class TickerAnalysis:
-    """Point-in-time valuation and Conviction Score for a single ticker."""
+class ValuationResult:
+    """
+    Pass 1 output: point-in-time DCF valuation for a single ticker,
+    before the sector-relative filter (Pass 2) is applied.
+
+    Carries the point-in-time statements and resolved DCF inputs forward
+    so Pass 2 can compute FCF growth / ROIC for survivors without
+    re-fetching anything.
+    """
 
     ticker: str
     as_of_date: str
+    sector: str = "Unknown"
     historical_price: Optional[float] = None
     historical_intrinsic_value: Optional[float] = None
+    price_to_intrinsic: Optional[float] = None
+    wacc: Optional[float] = None
+    income_stmt: Optional[pd.DataFrame] = field(default=None, repr=False)
+    balance_sheet: Optional[pd.DataFrame] = field(default=None, repr=False)
+    cash_flow: Optional[pd.DataFrame] = field(default=None, repr=False)
+    tax_rate: Optional[float] = None
+    total_debt: Optional[float] = None
+    cash_and_equivalents: Optional[float] = None
+    skip_reason: Optional[str] = None
+
+    @property
+    def is_valid(self) -> bool:
+        """Whether Pass 1 produced a usable P/IV ratio for the sector filter."""
+        return self.skip_reason is None and self.price_to_intrinsic is not None
+
+
+@dataclass
+class TickerAnalysis:
+    """Final sector-relative valuation and Conviction Score for a single ticker."""
+
+    ticker: str
+    as_of_date: str
+    sector: str = "Unknown"
+    historical_price: Optional[float] = None
+    historical_intrinsic_value: Optional[float] = None
+    price_to_intrinsic: Optional[float] = None
+    sector_median_price_to_intrinsic: Optional[float] = None
     wacc: Optional[float] = None
     fcf_growth_rate: Optional[float] = None
     roic: Optional[float] = None
@@ -148,6 +189,7 @@ class BacktestResult:
     benchmark_ticker: str = DEFAULT_BENCHMARK_TICKER
     benchmark_return: Optional[float] = None
     alpha: Optional[float] = None
+    sector_medians: Dict[str, float] = field(default_factory=dict)
 
 
 # --------------------------------------------------------------------------
@@ -419,36 +461,42 @@ def calculate_roic(
 
 
 # --------------------------------------------------------------------------
-# Per-ticker analysis
+# Pass 1: per-ticker valuation
 # --------------------------------------------------------------------------
 
-def analyze_ticker(ticker: str, as_of_date: str, assumptions: DCFAssumptions) -> TickerAnalysis:
+def compute_valuation(ticker: str, as_of_date: str, assumptions: DCFAssumptions) -> ValuationResult:
     """
-    Reconstruct point-in-time financials for a ticker and calculate its
-    historical intrinsic value and Conviction Score as of `as_of_date`.
+    Pass 1: reconstruct point-in-time financials for a ticker, run the
+    DCF, and compute its Price / Intrinsic Value (P/IV) ratio and sector.
+
+    Stops short of the sector-relative filter and Conviction Score, since
+    the sector median P/IV isn't known until every ticker in the universe
+    has been valued (see `calculate_sector_median_price_to_intrinsic`).
 
     Args:
         ticker: Stock ticker symbol.
-        as_of_date: Target date, e.g. "2021-08-01". Only data dated on or
+        as_of_date: Target date, e.g. "2024-08-01". Only data dated on or
             before this date is used.
         assumptions: DCF assumptions (growth, margin, terminal growth)
             applied to the point-in-time financials.
 
     Returns:
-        A TickerAnalysis. If any required input is unavailable, the
-        analysis carries a `skip_reason` instead of raising.
+        A ValuationResult. If any required input is unavailable, the
+        result carries a `skip_reason` instead of raising.
     """
     ticker_obj = get_ticker_object(ticker)
     as_of_ts = pd.Timestamp(as_of_date)
+    sector = get_sector(ticker_obj)
 
     income_stmt = _columns_on_or_before(get_income_statement(ticker_obj), as_of_ts)
     balance_sheet = _columns_on_or_before(get_balance_sheet(ticker_obj), as_of_ts)
     cash_flow = _columns_on_or_before(get_cash_flow_statement(ticker_obj), as_of_ts)
 
     if income_stmt is None or balance_sheet is None:
-        return TickerAnalysis(
+        return ValuationResult(
             ticker=ticker,
             as_of_date=as_of_date,
+            sector=sector,
             skip_reason=(
                 f"No income statement/balance sheet available on or before {as_of_date} "
                 "(yfinance's trailing statement window doesn't reach that far back)."
@@ -457,16 +505,18 @@ def analyze_ticker(ticker: str, as_of_date: str, assumptions: DCFAssumptions) ->
 
     historical_price = get_historical_price(ticker_obj, as_of_ts)
     if historical_price is None:
-        return TickerAnalysis(
+        return ValuationResult(
             ticker=ticker,
             as_of_date=as_of_date,
+            sector=sector,
             skip_reason=f"No market price found on or before {as_of_date}.",
         )
 
     historical_shares = get_historical_shares_outstanding(ticker_obj, as_of_ts)
     if historical_shares is None:
-        return TickerAnalysis(
-            ticker=ticker, as_of_date=as_of_date, skip_reason="Shares outstanding unavailable."
+        return ValuationResult(
+            ticker=ticker, as_of_date=as_of_date, sector=sector,
+            skip_reason="Shares outstanding unavailable.",
         )
 
     # yfinance has no historical beta endpoint; current beta is used as a
@@ -486,70 +536,168 @@ def analyze_ticker(ticker: str, as_of_date: str, assumptions: DCFAssumptions) ->
     try:
         dcf_result = run_dcf_valuation(financial_data, assumptions)
     except ValueError as exc:
-        return TickerAnalysis(
-            ticker=ticker, as_of_date=as_of_date, skip_reason=f"DCF valuation failed: {exc}"
+        return ValuationResult(
+            ticker=ticker, as_of_date=as_of_date, sector=sector,
+            skip_reason=f"DCF valuation failed: {exc}",
         )
 
     historical_intrinsic_value = dcf_result["intrinsic_value_per_share"]
     if historical_intrinsic_value <= 0:
-        return TickerAnalysis(
+        return ValuationResult(
             ticker=ticker,
             as_of_date=as_of_date,
+            sector=sector,
             skip_reason="Historical intrinsic value is not positive.",
         )
 
-    # Margin of Safety filter: only names trading at or below their
-    # historical intrinsic value are worth ranking at all. Anything more
-    # expensive is skipped before spending any effort on Conviction Score
-    # inputs (FCF growth, ROIC) it will never need.
     price_to_intrinsic = historical_price / historical_intrinsic_value
-    if price_to_intrinsic > MAX_PRICE_TO_INTRINSIC_VALUE:
-        return TickerAnalysis(
-            ticker=ticker,
-            as_of_date=as_of_date,
-            historical_price=historical_price,
-            historical_intrinsic_value=historical_intrinsic_value,
-            wacc=dcf_result["wacc"],
-            skip_reason=(
-                f"Failed Margin of Safety filter: P/IV of {price_to_intrinsic:.2f}x exceeds "
-                f"the {MAX_PRICE_TO_INTRINSIC_VALUE:.1f}x ceiling (overvalued relative to "
-                "historical intrinsic value)."
-            ),
-        )
 
     inputs = extract_valuation_inputs(financial_data)
     tax_rate = inputs["tax_rate"] if inputs["tax_rate"] is not None else DEFAULT_TAX_RATE
 
-    fcf_growth_rate = calculate_fcf_growth_rate(cash_flow)
-    if fcf_growth_rate is None:
-        return TickerAnalysis(
-            ticker=ticker,
-            as_of_date=as_of_date,
-            skip_reason="Could not compute historical FCF growth rate (insufficient cash flow history).",
-        )
-
-    roic = calculate_roic(
-        income_stmt,
-        balance_sheet,
+    return ValuationResult(
+        ticker=ticker,
+        as_of_date=as_of_date,
+        sector=sector,
+        historical_price=historical_price,
+        historical_intrinsic_value=historical_intrinsic_value,
+        price_to_intrinsic=price_to_intrinsic,
+        wacc=dcf_result["wacc"],
+        income_stmt=income_stmt,
+        balance_sheet=balance_sheet,
+        cash_flow=cash_flow,
         tax_rate=tax_rate,
         total_debt=inputs["total_debt"],
         cash_and_equivalents=inputs["cash_and_equivalents"],
     )
+
+
+def calculate_sector_median_price_to_intrinsic(valuations: List[ValuationResult]) -> Dict[str, float]:
+    """
+    Group Pass 1 P/IV ratios by sector and compute each sector's median,
+    based on the tickers actually present in the current universe.
+
+    Args:
+        valuations: ValuationResult list from Pass 1. Only entries with a
+            valid P/IV (`is_valid`) contribute to their sector's median.
+
+    Returns:
+        dict mapping sector name -> median P/IV ratio. Sectors with no
+        valid valuations in this universe are simply absent.
+    """
+    ratios_by_sector: Dict[str, List[float]] = {}
+    for valuation in valuations:
+        if valuation.is_valid:
+            ratios_by_sector.setdefault(valuation.sector, []).append(valuation.price_to_intrinsic)
+
+    return {sector: statistics.median(ratios) for sector, ratios in ratios_by_sector.items()}
+
+
+# --------------------------------------------------------------------------
+# Pass 2: sector-relative filter + Conviction Score
+# --------------------------------------------------------------------------
+
+def score_ticker(
+    valuation: ValuationResult, sector_medians: Dict[str, float]
+) -> TickerAnalysis:
+    """
+    Pass 2: apply the sector-relative valuation filter and, for
+    survivors, compute FCF growth, ROIC, and the Conviction Score.
+
+    A ticker is only eligible to be scored if its P/IV is less than or
+    equal to its own sector's median P/IV within the current universe.
+
+    Args:
+        valuation: Pass 1 ValuationResult for a single ticker.
+        sector_medians: dict from `calculate_sector_median_price_to_intrinsic`.
+
+    Returns:
+        A TickerAnalysis. If the ticker failed Pass 1, fails the
+        sector-relative filter, or fails any downstream calculation, it
+        carries a `skip_reason` instead of a Conviction Score.
+    """
+    if not valuation.is_valid:
+        return TickerAnalysis(
+            ticker=valuation.ticker,
+            as_of_date=valuation.as_of_date,
+            sector=valuation.sector,
+            skip_reason=valuation.skip_reason,
+        )
+
+    sector_median = sector_medians.get(valuation.sector)
+    if sector_median is None:
+        return TickerAnalysis(
+            ticker=valuation.ticker,
+            as_of_date=valuation.as_of_date,
+            sector=valuation.sector,
+            historical_price=valuation.historical_price,
+            historical_intrinsic_value=valuation.historical_intrinsic_value,
+            price_to_intrinsic=valuation.price_to_intrinsic,
+            wacc=valuation.wacc,
+            skip_reason=f"No sector median P/IV available for sector '{valuation.sector}'.",
+        )
+
+    if valuation.price_to_intrinsic > sector_median:
+        return TickerAnalysis(
+            ticker=valuation.ticker,
+            as_of_date=valuation.as_of_date,
+            sector=valuation.sector,
+            historical_price=valuation.historical_price,
+            historical_intrinsic_value=valuation.historical_intrinsic_value,
+            price_to_intrinsic=valuation.price_to_intrinsic,
+            sector_median_price_to_intrinsic=sector_median,
+            wacc=valuation.wacc,
+            skip_reason=(
+                f"Failed sector-relative filter: P/IV of {valuation.price_to_intrinsic:.2f}x "
+                f"exceeds the {valuation.sector} sector median of {sector_median:.2f}x."
+            ),
+        )
+
+    fcf_growth_rate = calculate_fcf_growth_rate(valuation.cash_flow)
+    if fcf_growth_rate is None:
+        return TickerAnalysis(
+            ticker=valuation.ticker,
+            as_of_date=valuation.as_of_date,
+            sector=valuation.sector,
+            historical_price=valuation.historical_price,
+            historical_intrinsic_value=valuation.historical_intrinsic_value,
+            price_to_intrinsic=valuation.price_to_intrinsic,
+            sector_median_price_to_intrinsic=sector_median,
+            wacc=valuation.wacc,
+            skip_reason="Could not compute historical FCF growth rate (insufficient cash flow history).",
+        )
+
+    roic = calculate_roic(
+        valuation.income_stmt,
+        valuation.balance_sheet,
+        tax_rate=valuation.tax_rate,
+        total_debt=valuation.total_debt,
+        cash_and_equivalents=valuation.cash_and_equivalents,
+    )
     if roic is None:
         return TickerAnalysis(
-            ticker=ticker,
-            as_of_date=as_of_date,
+            ticker=valuation.ticker,
+            as_of_date=valuation.as_of_date,
+            sector=valuation.sector,
+            historical_price=valuation.historical_price,
+            historical_intrinsic_value=valuation.historical_intrinsic_value,
+            price_to_intrinsic=valuation.price_to_intrinsic,
+            sector_median_price_to_intrinsic=sector_median,
+            wacc=valuation.wacc,
             skip_reason="Could not compute ROIC (missing EBIT or stockholders' equity).",
         )
 
-    conviction_score = (fcf_growth_rate * roic) / price_to_intrinsic
+    conviction_score = (fcf_growth_rate * roic) / valuation.price_to_intrinsic
 
     return TickerAnalysis(
-        ticker=ticker,
-        as_of_date=as_of_date,
-        historical_price=historical_price,
-        historical_intrinsic_value=historical_intrinsic_value,
-        wacc=dcf_result["wacc"],
+        ticker=valuation.ticker,
+        as_of_date=valuation.as_of_date,
+        sector=valuation.sector,
+        historical_price=valuation.historical_price,
+        historical_intrinsic_value=valuation.historical_intrinsic_value,
+        price_to_intrinsic=valuation.price_to_intrinsic,
+        sector_median_price_to_intrinsic=sector_median,
+        wacc=valuation.wacc,
         fcf_growth_rate=fcf_growth_rate,
         roic=roic,
         conviction_score=conviction_score,
@@ -618,16 +766,17 @@ def run_backtest(
     assumptions: Optional[DCFAssumptions] = None,
 ) -> BacktestResult:
     """
-    Run the full historical DCF backtest end-to-end.
+    Run the full historical DCF backtest end-to-end, in two passes.
 
-    For each ticker: reconstruct point-in-time financials, run the DCF,
-    and calculate a Conviction Score. Rank by Conviction Score, take the
-    top N, and measure their actual price performance from `as_of_date`
-    to today against `benchmark_ticker`.
+    Pass 1: value every ticker (`compute_valuation`) and record its P/IV
+    ratio and sector. Pass 2: apply the sector-relative filter and
+    calculate a Conviction Score for survivors (`score_ticker`). Rank by
+    Conviction Score, take the top N, and measure their actual price
+    performance from `as_of_date` to today against `benchmark_ticker`.
 
     Args:
         tickers: Universe of ticker symbols to evaluate.
-        as_of_date: Target date, e.g. "2021-08-01".
+        as_of_date: Target date, e.g. "2024-08-01".
         top_n: Number of top-ranked tickers to carry into the
             theoretical portfolio.
         benchmark_ticker: Ticker to compare portfolio performance against.
@@ -635,21 +784,28 @@ def run_backtest(
             Defaults to DCFAssumptions() if omitted.
 
     Returns:
-        A BacktestResult with every analysis, the top picks, their
-        forward performance, and the portfolio-vs-benchmark comparison.
+        A BacktestResult with every analysis, the sector median P/IVs,
+        the top picks, their forward performance, and the
+        portfolio-vs-benchmark comparison.
     """
     assumptions = assumptions or DCFAssumptions()
 
-    analyses: List[TickerAnalysis] = []
+    # Pass 1: value every ticker and compute its P/IV ratio + sector.
+    valuations: List[ValuationResult] = []
     for ticker in tickers:
         try:
-            analysis = analyze_ticker(ticker, as_of_date, assumptions)
+            valuation = compute_valuation(ticker, as_of_date, assumptions)
         except Exception as exc:  # noqa: BLE001 - never let one bad ticker kill the run
-            logger.warning("Unexpected failure analyzing %s: %s", ticker, exc)
-            analysis = TickerAnalysis(
+            logger.warning("Unexpected failure valuing %s: %s", ticker, exc)
+            valuation = ValuationResult(
                 ticker=ticker, as_of_date=as_of_date, skip_reason=f"Unexpected error: {exc}"
             )
-        analyses.append(analysis)
+        valuations.append(valuation)
+
+    sector_medians = calculate_sector_median_price_to_intrinsic(valuations)
+
+    # Pass 2: apply the sector-relative filter and score survivors.
+    analyses: List[TickerAnalysis] = [score_ticker(v, sector_medians) for v in valuations]
 
     ranked = sorted(
         (a for a in analyses if a.is_valid),
@@ -686,6 +842,7 @@ def run_backtest(
         benchmark_ticker=benchmark_ticker,
         benchmark_return=benchmark_return,
         alpha=alpha,
+        sector_medians=sector_medians,
     )
 
 
@@ -702,6 +859,11 @@ def print_summary(result: BacktestResult) -> None:
     print("=" * 88)
     print(f"\nEvaluated {len(result.analyses)} tickers; {valid_count} produced a valid Conviction Score.")
 
+    if result.sector_medians:
+        print("\nSector Median P/IV (Pass 1, current universe):")
+        for sector, median in sorted(result.sector_medians.items(), key=lambda kv: kv[1]):
+            print(f"  - {sector}: {median:.2f}x")
+
     skipped = [a for a in result.analyses if not a.is_valid]
     if skipped:
         print("\nSkipped tickers:")
@@ -710,16 +872,18 @@ def print_summary(result: BacktestResult) -> None:
 
     print(f"\nTop {len(result.top_picks)} by Conviction Score:")
     if result.top_picks:
-        header = f"{'Ticker':<8}{'Conviction':>12}{'FCF Growth':>14}{'ROIC':>10}{'Price':>12}{'Intrinsic':>12}{'P/IV':>8}"
+        header = (
+            f"{'Ticker':<8}{'Sector':<24}{'Conviction':>11}{'FCF Growth':>12}"
+            f"{'ROIC':>8}{'Price':>10}{'Intrinsic':>11}{'P/IV':>8}{'Sector Med':>12}"
+        )
         print(header)
         print("-" * len(header))
         for analysis in result.top_picks:
-            price_to_iv = analysis.historical_price / analysis.historical_intrinsic_value
             print(
-                f"{analysis.ticker:<8}{analysis.conviction_score:>12.3f}"
-                f"{analysis.fcf_growth_rate:>13.1%} {analysis.roic:>9.1%}"
-                f"{analysis.historical_price:>12,.2f}{analysis.historical_intrinsic_value:>12,.2f}"
-                f"{price_to_iv:>7.2f}x"
+                f"{analysis.ticker:<8}{analysis.sector:<24}{analysis.conviction_score:>11.3f}"
+                f"{analysis.fcf_growth_rate:>11.1%}{analysis.roic:>8.1%}"
+                f"{analysis.historical_price:>10,.2f}{analysis.historical_intrinsic_value:>11,.2f}"
+                f"{analysis.price_to_intrinsic:>7.2f}x{analysis.sector_median_price_to_intrinsic:>11.2f}x"
             )
     else:
         print("  (none — no ticker produced a usable Conviction Score)")

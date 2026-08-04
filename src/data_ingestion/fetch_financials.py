@@ -181,6 +181,26 @@ def get_beta(ticker_obj: yf.Ticker) -> Optional[float]:
     return None
 
 
+def get_sector(ticker_obj: yf.Ticker) -> str:
+    """
+    Fetch the company's GICS sector, as reported by Yahoo Finance.
+
+    Args:
+        ticker_obj: A yfinance.Ticker instance.
+
+    Returns:
+        The sector name, or "Unknown" if unavailable (rather than None,
+        since callers typically use this as a grouping key).
+    """
+    try:
+        sector = ticker_obj.info.get("sector")
+        if sector:
+            return sector
+    except Exception as exc:
+        logger.warning("Could not retrieve sector for %s: %s", ticker_obj.ticker, exc)
+    return "Unknown"
+
+
 def fetch_company_financials(ticker: str) -> dict:
     """
     Fetch every input the DCF model needs for a given ticker in one call.
