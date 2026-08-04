@@ -16,6 +16,7 @@ import os
 from typing import Optional
 
 import psycopg2
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -72,6 +73,7 @@ def log_trade(
             catch this (and RuntimeError) rather than let a telemetry
             failure abort trade execution.
     """
+    load_dotenv()
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
         raise RuntimeError(
