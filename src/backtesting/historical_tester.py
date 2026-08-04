@@ -142,6 +142,7 @@ class ValuationResult:
     historical_intrinsic_value: Optional[float] = None
     price_to_intrinsic: Optional[float] = None
     wacc: Optional[float] = None
+    beta: Optional[float] = None
     income_stmt: Optional[pd.DataFrame] = field(default=None, repr=False)
     balance_sheet: Optional[pd.DataFrame] = field(default=None, repr=False)
     cash_flow: Optional[pd.DataFrame] = field(default=None, repr=False)
@@ -168,6 +169,7 @@ class TickerAnalysis:
     price_to_intrinsic: Optional[float] = None
     sector_median_price_to_intrinsic: Optional[float] = None
     wacc: Optional[float] = None
+    beta: Optional[float] = None
     fcf_growth_rate: Optional[float] = None
     roic: Optional[float] = None
     conviction_score: Optional[float] = None
@@ -597,6 +599,7 @@ def compute_valuation(ticker: str, as_of_date: str, assumptions: DCFAssumptions)
         historical_intrinsic_value=historical_intrinsic_value,
         price_to_intrinsic=price_to_intrinsic,
         wacc=dcf_result["wacc"],
+        beta=beta,
         income_stmt=income_stmt,
         balance_sheet=balance_sheet,
         cash_flow=cash_flow,
@@ -732,6 +735,7 @@ def score_ticker(
         price_to_intrinsic=valuation.price_to_intrinsic,
         sector_median_price_to_intrinsic=sector_median,
         wacc=valuation.wacc,
+        beta=valuation.beta,
         fcf_growth_rate=fcf_growth_rate,
         roic=roic,
         conviction_score=conviction_score,

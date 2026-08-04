@@ -26,16 +26,28 @@ cache (`src.api.sector_medians`) with today's freshly computed medians,
 so `GET /api/evaluate/{ticker}` stays reasonably current between runs
 too.
 
+Trade telemetry
+----------------
+Every successfully submitted order (a liquidation or a Top-N buy) is
+logged to a Postgres `trade_logs` table via `src.utils.db.log_trade`,
+recording the ticker, action, quantity, execution price, and the WACC /
+beta / Conviction Score behind the decision. This is best-effort
+telemetry, not a source of truth: logging failures (e.g. `DATABASE_URL`
+unset, database unreachable) are caught and logged as warnings — they
+never abort or roll back an already-submitted trade. Dry runs never log
+anything, since no orders are actually submitted.
+
 Safety
 ------
 This script is built against Alpaca's **paper trading** environment. It
 reads `APCA_API_KEY_ID` / `APCA_API_SECRET_KEY` / `APCA_API_BASE_URL`
-from a local `.env` file (never commit real keys — `.env` is already
-gitignored) and warns loudly, without blocking, if `APCA_API_BASE_URL`
-doesn't look like Alpaca's paper endpoint. It is "autonomous" by design
-(no interactive confirmation prompt) so it can run unattended, e.g. from
-a scheduler — pass `--dry-run` to preview the full scan and every order
-it *would* place without submitting anything.
+(and, for trade telemetry, `DATABASE_URL`) from a local `.env` file
+(never commit real keys — `.env` is already gitignored) and warns loudly,
+without blocking, if `APCA_API_BASE_URL` doesn't look like Alpaca's paper
+endpoint. It is "autonomous" by design (no interactive confirmation
+prompt) so it can run unattended, e.g. from a scheduler — pass `--dry-run`
+to preview the full scan and every order it *would* place without
+submitting anything.
 
 Usage:
     python -m src.trading.alpaca_execution [--dry-run] [--top-n 10]
@@ -70,6 +82,7 @@ from src.backtesting.historical_tester import (
     score_ticker,
 )
 from src.dcf_model.dcf import DCFAssumptions
+from src.utils.db import log_trade
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -229,10 +242,39 @@ def get_current_positions(trading_client: TradingClient) -> Dict[str, object]:
     return {position.symbol: position for position in positions}
 
 
+def _safe_log_trade(
+    ticker: str,
+    action: str,
+    quantity: float,
+    execution_price: float,
+    wacc: Optional[float],
+    beta: Optional[float],
+    conviction_score: Optional[float],
+) -> None:
+    """
+    Call `log_trade`, but never let a telemetry failure (e.g. Postgres
+    unreachable, `DATABASE_URL` unset) abort or interrupt trade execution.
+    Failures are logged as warnings and swallowed.
+    """
+    try:
+        log_trade(
+            ticker=ticker,
+            action=action,
+            quantity=quantity,
+            execution_price=execution_price,
+            wacc=wacc,
+            beta=beta,
+            conviction_score=conviction_score,
+        )
+    except Exception as exc:  # noqa: BLE001 - telemetry must never block execution
+        logger.warning("Trade telemetry logging failed for %s %s: %s", action, ticker, exc)
+
+
 def liquidate_non_target_positions(
     trading_client: TradingClient,
     positions: Dict[str, object],
     target_tickers: set,
+    analyses_by_ticker: Dict[str, TickerAnalysis],
     dry_run: bool,
 ) -> List[dict]:
     """
@@ -243,6 +285,10 @@ def liquidate_non_target_positions(
         positions: Current positions, keyed by symbol (from
             `get_current_positions`).
         target_tickers: Symbols that should remain/be established.
+        analyses_by_ticker: This run's full scan results, keyed by
+            ticker, used to attach WACC/beta/Conviction Score to the
+            trade log when a liquidated ticker happened to be scored
+            (even though it isn't in the Top N).
         dry_run: If True, log what would be liquidated without submitting
             any order.
 
@@ -267,8 +313,23 @@ def liquidate_non_target_positions(
             continue
 
         try:
-            trading_client.close_position(symbol)
+            order = trading_client.close_position(symbol)
             record["status"] = "LIQUIDATED"
+
+            filled_qty = float(order.filled_qty) if order.filled_qty else float(position.qty)
+            filled_price = (
+                float(order.filled_avg_price) if order.filled_avg_price else float(position.current_price)
+            )
+            analysis = analyses_by_ticker.get(symbol)
+            _safe_log_trade(
+                ticker=symbol,
+                action="SELL",
+                quantity=filled_qty,
+                execution_price=filled_price,
+                wacc=analysis.wacc if analysis else None,
+                beta=analysis.beta if analysis else None,
+                conviction_score=analysis.conviction_score if analysis else None,
+            )
         except APIError as exc:
             logger.warning("Failed to liquidate %s: %s", symbol, exc)
             record["status"] = f"FAILED ({exc})"
@@ -333,7 +394,7 @@ def rebalance_target_positions(
             continue
 
         try:
-            trading_client.submit_order(
+            order = trading_client.submit_order(
                 order_data=MarketOrderRequest(
                     symbol=symbol,
                     notional=round(order_notional, 2),
@@ -342,6 +403,22 @@ def rebalance_target_positions(
                 )
             )
             record["status"] = "ORDER SUBMITTED"
+
+            filled_price = float(order.filled_avg_price) if order.filled_avg_price else pick.historical_price
+            filled_qty = (
+                float(order.filled_qty)
+                if order.filled_qty
+                else (order_notional / filled_price if filled_price else 0.0)
+            )
+            _safe_log_trade(
+                ticker=symbol,
+                action="BUY",
+                quantity=filled_qty,
+                execution_price=filled_price if filled_price else 0.0,
+                wacc=pick.wacc,
+                beta=pick.beta,
+                conviction_score=pick.conviction_score,
+            )
         except APIError as exc:
             logger.warning("Failed to submit buy order for %s: %s", symbol, exc)
             record["status"] = f"FAILED ({exc})"
@@ -454,8 +531,11 @@ def main() -> None:
         logger.error("No tickers passed the sector-relative filter today; nothing to trade.")
         return
     target_tickers = {pick.ticker for pick in top_picks}
+    analyses_by_ticker = {a.ticker: a for a in analyses}
 
-    liquidations = liquidate_non_target_positions(trading_client, positions, target_tickers, args.dry_run)
+    liquidations = liquidate_non_target_positions(
+        trading_client, positions, target_tickers, analyses_by_ticker, args.dry_run
+    )
     buys = rebalance_target_positions(
         trading_client, positions, top_picks, equity_before, TARGET_WEIGHT_PER_TICKER, args.dry_run
     )
