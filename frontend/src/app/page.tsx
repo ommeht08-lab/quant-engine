@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { FormEvent } from "react";
+import PortfolioAllocation from "@/components/PortfolioAllocation";
 
 const API_BASE_URL = "http://localhost:8000";
 
@@ -305,6 +306,10 @@ export default function Home() {
             data, and see how intrinsic value responds to your assumptions.
           </p>
         </header>
+
+        <div className="mb-8">
+          <PortfolioAllocation />
+        </div>
 
         <form
           onSubmit={runValuation}
