@@ -30,6 +30,9 @@ interface EvaluationResponse {
     terminal_growth_rate: number;
     projection_years: number;
   };
+  sector: string;
+  price_to_intrinsic_value: number | null;
+  sector_median_p_iv: number | null;
 }
 
 const compactCurrencyFormatter = new Intl.NumberFormat("en-US", {
@@ -118,6 +121,110 @@ function MetricCard({ label, value, emphasis = false, sublabel }: MetricCardProp
         {value}
       </p>
       {sublabel && <p className="mt-1 text-xs text-neutral-500">{sublabel}</p>}
+    </div>
+  );
+}
+
+interface SectorBadgeProps {
+  sector: string;
+}
+
+function SectorBadge({ sector }: SectorBadgeProps) {
+  return (
+    <span className="inline-flex items-center rounded-full border border-white/10 bg-white/[.05] px-3 py-1 text-xs font-semibold uppercase tracking-wide text-neutral-300">
+      {sector}
+    </span>
+  );
+}
+
+interface SectorValuationComparisonProps {
+  ticker: string;
+  sector: string;
+  priceToIntrinsicValue: number | null;
+  sectorMedianPIV: number | null;
+}
+
+function SectorValuationComparison({
+  ticker,
+  sector,
+  priceToIntrinsicValue,
+  sectorMedianPIV,
+}: SectorValuationComparisonProps) {
+  if (priceToIntrinsicValue === null || sectorMedianPIV === null) {
+    return (
+      <div className="rounded-2xl border border-white/10 bg-white/[.03] p-6 sm:p-8">
+        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-neutral-400">
+          Sector-Relative Valuation
+        </h2>
+        <p className="text-sm text-neutral-500">
+          {priceToIntrinsicValue === null
+            ? "Price-to-intrinsic-value could not be computed for this ticker."
+            : `No sector median P/IV available yet for ${sector}.`}
+        </p>
+      </div>
+    );
+  }
+
+  const passes = priceToIntrinsicValue <= sectorMedianPIV;
+  const maxScale = Math.max(priceToIntrinsicValue, sectorMedianPIV) * 1.15;
+  const stockBarPct = Math.min((priceToIntrinsicValue / maxScale) * 100, 100);
+  const medianBarPct = Math.min((sectorMedianPIV / maxScale) * 100, 100);
+
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[.03] p-6 sm:p-8">
+      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-400">
+          Sector-Relative Valuation
+        </h2>
+        <span
+          className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
+            passes
+              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+              : "border-rose-500/30 bg-rose-500/10 text-rose-400"
+          }`}
+        >
+          {passes ? "✓ Below Sector Median" : "✗ Above Sector Median"}
+        </span>
+      </div>
+
+      <div className="space-y-4">
+        <div>
+          <div className="mb-1.5 flex items-baseline justify-between text-sm">
+            <span className="text-neutral-300">{ticker} P/IV</span>
+            <span
+              className={`font-mono font-semibold ${passes ? "text-emerald-400" : "text-rose-400"}`}
+            >
+              {priceToIntrinsicValue.toFixed(2)}x
+            </span>
+          </div>
+          <div className="h-2.5 w-full overflow-hidden rounded-full bg-neutral-800">
+            <div
+              className={`h-full rounded-full ${passes ? "bg-emerald-500" : "bg-rose-500"}`}
+              style={{ width: `${stockBarPct}%` }}
+            />
+          </div>
+        </div>
+
+        <div>
+          <div className="mb-1.5 flex items-baseline justify-between text-sm">
+            <span className="text-neutral-300">{sector} Sector Median</span>
+            <span className="font-mono font-semibold text-neutral-300">
+              {sectorMedianPIV.toFixed(2)}x
+            </span>
+          </div>
+          <div className="h-2.5 w-full overflow-hidden rounded-full bg-neutral-800">
+            <div
+              className="h-full rounded-full bg-neutral-500"
+              style={{ width: `${medianBarPct}%` }}
+            />
+          </div>
+        </div>
+      </div>
+
+      <p className="mt-5 text-xs text-neutral-500">
+        Passes the sector-relative Margin of Safety filter when {ticker}&rsquo;s P/IV is at or
+        below the {sector} sector median.
+      </p>
     </div>
   );
 }
@@ -288,6 +395,13 @@ export default function Home() {
 
         {result && (
           <div className="space-y-8">
+            <div className="flex flex-wrap items-center gap-3">
+              <h2 className="text-lg font-semibold tracking-tight text-neutral-50">
+                {result.ticker}
+              </h2>
+              <SectorBadge sector={result.sector} />
+            </div>
+
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <MetricCard
                 label={`Intrinsic Value / Share — ${result.ticker}`}
@@ -318,6 +432,13 @@ export default function Home() {
                 value={formatCompactCurrency(result.equity_value)}
               />
             </div>
+
+            <SectorValuationComparison
+              ticker={result.ticker}
+              sector={result.sector}
+              priceToIntrinsicValue={result.price_to_intrinsic_value}
+              sectorMedianPIV={result.sector_median_p_iv}
+            />
 
             <div className="rounded-2xl border border-white/10 bg-white/[.03] p-6 sm:p-8">
               <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-neutral-400">

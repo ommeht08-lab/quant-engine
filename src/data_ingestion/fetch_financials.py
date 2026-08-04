@@ -217,6 +217,7 @@ def fetch_company_financials(ticker: str) -> dict:
             current_price (float | None)
             shares_outstanding (float | None)
             beta (float | None)
+            sector (str) — "Unknown" if unavailable, never None
         Any field that could not be retrieved is None rather than raising,
         so callers can decide how to handle gaps.
     """
@@ -229,6 +230,7 @@ def fetch_company_financials(ticker: str) -> dict:
         "current_price": get_current_price(ticker_obj),
         "shares_outstanding": get_shares_outstanding(ticker_obj),
         "beta": get_beta(ticker_obj),
+        "sector": get_sector(ticker_obj),
     }
 
 

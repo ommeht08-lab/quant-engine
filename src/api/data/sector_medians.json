@@ -1,0 +1,18 @@
+{
+  "generated_at": "2026-08-04T02:52:31.123529+00:00",
+  "universe_size": 100,
+  "tickers_used": 71,
+  "sector_medians": {
+    "Technology": 4.463231624598355,
+    "Communication Services": 1.0808493958416259,
+    "Consumer Cyclical": 4.393761055312626,
+    "Financial Services": 1.414180560801553,
+    "Consumer Defensive": 0.9859068004009531,
+    "Healthcare": 1.0455084219128368,
+    "Energy": 1.1843802393099865,
+    "Industrials": 2.2976400303276945,
+    "Basic Materials": 2.4229188992433115,
+    "Utilities": 1.3167593310714354,
+    "Real Estate": 4.207510235536428
+  }
+}

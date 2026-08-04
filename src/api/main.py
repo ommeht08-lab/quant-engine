@@ -14,6 +14,7 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from src.api.sector_medians import get_sector_median_price_to_intrinsic
 from src.data_ingestion.fetch_financials import fetch_company_financials
 from src.dcf_model.dcf import DCFAssumptions, run_dcf_valuation
 
@@ -61,6 +62,9 @@ class EvaluationResponse(BaseModel):
     intrinsic_value_per_share: float
     projected_free_cash_flows: List[FreeCashFlowYear]
     assumptions: dict
+    sector: str
+    price_to_intrinsic_value: Optional[float]
+    sector_median_p_iv: Optional[float]
 
 
 @app.get("/")
@@ -101,8 +105,12 @@ def evaluate_ticker(
 
     Returns:
         EvaluationResponse containing intrinsic value per share, current
-        market price, WACC, enterprise value, equity value, and the 5-year
-        FCF projection.
+        market price, WACC, enterprise value, equity value, the 5-year
+        FCF projection, the company's sector, its Price / Intrinsic Value
+        (P/IV) ratio, and that sector's median P/IV (from a precomputed
+        cache — see `src.api.sector_medians` — so `sector_median_p_iv`
+        is `null` if the cache hasn't been generated yet or the sector
+        isn't represented in the reference universe).
 
     Raises:
         HTTPException(400): If the ticker symbol itself is invalid.
@@ -145,13 +153,22 @@ def evaluate_ticker(
         for year, row in result["fcf_projection"].iterrows()
     ]
 
+    current_price = result["current_market_price"]
+    intrinsic_value = result["intrinsic_value_per_share"]
+    price_to_intrinsic_value = (
+        current_price / intrinsic_value if current_price and intrinsic_value and intrinsic_value > 0 else None
+    )
+
+    sector = financial_data.get("sector", "Unknown")
+    sector_median_p_iv = get_sector_median_price_to_intrinsic(sector)
+
     return EvaluationResponse(
         ticker=financial_data["ticker"],
-        current_price=result["current_market_price"],
+        current_price=current_price,
         wacc=result["wacc"],
         enterprise_value=result["enterprise_value"],
         equity_value=result["equity_value"],
-        intrinsic_value_per_share=result["intrinsic_value_per_share"],
+        intrinsic_value_per_share=intrinsic_value,
         projected_free_cash_flows=projected_fcf,
         assumptions={
             "revenue_growth_rate": assumptions.revenue_growth_rate,
@@ -159,4 +176,7 @@ def evaluate_ticker(
             "terminal_growth_rate": assumptions.terminal_growth_rate,
             "projection_years": assumptions.projection_years,
         },
+        sector=sector,
+        price_to_intrinsic_value=price_to_intrinsic_value,
+        sector_median_p_iv=sector_median_p_iv,
     )
