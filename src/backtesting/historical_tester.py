@@ -56,6 +56,7 @@ Two additional approximations are used, both logged when triggered:
 """
 
 import logging
+import math
 import statistics
 import sys
 from dataclasses import dataclass, field
@@ -245,6 +246,10 @@ def _get_price_on_or_before(
 
     Looks back up to `lookback_days` calendar days to land on a trading
     day even if the target date falls on a weekend or market holiday.
+    yfinance occasionally returns a `NaN` Close for the most recent bar
+    (e.g. an unsettled/incomplete session very close to "today"), so rows
+    with a missing Close are dropped before taking the last one, rather
+    than blindly trusting the final row.
 
     Returns:
         (close_price, trading_date) tuple, or None if unavailable.
@@ -261,8 +266,12 @@ def _get_price_on_or_before(
     if history is None or history.empty:
         return None
 
-    last_row = history.iloc[-1]
-    return float(last_row["Close"]), history.index[-1]
+    valid_history = history.dropna(subset=["Close"])
+    if valid_history.empty:
+        return None
+
+    last_row = valid_history.iloc[-1]
+    return float(last_row["Close"]), valid_history.index[-1]
 
 
 def get_historical_price(ticker_obj, as_of_ts: pd.Timestamp) -> Optional[float]:
@@ -504,12 +513,12 @@ def compute_valuation(ticker: str, as_of_date: str, assumptions: DCFAssumptions)
         )
 
     historical_price = get_historical_price(ticker_obj, as_of_ts)
-    if historical_price is None:
+    if historical_price is None or not math.isfinite(historical_price):
         return ValuationResult(
             ticker=ticker,
             as_of_date=as_of_date,
             sector=sector,
-            skip_reason=f"No market price found on or before {as_of_date}.",
+            skip_reason=f"No valid market price found on or before {as_of_date}.",
         )
 
     historical_shares = get_historical_shares_outstanding(ticker_obj, as_of_ts)
@@ -542,15 +551,22 @@ def compute_valuation(ticker: str, as_of_date: str, assumptions: DCFAssumptions)
         )
 
     historical_intrinsic_value = dcf_result["intrinsic_value_per_share"]
-    if historical_intrinsic_value <= 0:
+    if not math.isfinite(historical_intrinsic_value) or historical_intrinsic_value <= 0:
         return ValuationResult(
             ticker=ticker,
             as_of_date=as_of_date,
             sector=sector,
-            skip_reason="Historical intrinsic value is not positive.",
+            skip_reason="Historical intrinsic value is not positive or is not a finite number.",
         )
 
     price_to_intrinsic = historical_price / historical_intrinsic_value
+    if not math.isfinite(price_to_intrinsic):
+        return ValuationResult(
+            ticker=ticker,
+            as_of_date=as_of_date,
+            sector=sector,
+            skip_reason="Price-to-intrinsic-value ratio is not a finite number.",
+        )
 
     inputs = extract_valuation_inputs(financial_data)
     tax_rate = inputs["tax_rate"] if inputs["tax_rate"] is not None else DEFAULT_TAX_RATE
@@ -739,8 +755,13 @@ def get_forward_performance(ticker: str, as_of_date: str) -> Optional[TickerPerf
         logger.warning("No recent price history available for %s.", ticker)
         return None
 
-    exit_price = float(recent_history["Close"].iloc[-1])
-    exit_date = recent_history.index[-1]
+    valid_recent_history = recent_history.dropna(subset=["Close"])
+    if valid_recent_history.empty:
+        logger.warning("No recent trading day with a valid Close found for %s.", ticker)
+        return None
+
+    exit_price = float(valid_recent_history["Close"].iloc[-1])
+    exit_date = valid_recent_history.index[-1]
 
     total_return = (exit_price / entry_price) - 1
 
