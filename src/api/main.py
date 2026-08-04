@@ -17,6 +17,7 @@ from pydantic import BaseModel
 from src.api.sector_medians import get_sector_median_price_to_intrinsic
 from src.data_ingestion.fetch_financials import fetch_company_financials
 from src.dcf_model.dcf import DCFAssumptions, run_dcf_valuation
+from src.utils.macro import get_risk_free_rate
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -103,6 +104,11 @@ def evaluate_ticker(
         operating_margin: Configurable EBIT margin assumption.
         terminal_growth_rate: Configurable terminal (perpetuity) growth rate.
 
+    The discount rate's CAPM risk-free leg uses a live 10-Year Treasury
+    yield (`src.utils.macro.get_risk_free_rate`) rather than a static
+    assumption, keeping WACC in sync with the same macro environment used
+    by the backtester and the sector-median cache generator.
+
     Returns:
         EvaluationResponse containing intrinsic value per share, current
         market price, WACC, enterprise value, equity value, the 5-year
@@ -128,6 +134,7 @@ def evaluate_ticker(
         revenue_growth_rate=revenue_growth_rate,
         operating_margin=operating_margin,
         terminal_growth_rate=terminal_growth_rate,
+        risk_free_rate=get_risk_free_rate(),
     )
 
     try:
@@ -175,6 +182,7 @@ def evaluate_ticker(
             "operating_margin": assumptions.operating_margin,
             "terminal_growth_rate": assumptions.terminal_growth_rate,
             "projection_years": assumptions.projection_years,
+            "risk_free_rate": assumptions.risk_free_rate,
         },
         sector=sector,
         price_to_intrinsic_value=price_to_intrinsic_value,

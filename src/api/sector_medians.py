@@ -17,12 +17,21 @@ This cache goes stale as prices and fundamentals move — regenerate it by
 running this module directly:
 
     python -m src.api.sector_medians
+
+Every ticker in a given run is valued with the same discount-rate macro
+input: `src.utils.macro.get_risk_free_rate` is called once per run (not
+once per ticker) and applied uniformly, so the cached medians reflect one
+consistent snapshot of the risk-free rate — the same helper the live
+single-ticker API (`src.api.main`) and the backtester
+(`src.backtesting.historical_tester`) use, keeping WACC synchronized
+across the whole application.
 """
 
 import json
 import logging
 import statistics
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -31,6 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from src.backtesting.historical_tester import DEFAULT_SP500_TOP_100_TICKERS
 from src.data_ingestion.fetch_financials import fetch_company_financials
 from src.dcf_model.dcf import DCFAssumptions, run_dcf_valuation
+from src.utils.macro import get_risk_free_rate
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -83,15 +93,24 @@ def generate_sector_medians(
             `DEFAULT_SP500_TOP_100_TICKERS`.
         assumptions: DCF assumptions applied uniformly. Defaults to
             `DCFAssumptions()` (dynamic, per-company historical growth/margin).
+            Its `risk_free_rate` is overridden with a single live 10-Year
+            Treasury yield (`src.utils.macro.get_risk_free_rate`), fetched
+            once and reused for every ticker, so the whole cache reflects
+            one consistent macro snapshot rather than ~100 independent
+            (and potentially slightly different) quotes.
 
     Returns:
         dict with "generated_at" (ISO timestamp), "universe_size",
-        "tickers_used", and "sector_medians" (sector -> median P/IV).
+        "tickers_used", "risk_free_rate" (the live rate used for every
+        valuation in this run), and "sector_medians" (sector -> median P/IV).
     """
     import datetime
 
     tickers = tickers if tickers is not None else DEFAULT_SP500_TOP_100_TICKERS
     assumptions = assumptions or DCFAssumptions()
+
+    risk_free_rate = get_risk_free_rate()
+    assumptions = replace(assumptions, risk_free_rate=risk_free_rate)
 
     ratios_by_sector: Dict[str, List[float]] = {}
     tickers_used = 0
@@ -112,6 +131,7 @@ def generate_sector_medians(
         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "universe_size": len(tickers),
         "tickers_used": tickers_used,
+        "risk_free_rate": risk_free_rate,
         "sector_medians": sector_medians,
     }
 
@@ -135,7 +155,13 @@ def load_sector_medians(path: Path = CACHE_PATH) -> dict:
     """
     if not path.exists():
         logger.warning("Sector median cache not found at %s; run `python -m src.api.sector_medians`.", path)
-        return {"generated_at": None, "universe_size": 0, "tickers_used": 0, "sector_medians": {}}
+        return {
+            "generated_at": None,
+            "universe_size": 0,
+            "tickers_used": 0,
+            "risk_free_rate": None,
+            "sector_medians": {},
+        }
 
     with open(path) as f:
         return json.load(f)
@@ -162,6 +188,7 @@ if __name__ == "__main__":
     result = generate_sector_medians()
     save_sector_medians(result)
     print(f"Generated sector medians from {result['tickers_used']}/{result['universe_size']} tickers:")
+    print(f"Risk-free rate used: {result['risk_free_rate']:.2%}")
     for sector, median in sorted(result["sector_medians"].items(), key=lambda kv: kv[1]):
         print(f"  - {sector}: {median:.2f}x")
     print(f"\nSaved to {CACHE_PATH}")
