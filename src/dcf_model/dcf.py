@@ -19,6 +19,7 @@ Each step is a standalone, independently testable function; a single
 """
 
 import logging
+import math
 from dataclasses import dataclass
 from typing import Optional
 
@@ -47,6 +48,12 @@ DEFAULT_OPERATING_MARGIN_FALLBACK = 0.15
 # anomaly can't blow up the terminal value math (WACC - g must stay positive
 # and comfortably so).
 MAX_REVENUE_GROWTH_RATE = 0.25
+
+# WACC is clamped to this range so a degenerate input (e.g. an extreme beta
+# combined with a risk-free rate spike) can't produce a discount rate that's
+# no longer economically sane.
+MIN_DISCOUNT_RATE = 0.05
+MAX_DISCOUNT_RATE = 0.20
 
 
 # --------------------------------------------------------------------------
@@ -292,7 +299,8 @@ def calculate_wacc(
         tax_rate: Effective/marginal tax rate used to tax-shield debt.
 
     Returns:
-        WACC as a decimal (e.g. 0.081 for 8.1%).
+        WACC as a decimal (e.g. 0.081 for 8.1%), clamped to
+        [MIN_DISCOUNT_RATE, MAX_DISCOUNT_RATE].
 
     Raises:
         ValueError: If current_price/shares_outstanding are missing, or if
@@ -304,8 +312,8 @@ def calculate_wacc(
             "market capitalization for WACC."
         )
 
-    if beta is None:
-        logger.warning("Beta unavailable; defaulting to %.2f.", DEFAULT_BETA)
+    if beta is None or not math.isfinite(beta):
+        logger.warning("Beta unavailable or non-finite; defaulting to %.2f.", DEFAULT_BETA)
         beta = DEFAULT_BETA
 
     if cost_of_debt is None:
@@ -332,7 +340,7 @@ def calculate_wacc(
     after_tax_cost_of_debt = cost_of_debt * (1 - tax_rate)
 
     wacc = weight_equity * cost_of_equity + weight_debt * after_tax_cost_of_debt
-    return wacc
+    return max(MIN_DISCOUNT_RATE, min(MAX_DISCOUNT_RATE, wacc))
 
 
 # --------------------------------------------------------------------------

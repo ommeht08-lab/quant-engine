@@ -33,6 +33,18 @@ Rewards companies that were compounding free cash flow, earning a high
 return on invested capital, and trading cheaply relative to their
 model-derived intrinsic value as of the target date.
 
+Dynamic CAPM discount rate
+----------------------------
+`compute_valuation` overrides `DCFAssumptions.risk_free_rate` with a live
+10-Year Treasury yield (`get_risk_free_rate`, ^TNX) before running the
+DCF, rather than using `dcf.py`'s static default. This feeds directly
+into `calculate_wacc`'s existing CAPM cost-of-equity leg
+(`risk_free_rate + beta * market_risk_premium`) — WACC itself is
+unchanged in shape, just fed a live rate instead of a fixed 4% assumption.
+`calculate_wacc` also clamps the final WACC to [MIN_DISCOUNT_RATE,
+MAX_DISCOUNT_RATE] (5%–20%) so a degenerate beta/rate combination can't
+produce an economically nonsensical discount rate.
+
 Known limitations (please read before trusting results)
 ---------------------------------------------------------
 yfinance is not a true point-in-time data provider — it mirrors what
@@ -59,7 +71,7 @@ import logging
 import math
 import statistics
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -105,6 +117,10 @@ DEFAULT_SP500_TOP_100_TICKERS = [
 
 DEFAULT_BENCHMARK_TICKER = "SPY"
 DEFAULT_TOP_N = 10
+
+# Conservative fallback used only when a live risk-free rate (^TNX) can't
+# be fetched.
+DEFAULT_RISK_FREE_RATE_FALLBACK = 0.042
 
 
 # --------------------------------------------------------------------------
@@ -473,6 +489,39 @@ def calculate_roic(
 # Pass 1: per-ticker valuation
 # --------------------------------------------------------------------------
 
+def get_risk_free_rate() -> float:
+    """
+    Fetch the current risk-free rate as the latest 10-Year Treasury Note
+    yield (^TNX), for use as CAPM's risk-free rate input to WACC.
+
+    ^TNX is quoted in yield points (e.g. 4.2 for 4.2%), so the latest
+    close is divided by 100 to get a decimal rate.
+
+    Returns:
+        The latest ^TNX close as a decimal (e.g. 0.042), or
+        DEFAULT_RISK_FREE_RATE_FALLBACK if the fetch fails or returns no
+        usable data.
+    """
+    try:
+        history = get_ticker_object("^TNX").history(period="5d")
+    except Exception as exc:
+        logger.warning(
+            "Risk-free rate lookup (^TNX) failed: %s; falling back to %.1f%%.",
+            exc,
+            DEFAULT_RISK_FREE_RATE_FALLBACK * 100,
+        )
+        return DEFAULT_RISK_FREE_RATE_FALLBACK
+
+    valid_history = history.dropna(subset=["Close"]) if history is not None else None
+    if valid_history is None or valid_history.empty:
+        logger.warning(
+            "No valid ^TNX close found; falling back to %.1f%%.", DEFAULT_RISK_FREE_RATE_FALLBACK * 100
+        )
+        return DEFAULT_RISK_FREE_RATE_FALLBACK
+
+    return float(valid_history["Close"].iloc[-1]) / 100.0
+
+
 def compute_valuation(ticker: str, as_of_date: str, assumptions: DCFAssumptions) -> ValuationResult:
     """
     Pass 1: reconstruct point-in-time financials for a ticker, run the
@@ -541,6 +590,11 @@ def compute_valuation(ticker: str, as_of_date: str, assumptions: DCFAssumptions)
         "shares_outstanding": historical_shares,
         "beta": beta,
     }
+
+    # Use a live CAPM risk-free rate (10Y Treasury yield) for WACC's cost-of-
+    # equity leg instead of DCFAssumptions' static default, without forking
+    # calculate_wacc()'s existing (already CAPM-based) logic.
+    assumptions = replace(assumptions, risk_free_rate=get_risk_free_rate())
 
     try:
         dcf_result = run_dcf_valuation(financial_data, assumptions)
