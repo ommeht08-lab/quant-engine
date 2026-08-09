@@ -144,6 +144,7 @@ class ValuationResult:
     price_to_intrinsic: Optional[float] = None
     wacc: Optional[float] = None
     beta: Optional[float] = None
+    altman_z_score: Optional[float] = None
     income_stmt: Optional[pd.DataFrame] = field(default=None, repr=False)
     balance_sheet: Optional[pd.DataFrame] = field(default=None, repr=False)
     cash_flow: Optional[pd.DataFrame] = field(default=None, repr=False)
@@ -171,6 +172,7 @@ class TickerAnalysis:
     sector_median_price_to_intrinsic: Optional[float] = None
     wacc: Optional[float] = None
     beta: Optional[float] = None
+    altman_z_score: Optional[float] = None
     fcf_growth_rate: Optional[float] = None
     roic: Optional[float] = None
     conviction_score: Optional[float] = None
@@ -737,6 +739,7 @@ def score_ticker(
         sector_median_price_to_intrinsic=sector_median,
         wacc=valuation.wacc,
         beta=valuation.beta,
+        altman_z_score=valuation.altman_z_score,
         fcf_growth_rate=fcf_growth_rate,
         roic=roic,
         conviction_score=conviction_score,

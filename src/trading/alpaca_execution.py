@@ -78,7 +78,7 @@ import datetime
 import logging
 import os
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -234,9 +234,12 @@ def run_todays_scan(
 
         try:
             valuation = compute_valuation(ticker, today, assumptions)
+            valuation = replace(valuation, altman_z_score=z_score)
         except Exception as exc:  # noqa: BLE001 - never let one bad ticker kill the run
             logger.warning("Unexpected failure valuing %s: %s", ticker, exc)
-            valuation = ValuationResult(ticker=ticker, as_of_date=today, skip_reason=f"Unexpected error: {exc}")
+            valuation = ValuationResult(
+                ticker=ticker, as_of_date=today, altman_z_score=z_score, skip_reason=f"Unexpected error: {exc}"
+            )
         valuations.append(valuation)
 
     sector_medians = calculate_sector_median_price_to_intrinsic(valuations)
@@ -292,6 +295,7 @@ def _safe_log_trade(
     wacc: Optional[float],
     beta: Optional[float],
     conviction_score: Optional[float],
+    altman_z_score: Optional[float],
 ) -> None:
     """
     Call `log_trade`, but never let a telemetry failure (e.g. Postgres
@@ -307,6 +311,7 @@ def _safe_log_trade(
             wacc=wacc,
             beta=beta,
             conviction_score=conviction_score,
+            altman_z_score=altman_z_score,
         )
     except Exception as exc:  # noqa: BLE001 - telemetry must never block execution
         logger.warning("Trade telemetry logging failed for %s %s: %s", action, ticker, exc)
@@ -371,6 +376,7 @@ def liquidate_non_target_positions(
                 wacc=analysis.wacc if analysis else None,
                 beta=analysis.beta if analysis else None,
                 conviction_score=analysis.conviction_score if analysis else None,
+                altman_z_score=analysis.altman_z_score if analysis else None,
             )
         except APIError as exc:
             logger.warning("Failed to liquidate %s: %s", symbol, exc)
@@ -472,6 +478,7 @@ def rebalance_target_positions(
                 wacc=pick.wacc,
                 beta=pick.beta,
                 conviction_score=pick.conviction_score,
+                altman_z_score=pick.altman_z_score,
             )
         except APIError as exc:
             logger.warning("Failed to submit buy order for %s: %s", symbol, exc)

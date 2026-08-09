@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 interface Position {
   symbol: string;
@@ -115,7 +116,12 @@ export default function PortfolioAllocation() {
           {rows.map((row) => (
             <div key={row.symbol}>
               <div className="mb-1.5 flex items-baseline justify-between text-sm">
-                <span className="font-mono font-semibold text-neutral-50">{row.symbol}</span>
+                <Link
+                  href={`/ticker/${row.symbol}`}
+                  className="font-mono font-semibold text-neutral-50 transition-colors hover:text-emerald-400"
+                >
+                  {row.symbol}
+                </Link>
                 <span className="font-mono text-neutral-300">
                   {row.percentage.toFixed(2)}% · {formatCurrency(row.marketValue)}
                 </span>

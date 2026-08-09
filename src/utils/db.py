@@ -31,13 +31,21 @@ CREATE TABLE IF NOT EXISTS trade_logs (
     execution_price DOUBLE PRECISION NOT NULL,
     wacc DOUBLE PRECISION,
     beta DOUBLE PRECISION,
-    conviction_score DOUBLE PRECISION
+    conviction_score DOUBLE PRECISION,
+    altman_z_score DOUBLE PRECISION
 );
 """
 
+# Safe to run against a database that already has `trade_logs` from before
+# `altman_z_score` existed — `ADD COLUMN IF NOT EXISTS` is a no-op (not an
+# error) once the column is already there, and never touches existing rows.
+ALTER_TABLE_ADD_ALTMAN_Z_SQL = """
+ALTER TABLE trade_logs ADD COLUMN IF NOT EXISTS altman_z_score FLOAT;
+"""
+
 INSERT_SQL = """
-INSERT INTO trade_logs (ticker, action, quantity, execution_price, wacc, beta, conviction_score)
-VALUES (%s, %s, %s, %s, %s, %s, %s);
+INSERT INTO trade_logs (ticker, action, quantity, execution_price, wacc, beta, conviction_score, altman_z_score)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
 """
 
 CREATE_BACKTEST_CURVE_TABLE_SQL = """
@@ -65,14 +73,18 @@ def log_trade(
     wacc: Optional[float],
     beta: Optional[float],
     conviction_score: Optional[float],
+    altman_z_score: Optional[float],
 ) -> None:
     """
     Record one executed trade to the `trade_logs` Postgres table.
 
     Connects using the `DATABASE_URL` environment variable, ensures the
-    table exists (`CREATE TABLE IF NOT EXISTS`), and inserts a single
-    row. `id` and `timestamp` are populated by the database (auto-
-    increment primary key and `NOW()` respectively) — not passed in.
+    table exists (`CREATE TABLE IF NOT EXISTS`), migrates it forward if
+    it already existed from before `altman_z_score` was added (`ALTER
+    TABLE ... ADD COLUMN IF NOT EXISTS`, a no-op if already present and
+    never destructive to existing rows), and inserts a single row. `id`
+    and `timestamp` are populated by the database (auto-increment primary
+    key and `NOW()` respectively) — not passed in.
 
     Args:
         ticker: Stock ticker symbol, e.g. "AAPL".
@@ -82,6 +94,8 @@ def log_trade(
         wacc: The ticker's WACC at the time of the trade decision, if known.
         beta: The ticker's beta at the time of the trade decision, if known.
         conviction_score: The Conviction Score that drove this trade, if known.
+        altman_z_score: The ticker's Altman Z-Score credit health check at
+            the time of the trade decision, if known.
 
     Raises:
         RuntimeError: If `DATABASE_URL` is not set.
@@ -101,9 +115,19 @@ def log_trade(
         conn = psycopg2.connect(database_url)
         with conn.cursor() as cur:
             cur.execute(CREATE_TABLE_SQL)
+            cur.execute(ALTER_TABLE_ADD_ALTMAN_Z_SQL)
             cur.execute(
                 INSERT_SQL,
-                (ticker, action, quantity, execution_price, wacc, beta, conviction_score),
+                (
+                    ticker,
+                    action,
+                    quantity,
+                    execution_price,
+                    wacc,
+                    beta,
+                    conviction_score,
+                    altman_z_score,
+                ),
             )
         conn.commit()
         logger.info(
