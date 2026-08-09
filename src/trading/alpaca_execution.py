@@ -10,6 +10,16 @@ risk-adjusted target weight: liquidating anything held that fell out of
 the Top 10, then buying the remaining top picks up to their target
 weight.
 
+Altman Z-Score distress filter
+---------------------------------
+Before a ticker is even valued (and before WACC is computed for it), its
+Altman Z-Score (`src.valuation.altman_z.calculate_altman_z`) is checked
+against the standard Distress Zone threshold of 1.8. Any ticker whose
+Z-Score is unavailable or below that threshold is rejected outright —
+logged and excluded from Pass 1 valuation entirely, so it can never be
+scored, ranked, or bought. This is a credit-health gate, independent of
+(and applied before) the DCF valuation and Conviction Score pipeline.
+
 Position sizing: Inverse Volatility Weighting on beta
 -------------------------------------------------------
 Rather than an equal weight per Top-N ticker, each pick's target weight
@@ -93,12 +103,14 @@ from src.backtesting.historical_tester import (
 )
 from src.dcf_model.dcf import DEFAULT_BETA, DCFAssumptions
 from src.utils.db import log_trade
+from src.valuation.altman_z import calculate_altman_z
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 MIN_BETA_FLOOR = 0.5  # floor beta at this level to prevent overallocating to low-beta anomalies
 MIN_ORDER_NOTIONAL_USD = 1.00  # Alpaca's own minimum notional order size
+ALTMAN_Z_DISTRESS_THRESHOLD = 1.8  # below this, Altman classifies a company as in the "Distress Zone"
 
 
 @dataclass
@@ -200,6 +212,26 @@ def run_todays_scan(
     logger.info("Running Pass 1: valuing %d tickers as of %s...", len(tickers), today)
     valuations: List[ValuationResult] = []
     for ticker in tickers:
+        # Credit-health gate: reject distressed companies before WACC is
+        # even computed for them, let alone before they're ranked or sized.
+        z_score = calculate_altman_z(ticker)
+        if z_score is None or z_score < ALTMAN_Z_DISTRESS_THRESHOLD:
+            score_display = f"{z_score:.2f}" if z_score is not None else "unavailable"
+            logger.warning(
+                "REJECTED: %s failed Altman Z-Score check (score=%s, distress threshold=%.1f).",
+                ticker,
+                score_display,
+                ALTMAN_Z_DISTRESS_THRESHOLD,
+            )
+            valuations.append(
+                ValuationResult(
+                    ticker=ticker,
+                    as_of_date=today,
+                    skip_reason=f"Failed Altman Z-Score distress filter (score={score_display}).",
+                )
+            )
+            continue
+
         try:
             valuation = compute_valuation(ticker, today, assumptions)
         except Exception as exc:  # noqa: BLE001 - never let one bad ticker kill the run
