@@ -1,69 +1,85 @@
 import { NextResponse } from "next/server";
+import { Pool } from "pg";
 
-// TODO: replace this mock series with the real output of
-// `src.backtesting.historical_tester` (the point-in-time sector-relative
-// DCF backtester) once that's wired up to serve results over the API.
-const MONTHS = 12;
-const START_EQUITY = 100_000;
-const ALGO_TOTAL_RETURN = 0.15;
-const SPY_TOTAL_RETURN = 0.1;
+// A pg.Pool is stashed on `globalThis` (not a plain module-level variable)
+// so it survives Next.js dev-server HMR reloads instead of leaking a new
+// pool — and its connections — on every hot reload.
+declare global {
+  var _backtestPgPool: Pool | undefined;
+}
+
+function getPool(): Pool {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL is not set.");
+  }
+  if (!global._backtestPgPool) {
+    global._backtestPgPool = new Pool({ connectionString });
+  }
+  return global._backtestPgPool;
+}
+
+/** Postgres error code for "relation does not exist". */
+const UNDEFINED_TABLE = "42P01";
+
+function isUndefinedTableError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: string }).code === UNDEFINED_TABLE
+  );
+}
 
 export interface BacktestPoint {
   date: string;
-  algorithm: number;
-  spy: number;
-}
-
-/**
- * Deterministically builds a 0..MONTHS equity curve from `startEquity`
- * compounding to `startEquity * (1 + totalReturn)` at the final month,
- * with a small fixed sine wave layered on top so the line isn't a
- * perfectly straight compounding curve. Not random — the same inputs
- * always produce the same curve.
- */
-function buildEquityCurve(totalReturn: number): number[] {
-  const monthlyRate = Math.pow(1 + totalReturn, 1 / MONTHS) - 1;
-  const values: number[] = [START_EQUITY];
-
-  for (let month = 1; month <= MONTHS; month++) {
-    const compounded = START_EQUITY * Math.pow(1 + monthlyRate, month);
-    const wave = Math.sin((month / MONTHS) * Math.PI * 2.5) * START_EQUITY * 0.008;
-    values.push(compounded + wave);
-  }
-
-  // Force the final point to land on the exact target return.
-  values[MONTHS] = START_EQUITY * (1 + totalReturn);
-  return values;
-}
-
-function buildMonthLabels(): string[] {
-  const now = new Date();
-  const labels: string[] = [];
-  for (let i = MONTHS; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    labels.push(d.toLocaleString("en-US", { month: "short", year: "2-digit" }));
-  }
-  return labels;
+  strategy: number;
+  benchmark: number;
 }
 
 /**
  * GET /api/backtest
  *
- * Returns a 13-point (month 0..12) mock equity curve comparing the
- * strategy's simulated performance against a SPY baseline, both starting
- * at $100,000. Placeholder data for the frontend visualizer while the
- * real Python backtester isn't yet exposed over the API.
+ * Returns the strategy-vs-SPY equity curve written by the Python
+ * backtester's `src.utils.db.log_backtest_curve` (called at the end of
+ * `run_backtest` in `src.backtesting.historical_tester`).
+ *
+ * If `backtest_curve` doesn't exist yet (no backtest has ever been run
+ * against a configured database), this returns an empty array rather
+ * than an error — that's a normal empty state, not a failure.
  */
 export async function GET() {
-  const labels = buildMonthLabels();
-  const algoCurve = buildEquityCurve(ALGO_TOTAL_RETURN);
-  const spyCurve = buildEquityCurve(SPY_TOTAL_RETURN);
+  let pool: Pool;
+  try {
+    pool = getPool();
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json(
+      { error: "DATABASE_URL is not configured for this deployment." },
+      { status: 500 }
+    );
+  }
 
-  const data: BacktestPoint[] = labels.map((date, index) => ({
-    date,
-    algorithm: Math.round(algoCurve[index] * 100) / 100,
-    spy: Math.round(spyCurve[index] * 100) / 100,
-  }));
+  try {
+    const { rows } = await pool.query(
+      "SELECT date, strategy_value AS strategy, spy_value AS benchmark FROM backtest_curve ORDER BY date ASC"
+    );
 
-  return NextResponse.json(data);
+    const data: BacktestPoint[] = rows.map((row) => ({
+      date: row.date instanceof Date ? row.date.toISOString().slice(0, 10) : String(row.date),
+      strategy: Number(row.strategy),
+      benchmark: Number(row.benchmark),
+    }));
+
+    return NextResponse.json(data);
+  } catch (error) {
+    if (isUndefinedTableError(error)) {
+      return NextResponse.json([]);
+    }
+    console.error("Failed to fetch backtest curve:", error);
+    return NextResponse.json(
+      { error: "Failed to fetch backtest curve." },
+      { status: 500 }
+    );
+  }
 }

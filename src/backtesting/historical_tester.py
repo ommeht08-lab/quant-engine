@@ -96,6 +96,7 @@ from src.dcf_model.dcf import (
     extract_valuation_inputs,
     run_dcf_valuation,
 )
+from src.utils.db import log_backtest_curve
 from src.utils.macro import get_risk_free_rate
 
 logger = logging.getLogger(__name__)
@@ -797,6 +798,100 @@ def get_forward_performance(ticker: str, as_of_date: str) -> Optional[TickerPerf
     )
 
 
+def _monthly_close_series(ticker: str, as_of_ts: pd.Timestamp, today_ts: pd.Timestamp) -> Optional[pd.Series]:
+    """Monthly Close price series for `ticker` from `as_of_ts` to `today_ts`, or None if unavailable."""
+    try:
+        ticker_obj = get_ticker_object(ticker)
+        history = ticker_obj.history(
+            start=as_of_ts.strftime("%Y-%m-%d"),
+            end=(today_ts + pd.Timedelta(days=1)).strftime("%Y-%m-%d"),
+            interval="1mo",
+        )
+    except Exception as exc:  # noqa: BLE001 - one bad ticker shouldn't kill the whole curve
+        logger.warning("Equity curve price history failed for %s: %s", ticker, exc)
+        return None
+
+    if history is None or history.empty:
+        return None
+
+    closes = history["Close"].dropna()
+    if closes.empty:
+        return None
+
+    closes.index = [_to_naive(idx) for idx in closes.index]
+    return closes
+
+
+def build_equity_curve(
+    top_picks: List[TickerAnalysis],
+    as_of_date: str,
+    benchmark_ticker: str = DEFAULT_BENCHMARK_TICKER,
+    start_value: float = 100_000.0,
+) -> Tuple[List[str], List[float], List[float]]:
+    """
+    Build a monthly, equal-weighted equity curve for the Top-N portfolio
+    (buy-and-hold from `as_of_date`, no rebalancing) alongside a
+    same-starting-value `benchmark_ticker` curve, both normalized to
+    start at `start_value`.
+
+    Args:
+        top_picks: The backtest's Top-N TickerAnalysis picks.
+        as_of_date: The portfolio's entry date, e.g. "2024-08-01".
+        benchmark_ticker: Ticker to build the comparison curve from.
+        start_value: Starting notional value for both curves.
+
+    Returns:
+        (dates, strategy_values, spy_values) — three same-length lists,
+        one point per month common to every pick and the benchmark. All
+        three lists are empty if no common monthly date could be found
+        (e.g. every ticker's price history failed to load).
+    """
+    tickers = [pick.ticker for pick in top_picks]
+    if not tickers:
+        return [], [], []
+
+    as_of_ts = pd.Timestamp(as_of_date)
+    today_ts = pd.Timestamp.today().normalize()
+
+    per_ticker_series: Dict[str, pd.Series] = {}
+    for ticker in tickers:
+        series = _monthly_close_series(ticker, as_of_ts, today_ts)
+        if series is not None:
+            per_ticker_series[ticker] = series
+
+    benchmark_series = _monthly_close_series(benchmark_ticker, as_of_ts, today_ts)
+    if not per_ticker_series or benchmark_series is None:
+        return [], [], []
+
+    common_dates = sorted(
+        set.intersection(*(set(series.index) for series in per_ticker_series.values()))
+        & set(benchmark_series.index)
+    )
+    if not common_dates:
+        return [], [], []
+
+    per_ticker_weight = start_value / len(per_ticker_series)
+    # `.loc`/`.iloc` on a pandas Series yield numpy.float64, which psycopg2
+    # cannot adapt directly — cast to native Python floats for the DB layer.
+    strategy_values = [
+        float(
+            sum(
+                per_ticker_weight * (series.loc[date] / series.iloc[0])
+                for series in per_ticker_series.values()
+            )
+        )
+        for date in common_dates
+    ]
+
+    benchmark_entry = benchmark_series.iloc[0]
+    spy_values = [
+        float(start_value * (benchmark_series.loc[date] / benchmark_entry)) for date in common_dates
+    ]
+
+    dates = [str(date.date()) for date in common_dates]
+    return dates, strategy_values, spy_values
+
+
 # --------------------------------------------------------------------------
 # Orchestration
 # --------------------------------------------------------------------------
@@ -866,6 +961,13 @@ def run_backtest(
     portfolio_return = (
         sum(p.total_return for p in performance) / len(performance) if performance else None
     )
+
+    dates, strategy_values, spy_values = build_equity_curve(top_picks, as_of_date, benchmark_ticker)
+    if dates:
+        try:
+            log_backtest_curve(dates, strategy_values, spy_values)
+        except Exception as exc:  # noqa: BLE001 - telemetry must never block the backtest
+            logger.warning("Failed to log backtest equity curve to Postgres: %s", exc)
 
     benchmark_perf = get_forward_performance(benchmark_ticker, as_of_date)
     benchmark_return = benchmark_perf.total_return if benchmark_perf else None

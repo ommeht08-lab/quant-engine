@@ -14,8 +14,8 @@ import type { TooltipContentProps } from "recharts";
 
 interface BacktestPoint {
   date: string;
-  algorithm: number;
-  spy: number;
+  strategy: number;
+  benchmark: number;
 }
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
@@ -43,35 +43,35 @@ function returnSince(start: number, current: number): string {
 function CustomTooltip({ active, payload, label }: TooltipContentProps) {
   if (!active || !payload || payload.length === 0) return null;
 
-  const algorithmValue = payload.find((entry) => entry.dataKey === "algorithm")?.value;
-  const spyValue = payload.find((entry) => entry.dataKey === "spy")?.value;
-  const algorithm = typeof algorithmValue === "number" ? algorithmValue : undefined;
-  const spy = typeof spyValue === "number" ? spyValue : undefined;
+  const strategyValue = payload.find((entry) => entry.dataKey === "strategy")?.value;
+  const benchmarkValue = payload.find((entry) => entry.dataKey === "benchmark")?.value;
+  const strategy = typeof strategyValue === "number" ? strategyValue : undefined;
+  const benchmark = typeof benchmarkValue === "number" ? benchmarkValue : undefined;
 
   return (
     <div className="rounded-lg border border-white/10 bg-neutral-900 px-4 py-3 text-sm shadow-xl">
       <p className="mb-2 text-xs font-medium uppercase tracking-wider text-neutral-500">
         {label}
       </p>
-      {algorithm !== undefined && (
+      {strategy !== undefined && (
         <div className="flex items-center justify-between gap-6">
           <span className="flex items-center gap-1.5 text-neutral-300">
             <span className="h-2 w-2 rounded-full bg-emerald-500" />
             Strategy
           </span>
           <span className="font-mono font-semibold text-emerald-400">
-            {formatCurrency(algorithm)}
+            {formatCurrency(strategy)}
           </span>
         </div>
       )}
-      {spy !== undefined && (
+      {benchmark !== undefined && (
         <div className="mt-1 flex items-center justify-between gap-6">
           <span className="flex items-center gap-1.5 text-neutral-300">
             <span className="h-2 w-2 rounded-full bg-neutral-500" />
             SPY
           </span>
           <span className="font-mono font-semibold text-neutral-400">
-            {formatCurrency(spy)}
+            {formatCurrency(benchmark)}
           </span>
         </div>
       )}
@@ -127,11 +127,11 @@ export default function BacktestChart() {
           <div className="flex items-center gap-4 font-mono text-xs">
             <span className="flex items-center gap-1.5 text-emerald-400">
               <span className="h-2 w-2 rounded-full bg-emerald-500" />
-              Strategy {returnSince(first.algorithm, last.algorithm)}
+              Strategy {returnSince(first.strategy, last.strategy)}
             </span>
             <span className="flex items-center gap-1.5 text-neutral-400">
               <span className="h-2 w-2 rounded-full bg-neutral-500" />
-              SPY {returnSince(first.spy, last.spy)}
+              SPY {returnSince(first.benchmark, last.benchmark)}
             </span>
           </div>
         )}
@@ -145,6 +145,14 @@ export default function BacktestChart() {
         <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
           {error}
         </div>
+      )}
+
+      {!isLoading && !error && data && data.length === 0 && (
+        <p className="py-16 text-center text-sm text-neutral-500">
+          No backtest results yet. Run the Python backtester
+          (<code className="font-mono text-neutral-400">python -m src.backtesting.historical_tester</code>)
+          to populate this chart.
+        </p>
       )}
 
       {!isLoading && !error && data && data.length > 0 && (
@@ -174,7 +182,7 @@ export default function BacktestChart() {
               />
               <Line
                 type="monotone"
-                dataKey="spy"
+                dataKey="benchmark"
                 name="SPY"
                 stroke="#737373"
                 strokeWidth={2}
@@ -183,7 +191,7 @@ export default function BacktestChart() {
               />
               <Line
                 type="monotone"
-                dataKey="algorithm"
+                dataKey="strategy"
                 name="Strategy"
                 stroke="#10b981"
                 strokeWidth={2.5}
@@ -195,10 +203,13 @@ export default function BacktestChart() {
         </div>
       )}
 
-      <p className="mt-5 text-xs text-neutral-500">
-        Mock data — placeholder for the point-in-time sector-relative DCF backtester&rsquo;s
-        real historical output.
-      </p>
+      {!isLoading && !error && data && data.length > 0 && (
+        <p className="mt-5 text-xs text-neutral-500">
+          Equal-weighted, buy-and-hold equity curve for the backtest&rsquo;s Top-N Conviction
+          Score picks vs. an equal-notional SPY position, both from the backtest&rsquo;s entry
+          date.
+        </p>
+      )}
     </div>
   );
 }
