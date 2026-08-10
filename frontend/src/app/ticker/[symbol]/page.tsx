@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Pool } from "pg";
+import { getTickerSentimentAndMacro, type Headline, type TickerSentiment } from "@/lib/sentiment";
 
 // Always query live — a tear sheet is a point-in-time snapshot of the
 // latest trade telemetry, never a cacheable resource.
@@ -143,6 +144,71 @@ function MetricCard({
   );
 }
 
+function HeadlineList({ headlines }: { headlines: Headline[] }) {
+  if (headlines.length === 0) {
+    return <p className="text-sm text-neutral-500">No recent headlines found for this ticker.</p>;
+  }
+
+  return (
+    <ul className="space-y-3">
+      {headlines.map((headline, index) => (
+        <li
+          key={`${headline.link ?? headline.title}-${index}`}
+          className="border-b border-white/5 pb-3 last:border-0 last:pb-0"
+        >
+          {headline.link ? (
+            <a
+              href={headline.link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sm font-medium text-neutral-200 transition-colors hover:text-emerald-400"
+            >
+              {headline.title}
+            </a>
+          ) : (
+            <span className="text-sm font-medium text-neutral-200">{headline.title}</span>
+          )}
+          <div className="mt-1 flex items-center gap-2 text-xs text-neutral-500">
+            {headline.publisher && <span>{headline.publisher}</span>}
+            {headline.publisher && headline.publishedAt && <span>·</span>}
+            {headline.publishedAt && <span>{formatTimestamp(headline.publishedAt)}</span>}
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function MarketContextSection({ sentiment }: { sentiment: TickerSentiment }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-white/[.03] p-6 sm:p-8">
+      <h2 className="mb-5 text-sm font-semibold uppercase tracking-wider text-neutral-400">
+        Market Context &amp; Qualitative Drivers
+      </h2>
+
+      <div className="mb-6 grid grid-cols-2 gap-4 sm:max-w-xs">
+        <div className="rounded-xl border border-white/10 bg-white/[.02] p-4">
+          <p className="text-xs uppercase tracking-wider text-neutral-500">10-Yr Treasury Yield</p>
+          <p className="mt-1 font-mono text-lg text-neutral-50">
+            {formatPercent(sentiment.macro.treasury10y)}
+          </p>
+        </div>
+        <div className="rounded-xl border border-white/10 bg-white/[.02] p-4">
+          <p className="text-xs uppercase tracking-wider text-neutral-500">VIX</p>
+          <p className="mt-1 font-mono text-lg text-neutral-50">
+            {formatNumber(sentiment.macro.vix)}
+          </p>
+        </div>
+      </div>
+
+      <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-neutral-500">
+        Recent Headlines
+      </h3>
+      <HeadlineList headlines={sentiment.headlines} />
+    </div>
+  );
+}
+
 function ActionBadge({ action }: { action: string }) {
   const normalized = action.toUpperCase();
   const colorClasses =
@@ -168,7 +234,10 @@ export default async function TickerTearSheetPage({
 }) {
   const { symbol } = await params;
   const ticker = symbol.toUpperCase();
-  const trade = await getLatestTrade(ticker);
+  const [trade, sentiment] = await Promise.all([
+    getLatestTrade(ticker),
+    getTickerSentimentAndMacro(ticker),
+  ]);
   const zZone = trade ? altmanZoneLabel(trade.altman_z_score) : null;
 
   return (
@@ -208,6 +277,8 @@ export default async function TickerTearSheetPage({
                 sublabelClassName={zZone?.className}
               />
             </div>
+
+            <MarketContextSection sentiment={sentiment} />
 
             <div className="rounded-2xl border border-white/10 bg-white/[.03] p-6 sm:p-8">
               <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-neutral-400">
