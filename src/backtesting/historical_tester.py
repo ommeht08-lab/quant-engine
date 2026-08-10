@@ -96,8 +96,11 @@ from src.dcf_model.dcf import (
     extract_valuation_inputs,
     run_dcf_valuation,
 )
+from src.utils.cache import cached
 from src.utils.db import log_backtest_curve
 from src.utils.macro import get_risk_free_rate
+
+HISTORICAL_PRICE_CACHE_TTL_SECONDS = 86400  # 24 hours — a past close price never changes
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -256,6 +259,7 @@ def _columns_on_or_before(
     return statement[valid_columns]
 
 
+@cached(ttl_seconds=HISTORICAL_PRICE_CACHE_TTL_SECONDS, prefix="price_on_or_before")
 def _get_price_on_or_before(
     ticker_obj, as_of_ts: pd.Timestamp, lookback_days: int = 10
 ) -> Optional[Tuple[float, pd.Timestamp]]:
@@ -268,6 +272,15 @@ def _get_price_on_or_before(
     (e.g. an unsettled/incomplete session very close to "today"), so rows
     with a missing Close are dropped before taking the last one, rather
     than blindly trusting the final row.
+
+    Cached for 24h, keyed by (ticker, as_of_ts, lookback_days): for a
+    genuine past `as_of_ts` (backtesting) the close price never changes,
+    so this is a pure win. For `as_of_ts = today` (the live trading
+    engine reusing this same point-in-time machinery — see this module's
+    docstring), a same-day re-run within the TTL window will reuse that
+    day's first-fetched price rather than a fresher intraday one; this
+    is an accepted tradeoff since it's a soft valuation reference, not
+    the authoritative trade execution price (Alpaca's own fill price is).
 
     Returns:
         (close_price, trading_date) tuple, or None if unavailable.

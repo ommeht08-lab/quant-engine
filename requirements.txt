@@ -7,3 +7,4 @@ uvicorn[standard]
 python-dotenv
 alpaca-py
 psycopg2-binary
+upstash-redis

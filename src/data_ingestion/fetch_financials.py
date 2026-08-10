@@ -14,8 +14,12 @@ from typing import Optional
 import pandas as pd
 import yfinance as yf
 
+from src.utils.cache import cached
+
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+
+STATEMENT_CACHE_TTL_SECONDS = 86400  # 24 hours — annual financial statements change rarely
 
 
 def get_ticker_object(ticker: str) -> yf.Ticker:
@@ -36,6 +40,7 @@ def get_ticker_object(ticker: str) -> yf.Ticker:
     return yf.Ticker(ticker.strip().upper())
 
 
+@cached(ttl_seconds=STATEMENT_CACHE_TTL_SECONDS, prefix="income_stmt")
 def get_income_statement(ticker_obj: yf.Ticker) -> Optional[pd.DataFrame]:
     """
     Fetch the annual income statement for a company.
@@ -58,6 +63,7 @@ def get_income_statement(ticker_obj: yf.Ticker) -> Optional[pd.DataFrame]:
         return None
 
 
+@cached(ttl_seconds=STATEMENT_CACHE_TTL_SECONDS, prefix="balance_sheet")
 def get_balance_sheet(ticker_obj: yf.Ticker) -> Optional[pd.DataFrame]:
     """
     Fetch the annual balance sheet for a company.
@@ -80,6 +86,7 @@ def get_balance_sheet(ticker_obj: yf.Ticker) -> Optional[pd.DataFrame]:
         return None
 
 
+@cached(ttl_seconds=STATEMENT_CACHE_TTL_SECONDS, prefix="cash_flow")
 def get_cash_flow_statement(ticker_obj: yf.Ticker) -> Optional[pd.DataFrame]:
     """
     Fetch the annual cash flow statement for a company.

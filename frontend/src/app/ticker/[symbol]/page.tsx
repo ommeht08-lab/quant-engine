@@ -1,6 +1,12 @@
 import Link from "next/link";
 import { Pool } from "pg";
-import { getTickerSentimentAndMacro, type Headline, type TickerSentiment } from "@/lib/sentiment";
+import {
+  getTickerSentimentAndMacro,
+  SENTIMENT_CACHE_TTL_SECONDS,
+  type Headline,
+  type TickerSentiment,
+} from "@/lib/sentiment";
+import { cacheAside } from "@/lib/redis";
 
 // Always query live — a tear sheet is a point-in-time snapshot of the
 // latest trade telemetry, never a cacheable resource.
@@ -236,7 +242,9 @@ export default async function TickerTearSheetPage({
   const ticker = symbol.toUpperCase();
   const [trade, sentiment] = await Promise.all([
     getLatestTrade(ticker),
-    getTickerSentimentAndMacro(ticker),
+    cacheAside<TickerSentiment>(`sentiment:${ticker}`, SENTIMENT_CACHE_TTL_SECONDS, () =>
+      getTickerSentimentAndMacro(ticker)
+    ),
   ]);
   const zZone = trade ? altmanZoneLabel(trade.altman_z_score) : null;
 

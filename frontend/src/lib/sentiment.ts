@@ -22,6 +22,13 @@ const YAHOO_HEADERS = {
 
 const FETCH_TIMEOUT_MS = 8000;
 
+// 15 minutes: long enough to meaningfully cut down repeated calls to
+// Yahoo Finance's rate-limited endpoints, short enough that headlines
+// and macro indicators (10Y Treasury yield, VIX) stay reasonably fresh.
+// Shared by both the /api/sentiment/[symbol] route and the Tear Sheet
+// page, which both read/write the same "sentiment:<TICKER>" cache key.
+export const SENTIMENT_CACHE_TTL_SECONDS = 900;
+
 export interface MacroIndicators {
   treasury10y: number | null;
   vix: number | null;
