@@ -20,14 +20,58 @@ logged and excluded from Pass 1 valuation entirely, so it can never be
 scored, ranked, or bought. This is a credit-health gate, independent of
 (and applied before) the DCF valuation and Conviction Score pipeline.
 
-Position sizing: Inverse Volatility Weighting on beta
--------------------------------------------------------
-Rather than an equal weight per Top-N ticker, each pick's target weight
-is `(1 / max(beta, 0.5)) / sum(1 / max(beta, 0.5) for all picks)` — so
-lower-beta (less volatile) tickers receive proportionally more equity
-than higher-beta ones. Beta is floored at 0.5 before inverting so an
-artificially low-beta ticker can't dominate the allocation. See
-`rebalance_target_positions` / `_inverse_risk`.
+200-day SMA trend filter ("value trap protection")
+------------------------------------------------------
+Immediately alongside the Altman Z-Score gate, each ticker's current
+price is checked against its own 200-trading-day simple moving average
+(`check_trend_filter`): a stock trading meaningfully below its long-term
+trend is more likely to be a genuine value trap — a falling knife the
+DCF/Conviction Score pipeline would otherwise mistake for "cheap" — than
+an undervalued opportunity. A ticker passes only if its current price is
+at or above 98% of its 200-day SMA; missing/unusable price history fails
+safe (rejected), the same posture as the Altman Z-Score gate.
+
+Position sizing: Inverse Volatility Weighting on beta, with risk caps
+-------------------------------------------------------------------------
+Rather than an equal weight per Top-N ticker, each pick's raw target
+weight is `(1 / max(beta, 0.5)) / sum(1 / max(beta, 0.5) for all picks)`
+— so lower-beta (less volatile) tickers receive proportionally more
+equity than higher-beta ones. Beta is floored at 0.5 before inverting so
+an artificially low-beta ticker can't dominate the allocation.
+
+Two institutional risk caps are then applied on top of that raw weight
+(`calculate_inverse_beta_weights`):
+    - MAX_POSITION_WEIGHT (15%): no single position may exceed this
+      share of equity.
+    - MAX_SECTOR_WEIGHT (25%): no single GICS sector's combined weight
+      (summed across every Top-N pick in that sector) may exceed this.
+Both caps are enforced by proportionally redistributing the excess
+weight to positions/sectors still under their own cap, iterated until
+stable. If the candidate set can't absorb the excess (e.g. every pick is
+in the same, already-capped sector), the shortfall is simply left
+unallocated — i.e. that capital sits in cash — rather than breaching
+either cap.
+
+Rebalance drift threshold (churn control)
+----------------------------------------------
+`rebalance_target_positions` only submits an order for an already-held
+Top-N pick if its current weight (current position value / equity) has
+drifted from its freshly-calculated target weight by more than
+DRIFT_THRESHOLD (3 percentage points). This avoids generating a stream
+of tiny, cost-and-slippage-only rebalance trades every run for positions
+that are already close enough to target. Full liquidations (a ticker
+leaving the Top N, or profit-taking — see below) are never subject to
+this threshold; they always execute.
+
+Profit-taking exits
+-----------------------
+Independent of whether a ticker is still a Top-N pick this run, any
+currently held position whose market price has risen to or above its
+own DCF intrinsic value is liquidated (`liquidate_non_target_positions`)
+— once the market price catches up to fair value, it's no longer a
+margin-of-safety opportunity, regardless of how it still ranks by
+Conviction Score. A ticker exited this way is excluded from this run's
+buy/rebalance pass so it isn't immediately bought back.
 
 Reusing today's date through the point-in-time machinery
 -----------------------------------------------------------
@@ -101,6 +145,7 @@ from src.backtesting.historical_tester import (
     compute_valuation,
     score_ticker,
 )
+from src.data_ingestion.fetch_financials import get_ticker_object
 from src.dcf_model.dcf import DEFAULT_BETA, DCFAssumptions
 from src.utils.db import log_trade
 from src.valuation.altman_z import calculate_altman_z
@@ -111,6 +156,15 @@ logging.basicConfig(level=logging.INFO, format="%(message)s")
 MIN_BETA_FLOOR = 0.5  # floor beta at this level to prevent overallocating to low-beta anomalies
 MIN_ORDER_NOTIONAL_USD = 1.00  # Alpaca's own minimum notional order size
 ALTMAN_Z_DISTRESS_THRESHOLD = 1.8  # below this, Altman classifies a company as in the "Distress Zone"
+TREND_SMA_WINDOW_DAYS = 200  # trading days
+TREND_SMA_TOLERANCE = 0.98  # current price must be >= 98% of the 200-day SMA to pass
+
+MAX_POSITION_WEIGHT = 0.15  # no single position may exceed 15% of equity
+MAX_SECTOR_WEIGHT = 0.25  # no single GICS sector may exceed 25% of equity, combined
+_CAP_ITERATION_LIMIT = 20  # water-filling redistribution rounds before giving up
+_CAP_EPSILON = 1e-9  # floating-point tolerance so redistribution converges cleanly
+
+DRIFT_THRESHOLD = 0.03  # only rebalance an already-held pick if weight drifts > 3 points
 
 
 @dataclass
@@ -184,6 +238,51 @@ def build_trading_client(config: AlpacaConfig) -> TradingClient:
     )
 
 
+def check_trend_filter(ticker_symbol: str) -> bool:
+    """
+    200-day SMA trend filter ("value trap protection").
+
+    A stock trading meaningfully below its own 200-trading-day simple
+    moving average is more likely to be a genuine value trap than an
+    undervalued opportunity, even if it screens cheap on P/IV.
+
+    Args:
+        ticker_symbol: Stock ticker symbol, e.g. "AAPL".
+
+    Returns:
+        True if the current price is at or above TREND_SMA_TOLERANCE
+        (98%) of the 200-day SMA. False if it's measurably below that
+        trend, or if the price history needed to compute either figure
+        is unavailable — missing trend data fails safe, the same
+        posture as the Altman Z-Score distress gate.
+    """
+    try:
+        ticker_obj = get_ticker_object(ticker_symbol)
+        # Fetch a full year of calendar days to reliably cover
+        # TREND_SMA_WINDOW_DAYS (200) *trading* days after weekends/holidays,
+        # then take exactly the most recent 200 trading days.
+        history = ticker_obj.history(period="1y")
+    except Exception as exc:  # noqa: BLE001 - a missing trend signal must not crash the scan
+        logger.warning("Trend filter price history failed for %s: %s", ticker_symbol, exc)
+        return False
+
+    if history is None or history.empty:
+        logger.warning("No price history available for %s trend filter.", ticker_symbol)
+        return False
+
+    valid_history = history.dropna(subset=["Close"]).tail(TREND_SMA_WINDOW_DAYS)
+    if valid_history.empty:
+        logger.warning("No usable price history for %s trend filter.", ticker_symbol)
+        return False
+
+    current_price = float(valid_history["Close"].iloc[-1])
+    sma_200 = float(valid_history["Close"].mean())
+    if sma_200 <= 0:
+        return False
+
+    return current_price >= sma_200 * TREND_SMA_TOLERANCE
+
+
 # --------------------------------------------------------------------------
 # Today's two-pass sector-relative DCF scan
 # --------------------------------------------------------------------------
@@ -228,6 +327,20 @@ def run_todays_scan(
                     ticker=ticker,
                     as_of_date=today,
                     skip_reason=f"Failed Altman Z-Score distress filter (score={score_display}).",
+                )
+            )
+            continue
+
+        # Trend gate: reject value traps — stocks trading meaningfully
+        # below their own 200-day SMA — before they're valued at all.
+        if not check_trend_filter(ticker):
+            logger.warning("REJECTED: %s failed 200-SMA trend check (value trap protection).", ticker)
+            valuations.append(
+                ValuationResult(
+                    ticker=ticker,
+                    as_of_date=today,
+                    altman_z_score=z_score,
+                    skip_reason="Failed 200-SMA trend check (value trap protection).",
                 )
             )
             continue
@@ -317,6 +430,21 @@ def _safe_log_trade(
         logger.warning("Trade telemetry logging failed for %s %s: %s", action, ticker, exc)
 
 
+def _is_profit_take_candidate(position: object, analysis: Optional[TickerAnalysis]) -> bool:
+    """
+    Whether a held position's current market price has risen to or above
+    its own DCF intrinsic value — no longer a margin-of-safety
+    opportunity regardless of Conviction Score rank.
+    """
+    if analysis is None or analysis.historical_intrinsic_value is None:
+        return False
+    try:
+        current_price = float(position.current_price)
+    except (TypeError, ValueError):
+        return False
+    return current_price >= analysis.historical_intrinsic_value
+
+
 def liquidate_non_target_positions(
     trading_client: TradingClient,
     positions: Dict[str, object],
@@ -325,7 +453,15 @@ def liquidate_non_target_positions(
     dry_run: bool,
 ) -> List[dict]:
     """
-    Fully liquidate any held position not in `target_tickers`.
+    Liquidate a held position for either of two independent reasons:
+
+        1. The ticker fell out of the Top-N target portfolio entirely
+           (not in `target_tickers`).
+        2. Profit-taking: the ticker is still a target pick, but its
+           current market price has risen to or above its DCF intrinsic
+           value (`_is_profit_take_candidate`) — exited even though it
+           would otherwise be rebought, since it no longer represents a
+           margin-of-safety opportunity.
 
     Args:
         trading_client: An initialized alpaca-py TradingClient.
@@ -333,25 +469,36 @@ def liquidate_non_target_positions(
             `get_current_positions`).
         target_tickers: Symbols that should remain/be established.
         analyses_by_ticker: This run's full scan results, keyed by
-            ticker, used to attach WACC/beta/Conviction Score to the
-            trade log when a liquidated ticker happened to be scored
-            (even though it isn't in the Top N).
+            ticker, used both to attach WACC/beta/Conviction Score/
+            Altman Z-Score to the trade log and to evaluate the
+            profit-taking check.
         dry_run: If True, log what would be liquidated without submitting
             any order.
 
     Returns:
-        A list of {"symbol", "qty", "market_value", "status"} dicts, one
-        per position considered for liquidation.
+        A list of {"symbol", "qty", "market_value", "reason", "status"}
+        dicts, one per position actually liquidated (or that would be,
+        in a dry run). Callers should treat any symbol with status
+        "LIQUIDATED" or "DRY-RUN (would liquidate)" as no longer held,
+        so it isn't immediately rebought in the same run.
     """
     results = []
     for symbol, position in positions.items():
-        if symbol in target_tickers:
+        analysis = analyses_by_ticker.get(symbol)
+        is_profit_take = symbol in target_tickers and _is_profit_take_candidate(position, analysis)
+
+        if symbol not in target_tickers:
+            reason = "fell out of Top N"
+        elif is_profit_take:
+            reason = "profit-taking: price >= intrinsic value"
+        else:
             continue
 
         record = {
             "symbol": symbol,
             "qty": position.qty,
             "market_value": float(position.market_value),
+            "reason": reason,
         }
 
         if dry_run:
@@ -367,7 +514,6 @@ def liquidate_non_target_positions(
             filled_price = (
                 float(order.filled_avg_price) if order.filled_avg_price else float(position.current_price)
             )
-            analysis = analyses_by_ticker.get(symbol)
             _safe_log_trade(
                 ticker=symbol,
                 action="SELL",
@@ -394,6 +540,138 @@ def _inverse_risk(beta: Optional[float]) -> float:
     return 1.0 / max(beta if beta is not None else DEFAULT_BETA, MIN_BETA_FLOOR)
 
 
+def _distribute_capped(
+    weights: Dict[str, float], recipients: List[str], amount: float, cap: float
+) -> None:
+    """
+    Distribute `amount` pro-rata (by current weight) across `recipients`,
+    in place on `weights`, without letting any recipient's weight exceed
+    `cap`.
+
+    A single proportional pass can overshoot some recipients' remaining
+    headroom (e.g. a recipient already close to `cap`). This iterates:
+    give each recipient its pro-rata share, clipped to its own headroom;
+    whatever a recipient couldn't absorb is pooled and redistributed
+    pro-rata among the *remaining* recipients that still have headroom,
+    repeating until the full amount is placed or no recipient has any
+    headroom left — in which case the leftover is simply not allocated
+    (it sits in cash rather than breaching `cap`).
+    """
+    remaining_recipients = list(recipients)
+    remaining_amount = amount
+
+    while remaining_amount > _CAP_EPSILON and remaining_recipients:
+        pool_total = sum(weights[t] for t in remaining_recipients)
+        if pool_total > 0:
+            shares = {t: remaining_amount * (weights[t] / pool_total) for t in remaining_recipients}
+        else:
+            shares = {t: remaining_amount / len(remaining_recipients) for t in remaining_recipients}
+
+        newly_capped = []
+        leftover = 0.0
+        for ticker in remaining_recipients:
+            headroom = max(cap - weights[ticker], 0.0)
+            give = min(shares[ticker], headroom)
+            if give < shares[ticker] - _CAP_EPSILON:
+                leftover += shares[ticker] - give
+                newly_capped.append(ticker)
+            weights[ticker] += give
+
+        remaining_amount = leftover
+        remaining_recipients = [t for t in remaining_recipients if t not in newly_capped]
+        if not newly_capped:
+            break  # Fully absorbed this round (or no capacity left to iterate further).
+
+
+def calculate_inverse_beta_weights(picks: List[TickerAnalysis]) -> Dict[str, float]:
+    """
+    Compute each pick's target portfolio weight using Inverse Volatility
+    Weighting on beta, then apply two institutional risk caps:
+
+        1. MAX_POSITION_WEIGHT (15%): no single position may exceed this
+           share of equity. Excess is redistributed pro-rata across
+           positions still under their own cap.
+        2. MAX_SECTOR_WEIGHT (25%): no single sector's combined weight
+           (summed across every pick in that sector) may exceed this.
+           Excess is redistributed pro-rata to positions in sectors
+           still under their own cap.
+
+    Both caps are re-checked and re-applied together, iteratively, since
+    redistributing excess into a position/sector can itself push that
+    position/sector over its own cap. Critically, *every* redistribution
+    step — whether freed up by the position cap or the sector cap — is
+    itself bounded by MAX_POSITION_WEIGHT (`_distribute_capped`), so
+    money flowing in to satisfy the sector cap can never re-breach an
+    individual position's own cap; without that, the two caps can fight
+    each other indefinitely (redistribute into a position -> breaches
+    position cap -> redistribute back out -> re-breaches sector cap ->
+    ...) instead of converging. If the candidate set can't absorb the
+    excess even respecting both caps (e.g. every remaining pick is in a
+    single sector already at MAX_SECTOR_WEIGHT), the shortfall is simply
+    left unallocated — weights are not guaranteed to sum to 1.0; the
+    difference sits in cash rather than breaching either cap.
+
+    Args:
+        picks: This run's Top-N TickerAnalysis, ranked by Conviction Score.
+
+    Returns:
+        {ticker: weight} — weight as a decimal fraction of equity.
+    """
+    if not picks:
+        return {}
+
+    raw_weights = {pick.ticker: _inverse_risk(pick.beta) for pick in picks}
+    total_raw = sum(raw_weights.values())
+    weights = {ticker: raw / total_raw for ticker, raw in raw_weights.items()}
+
+    sector_by_ticker = {pick.ticker: (pick.sector or "Unknown") for pick in picks}
+
+    for _ in range(_CAP_ITERATION_LIMIT):
+        changed = False
+
+        # --- Position cap ---
+        over_position_cap = {t: w for t, w in weights.items() if w > MAX_POSITION_WEIGHT + _CAP_EPSILON}
+        if over_position_cap:
+            changed = True
+            excess = sum(w - MAX_POSITION_WEIGHT for w in over_position_cap.values())
+            for ticker in over_position_cap:
+                weights[ticker] = MAX_POSITION_WEIGHT
+
+            uncapped = [t for t in weights if t not in over_position_cap]
+            _distribute_capped(weights, uncapped, excess, MAX_POSITION_WEIGHT)
+
+        # --- Sector cap ---
+        sector_totals: Dict[str, float] = {}
+        for ticker, weight in weights.items():
+            sector = sector_by_ticker[ticker]
+            sector_totals[sector] = sector_totals.get(sector, 0.0) + weight
+
+        over_sector_cap = {s: w for s, w in sector_totals.items() if w > MAX_SECTOR_WEIGHT + _CAP_EPSILON}
+        if over_sector_cap:
+            changed = True
+            for sector, sector_total in over_sector_cap.items():
+                scale = MAX_SECTOR_WEIGHT / sector_total
+                sector_excess = sector_total - MAX_SECTOR_WEIGHT
+                sector_tickers = [t for t in weights if sector_by_ticker[t] == sector]
+                for ticker in sector_tickers:
+                    weights[ticker] *= scale
+
+                under_cap_tickers = [
+                    t
+                    for t in weights
+                    if sector_by_ticker[t] != sector
+                    and sector_totals.get(sector_by_ticker[t], 0.0) < MAX_SECTOR_WEIGHT - _CAP_EPSILON
+                ]
+                # Bounded by MAX_POSITION_WEIGHT too — a ticker whose sector
+                # has room can still be individually at/near its own cap.
+                _distribute_capped(weights, under_cap_tickers, sector_excess, MAX_POSITION_WEIGHT)
+
+        if not changed:
+            break
+
+    return weights
+
+
 def rebalance_target_positions(
     trading_client: TradingClient,
     positions: Dict[str, object],
@@ -403,13 +681,12 @@ def rebalance_target_positions(
 ) -> List[dict]:
     """
     Buy each Top-N ticker up to a dynamic, risk-adjusted target notional
-    value using Inverse Volatility Weighting on beta: total_equity is
-    allocated across the Top-N picks proportionally to each ticker's
-    inverse beta (1 / beta, floored at MIN_BETA_FLOOR), so lower-beta
-    (less volatile) tickers receive a larger weight than higher-beta ones.
-    Tickers already at or above target are skipped; tickers with an
-    existing position only get an order for the remaining delta, not the
-    full target amount again.
+    value using Inverse Volatility Weighting on beta with the
+    MAX_POSITION_WEIGHT / MAX_SECTOR_WEIGHT institutional caps applied
+    (`calculate_inverse_beta_weights`). An already-held pick is only
+    rebalanced if its current weight has drifted from target by more
+    than DRIFT_THRESHOLD (churn control) — otherwise it's left alone
+    even if not exactly on target.
 
     Args:
         trading_client: An initialized alpaca-py TradingClient.
@@ -424,16 +701,18 @@ def rebalance_target_positions(
         A list of {"symbol", "target_notional", "current_notional",
         "order_notional", "status"} dicts, one per Top-N ticker.
     """
-    total_inverse_risk = sum(_inverse_risk(pick.beta) for pick in top_picks)
+    target_weights = calculate_inverse_beta_weights(top_picks)
     results = []
 
     for pick in top_picks:
         symbol = pick.ticker
-        weight = _inverse_risk(pick.beta) / total_inverse_risk
+        weight = target_weights.get(symbol, 0.0)
         target_notional = equity * weight
 
         current_position = positions.get(symbol)
         current_notional = float(current_position.market_value) if current_position else 0.0
+        current_weight = (current_notional / equity) if equity else 0.0
+        drift = abs(current_weight - weight)
         order_notional = target_notional - current_notional
 
         record = {
@@ -442,6 +721,11 @@ def rebalance_target_positions(
             "current_notional": current_notional,
             "order_notional": max(order_notional, 0.0),
         }
+
+        if drift <= DRIFT_THRESHOLD:
+            record["status"] = f"SKIPPED (within {DRIFT_THRESHOLD:.0%} drift threshold)"
+            results.append(record)
+            continue
 
         if order_notional < MIN_ORDER_NOTIONAL_USD:
             record["status"] = "SKIPPED (already at/above target weight)"
@@ -526,17 +810,18 @@ def print_execution_report(
             f"{pick.price_to_intrinsic:>7.2f}x{pick.sector_median_price_to_intrinsic:>11.2f}x"
         )
 
-    print(f"\nLiquidations ({len(liquidations)} position(s) held but no longer in the Top {len(top_picks)}):")
+    print(f"\nLiquidations ({len(liquidations)} position(s) — fell out of the Top N, or profit-taking):")
     if liquidations:
         for record in liquidations:
             print(
                 f"  - {record['symbol']:<6} qty={record['qty']:>10}  "
-                f"market_value=${record['market_value']:>12,.2f}  [{record['status']}]"
+                f"market_value=${record['market_value']:>12,.2f}  "
+                f"reason={record.get('reason', 'n/a'):<40} [{record['status']}]"
             )
     else:
-        print("  (none — no held position fell out of the Top N)")
+        print("  (none)")
 
-    print("\nBuys / Rebalances (inverse-beta risk-adjusted target weight each):")
+    print("\nBuys / Rebalances (inverse-beta risk-adjusted target weight, position/sector-capped, drift-gated):")
     for record in buys:
         print(
             f"  - {record['symbol']:<6} target=${record['target_notional']:>10,.2f}  "
@@ -597,8 +882,18 @@ def main() -> None:
     liquidations = liquidate_non_target_positions(
         trading_client, positions, target_tickers, analyses_by_ticker, args.dry_run
     )
+
+    # A pick that just got liquidated this run (fell out of the Top N, or
+    # profit-taking) must not be immediately rebought below.
+    exited_symbols = {
+        record["symbol"]
+        for record in liquidations
+        if record["status"] in ("LIQUIDATED", "DRY-RUN (would liquidate)")
+    }
+    rebalance_picks = [pick for pick in top_picks if pick.ticker not in exited_symbols]
+
     buys = rebalance_target_positions(
-        trading_client, positions, top_picks, equity_before, args.dry_run
+        trading_client, positions, rebalance_picks, equity_before, args.dry_run
     )
 
     equity_after = None
