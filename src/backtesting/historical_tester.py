@@ -740,7 +740,10 @@ def score_ticker(
             skip_reason="Could not compute ROIC (missing EBIT or stockholders' equity).",
         )
 
-    conviction_score = (fcf_growth_rate * roic) / valuation.price_to_intrinsic
+    # float(): price_to_intrinsic (and/or fcf_growth_rate/roic) can carry a
+    # numpy.float64 through from pandas-derived arithmetic upstream, which
+    # psycopg2 can't adapt when this later reaches log_trade().
+    conviction_score = float((fcf_growth_rate * roic) / valuation.price_to_intrinsic)
 
     return TickerAnalysis(
         ticker=valuation.ticker,

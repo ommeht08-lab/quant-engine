@@ -21,6 +21,17 @@ from dotenv import load_dotenv
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
+
+def _to_native_float(value: Optional[float]) -> Optional[float]:
+    """
+    Coerce a numeric value to a native Python `float` (or None), guarding
+    against numpy scalar types (e.g. `numpy.float64`) that pandas-derived
+    calculations can silently leak — psycopg2 cannot adapt those and
+    fails the whole INSERT with a `schema "np" does not exist` error.
+    """
+    return None if value is None else float(value)
+
+
 CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS trade_logs (
     id SERIAL PRIMARY KEY,
@@ -121,12 +132,12 @@ def log_trade(
                 (
                     ticker,
                     action,
-                    quantity,
-                    execution_price,
-                    wacc,
-                    beta,
-                    conviction_score,
-                    altman_z_score,
+                    _to_native_float(quantity),
+                    _to_native_float(execution_price),
+                    _to_native_float(wacc),
+                    _to_native_float(beta),
+                    _to_native_float(conviction_score),
+                    _to_native_float(altman_z_score),
                 ),
             )
         conn.commit()
@@ -187,7 +198,10 @@ def log_backtest_curve(
             cur.execute(TRUNCATE_BACKTEST_CURVE_SQL)
             cur.executemany(
                 INSERT_BACKTEST_CURVE_SQL,
-                list(zip(dates, strategy_values, spy_values)),
+                [
+                    (date, _to_native_float(strategy_value), _to_native_float(spy_value))
+                    for date, strategy_value, spy_value in zip(dates, strategy_values, spy_values)
+                ],
             )
         conn.commit()
         logger.info("Logged %d backtest equity curve point(s).", len(dates))
