@@ -171,6 +171,7 @@ from src.backtesting.historical_tester import (
 )
 from src.data_ingestion.fetch_financials import get_ticker_object
 from src.dcf_model.dcf import DEFAULT_BETA, DCFAssumptions
+from src.risk.monte_carlo import calculate_portfolio_var
 from src.utils.db import log_trade
 from src.valuation.altman_z import calculate_altman_z
 from src.valuation.piotroski import calculate_f_score
@@ -1015,6 +1016,27 @@ def main() -> None:
     print_execution_report(
         analyses, sector_medians, top_picks, liquidations, buys, equity_before, equity_after, args.dry_run
     )
+
+    # Portfolio risk telemetry: Monte Carlo VaR/CVaR on the resulting
+    # holdings. Uses a fresh position snapshot if live orders were
+    # submitted; the pre-trade snapshot is already current in a dry run,
+    # since nothing was actually submitted.
+    final_positions = positions if args.dry_run else get_current_positions(trading_client)
+    reference_equity = equity_after if equity_after is not None else equity_before
+    holdings = {
+        symbol: float(position.market_value) / reference_equity
+        for symbol, position in final_positions.items()
+        if reference_equity
+    }
+
+    risk_metrics = calculate_portfolio_var(holdings, cache_client=None)
+    logger.info("*" * 88)
+    logger.info(
+        "RISK METRICS: 1-Month 95%% VaR: %.2f%% | Expected Shortfall (CVaR): %.2f%%",
+        risk_metrics["var_95"] * 100,
+        risk_metrics["cvar_95"] * 100,
+    )
+    logger.info("*" * 88)
 
 
 if __name__ == "__main__":
