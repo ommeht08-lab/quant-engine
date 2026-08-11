@@ -156,8 +156,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from alpaca.common.exceptions import APIError
 from alpaca.trading.client import TradingClient
-from alpaca.trading.enums import OrderSide, TimeInForce
-from alpaca.trading.requests import MarketOrderRequest
+from alpaca.trading.enums import AssetStatus, ContractType, OrderSide, TimeInForce
+from alpaca.trading.requests import GetOptionContractsRequest, MarketOrderRequest
 
 from src.api.sector_medians import save_sector_medians
 from src.backtesting.historical_tester import (
@@ -169,8 +169,9 @@ from src.backtesting.historical_tester import (
     compute_valuation,
     score_ticker,
 )
-from src.data_ingestion.fetch_financials import get_ticker_object
+from src.data_ingestion.fetch_financials import get_current_price, get_ticker_object
 from src.dcf_model.dcf import DEFAULT_BETA, DCFAssumptions
+from src.risk.hedging import calculate_spy_hedge
 from src.risk.monte_carlo import calculate_portfolio_var
 from src.utils.db import log_trade
 from src.valuation.altman_z import calculate_altman_z
@@ -200,6 +201,11 @@ _CAP_ITERATION_LIMIT = 20  # water-filling redistribution rounds before giving u
 _CAP_EPSILON = 1e-9  # floating-point tolerance so redistribution converges cleanly
 
 DRIFT_THRESHOLD = 0.03  # only rebalance an already-held pick if weight drifts > 3 points
+
+HEDGE_UNDERLYING_SYMBOL = "SPY"
+HEDGE_DAYS_TO_EXPIRY = 30  # target expiry for the VaR-offsetting put, in calendar days
+HEDGE_EXPIRY_SEARCH_WINDOW_DAYS = 10  # +/- window around the target expiry to search Alpaca's listed chain
+HEDGE_STRIKE_SEARCH_BAND = 0.10  # search strikes within +/-10% of the current SPY price for the ATM contract
 
 
 @dataclass
@@ -960,6 +966,128 @@ def print_execution_report(
 
 
 # --------------------------------------------------------------------------
+# VaR-based SPY put hedge
+# --------------------------------------------------------------------------
+
+def _select_atm_put_contract(trading_client: TradingClient, spy_price: float, days_to_expiry: int):
+    """
+    Query Alpaca's listed SPY put chain for the tradable contract closest
+    to at-the-money, among expirations closest to `days_to_expiry`
+    calendar days out.
+
+    Returns:
+        The closest-matching `OptionContract`, or None if the lookup
+        fails or no tradable contract is found within the search window
+        — a missing contract skips the hedge rather than crashing the run.
+    """
+    target_expiry = datetime.date.today() + datetime.timedelta(days=days_to_expiry)
+    window = datetime.timedelta(days=HEDGE_EXPIRY_SEARCH_WINDOW_DAYS)
+
+    try:
+        response = trading_client.get_option_contracts(
+            GetOptionContractsRequest(
+                underlying_symbols=[HEDGE_UNDERLYING_SYMBOL],
+                type=ContractType.PUT,
+                status=AssetStatus.ACTIVE,
+                expiration_date_gte=(target_expiry - window).isoformat(),
+                expiration_date_lte=(target_expiry + window).isoformat(),
+                strike_price_gte=str(round(spy_price * (1 - HEDGE_STRIKE_SEARCH_BAND), 2)),
+                strike_price_lte=str(round(spy_price * (1 + HEDGE_STRIKE_SEARCH_BAND), 2)),
+                limit=200,
+            )
+        )
+    except APIError as exc:
+        logger.warning("Failed to fetch %s option chain for VaR hedge: %s", HEDGE_UNDERLYING_SYMBOL, exc)
+        return None
+
+    tradable = [c for c in response.option_contracts if c.tradable]
+    if not tradable:
+        return None
+
+    def _distance(contract) -> tuple:
+        expiry = datetime.date.fromisoformat(str(contract.expiration_date))
+        return (abs((expiry - target_expiry).days), abs(float(contract.strike_price) - spy_price))
+
+    return min(tradable, key=_distance)
+
+
+def execute_spy_var_hedge(
+    trading_client: TradingClient, portfolio_var_dollars: float, dry_run: bool
+) -> None:
+    """
+    Size (via BSM Delta, `calculate_spy_hedge`) and — unless `dry_run` —
+    submit a paper-trade market order buying at-the-money SPY put
+    contracts intended to offset `portfolio_var_dollars` of Monte Carlo
+    portfolio VaR.
+
+    Never raises: an unavailable SPY price, no listed contract within the
+    search window, or the order itself being rejected (e.g. the paper
+    account isn't approved for options trading) are each caught and
+    logged as a warning, so a hedge that can't be sized or placed never
+    takes down the day's already-completed equity rebalance.
+    """
+    try:
+        spy_price = get_current_price(get_ticker_object(HEDGE_UNDERLYING_SYMBOL))
+    except ValueError as exc:
+        logger.warning("Could not fetch %s price for VaR hedge: %s", HEDGE_UNDERLYING_SYMBOL, exc)
+        return
+
+    if spy_price is None:
+        logger.warning("%s price unavailable; skipping VaR hedge.", HEDGE_UNDERLYING_SYMBOL)
+        return
+
+    contracts = calculate_spy_hedge(
+        portfolio_var_dollars=portfolio_var_dollars,
+        spy_price=spy_price,
+        strike_price=spy_price,  # at-the-money (ATM)
+        days_to_expiry=HEDGE_DAYS_TO_EXPIRY,
+    )
+
+    if contracts <= 0:
+        logger.info(
+            "No SPY VaR hedge needed: $%.2f VaR is too small to justify a single ATM put contract.",
+            portfolio_var_dollars,
+        )
+        return
+
+    contract = _select_atm_put_contract(trading_client, spy_price, HEDGE_DAYS_TO_EXPIRY)
+    if contract is None:
+        logger.warning(
+            "Sized a %d-contract SPY VaR hedge but no tradable ATM put contract was found; skipping.",
+            contracts,
+        )
+        return
+
+    if dry_run:
+        logger.info(
+            "HEDGE (DRY-RUN): would buy %d SPY Put Contracts (%s) to offset $%.2f VaR exposure.",
+            contracts,
+            contract.symbol,
+            portfolio_var_dollars,
+        )
+        return
+
+    try:
+        trading_client.submit_order(
+            order_data=MarketOrderRequest(
+                symbol=contract.symbol,
+                qty=contracts,
+                side=OrderSide.BUY,
+                time_in_force=TimeInForce.DAY,
+            )
+        )
+    except APIError as exc:
+        logger.warning("Failed to submit SPY VaR hedge order (%s): %s", contract.symbol, exc)
+        return
+
+    logger.info(
+        "HEDGE EXECUTED: Bought %d SPY Put Contracts to offset $%.2f VaR exposure.",
+        contracts,
+        portfolio_var_dollars,
+    )
+
+
+# --------------------------------------------------------------------------
 # Orchestration
 # --------------------------------------------------------------------------
 
@@ -1038,6 +1166,9 @@ def main() -> None:
     }
 
     risk_metrics = calculate_portfolio_var(holdings, cache_client=None)
+    total_equity = reference_equity
+    portfolio_var_dollars = abs(total_equity * risk_metrics["var_95"]) if total_equity else 0.0
+
     logger.info("*" * 88)
     logger.info(
         "RISK METRICS: 1-Month 95%% VaR: %.2f%% | Expected Shortfall (CVaR): %.2f%%",
@@ -1045,6 +1176,8 @@ def main() -> None:
         risk_metrics["cvar_95"] * 100,
     )
     logger.info("*" * 88)
+
+    execute_spy_var_hedge(trading_client, portfolio_var_dollars, args.dry_run)
 
     # Final database logging call of the run: a synthetic portfolio-level
     # "RISK_SNAPSHOT" row (ticker/action are placeholders — this row
