@@ -1,0 +1,32 @@
+name: Daily Portfolio Rebalance
+
+"on":
+  schedule:
+    # 45 19 * * 1-5 = 19:45 UTC, Monday-Friday (3:45 PM EDT / 2:45 PM EST).
+    - cron: '45 19 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  execute_trades:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run live trading execution
+        env:
+          APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
+          APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
+          APCA_API_BASE_URL: ${{ secrets.APCA_API_BASE_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+        run: python -m src.trading.alpaca_execution
