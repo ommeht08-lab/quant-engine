@@ -31,6 +31,30 @@ an undervalued opportunity. A ticker passes only if its current price is
 at or above 98% of its 200-day SMA; missing/unusable price history fails
 safe (rejected), the same posture as the Altman Z-Score gate.
 
+Piotroski F-Score & RSI micro-dip gates
+------------------------------------------
+Immediately after the Altman Z-Score and 200-day SMA gates, and still
+before a ticker is valued via the (comparatively expensive) DCF pipeline,
+two more cheap pre-trade screens run:
+    - Piotroski F-Score (`src.valuation.piotroski.calculate_f_score`):
+      rejects any ticker scoring below PIOTROSKI_MIN_F_SCORE (5/9) —
+      a fundamental quality/financial-health check independent of price.
+    - 14-day RSI, Wilder's Smoothing (`src.valuation.technical.calculate_rsi`):
+      rejects any ticker whose RSI is unavailable or >= RSI_MAX_ENTRY_THRESHOLD
+      (45) — only enters on a technical micro-dip, not a name that's
+      already run hot.
+Both fail safe (reject) on missing/unusable data, the same posture as the
+Altman Z-Score and trend gates.
+
+FCF Yield-blended Conviction Score
+---------------------------------------
+For tickers that pass every gate, the DCF-derived Conviction Score is
+blended with a normalized FCF Yield ((OCF - CapEx) / Enterprise Value,
+`src.dcf_model.dcf.calculate_fcf_yield`) — 60% original Conviction Score,
+40% normalized FCF Yield (a 10% yield maps to a 1.0 multiplier, capped at
+2.0) — via `_blend_conviction_with_fcf_yield`. This only affects live/
+paper trading ranking and sizing; the backtester keeps the unblended score.
+
 Position sizing: Inverse Volatility Weighting on beta, with risk caps
 -------------------------------------------------------------------------
 Rather than an equal weight per Top-N ticker, each pick's raw target
@@ -149,6 +173,8 @@ from src.data_ingestion.fetch_financials import get_ticker_object
 from src.dcf_model.dcf import DEFAULT_BETA, DCFAssumptions
 from src.utils.db import log_trade
 from src.valuation.altman_z import calculate_altman_z
+from src.valuation.piotroski import calculate_f_score
+from src.valuation.technical import calculate_rsi
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -158,6 +184,14 @@ MIN_ORDER_NOTIONAL_USD = 1.00  # Alpaca's own minimum notional order size
 ALTMAN_Z_DISTRESS_THRESHOLD = 1.8  # below this, Altman classifies a company as in the "Distress Zone"
 TREND_SMA_WINDOW_DAYS = 200  # trading days
 TREND_SMA_TOLERANCE = 0.98  # current price must be >= 98% of the 200-day SMA to pass
+
+PIOTROSKI_MIN_F_SCORE = 5  # below this, fundamental quality is considered too weak to value
+RSI_MAX_ENTRY_THRESHOLD = 45  # only enter while technically cooling off / oversold, not while hot
+
+FCF_YIELD_NORMALIZATION_FACTOR = 10  # a 10% FCF yield maps to a normalized multiplier of 1.0
+FCF_YIELD_NORMALIZED_CAP = 2.0  # ceiling on the normalized FCF yield multiplier
+DCF_CONVICTION_BLEND_WEIGHT = 0.60  # weight on the original DCF-based Conviction Score
+FCF_YIELD_BLEND_WEIGHT = 0.40  # weight on the normalized FCF Yield multiplier
 
 MAX_POSITION_WEIGHT = 0.15  # no single position may exceed 15% of equity
 MAX_SECTOR_WEIGHT = 0.25  # no single GICS sector may exceed 25% of equity, combined
@@ -236,6 +270,39 @@ def build_trading_client(config: AlpacaConfig) -> TradingClient:
         paper=config.is_paper,
         url_override=config.base_url,
     )
+
+
+def _blend_conviction_with_fcf_yield(analysis: TickerAnalysis) -> TickerAnalysis:
+    """
+    Blend the original DCF-based Conviction Score with a normalized FCF
+    Yield multiplier into the final Conviction Score used to rank/size
+    Top-N picks:
+
+        normalized_fcf = clamp(fcf_yield * FCF_YIELD_NORMALIZATION_FACTOR, 0.0, FCF_YIELD_NORMALIZED_CAP)
+        final_conviction = (dcf_conviction * DCF_CONVICTION_BLEND_WEIGHT)
+                          + (normalized_fcf * FCF_YIELD_BLEND_WEIGHT)
+
+    A missing FCF Yield (statement data unavailable) contributes 0 to the
+    blend rather than rejecting the ticker outright — the DCF Conviction
+    Score alone still carries 60% of the final score. Leaves analyses
+    that failed an earlier gate (`is_valid` False) untouched.
+
+    Only applied here, in the live/paper trading engine — the backtester
+    (`src.backtesting.historical_tester.score_ticker`) keeps the original,
+    unblended Conviction Score so historical results stay comparable
+    across runs.
+    """
+    if not analysis.is_valid:
+        return analysis
+
+    normalized_fcf = max(0.0, min((analysis.fcf_yield or 0.0) * FCF_YIELD_NORMALIZATION_FACTOR, FCF_YIELD_NORMALIZED_CAP))
+    final_conviction = (analysis.conviction_score * DCF_CONVICTION_BLEND_WEIGHT) + (
+        normalized_fcf * FCF_YIELD_BLEND_WEIGHT
+    )
+    # Explicit float() cast: conviction_score can otherwise carry a
+    # numpy.float64 through from pandas-derived upstream arithmetic, which
+    # psycopg2 can't adapt when this later reaches log_trade().
+    return replace(analysis, conviction_score=float(final_conviction))
 
 
 def check_trend_filter(ticker_symbol: str) -> bool:
@@ -345,6 +412,50 @@ def run_todays_scan(
             )
             continue
 
+        # Fundamental quality gate: reject weak Piotroski F-Scores before
+        # spending a full DCF valuation on them.
+        f_score = calculate_f_score(ticker)
+        if f_score < PIOTROSKI_MIN_F_SCORE:
+            logger.warning(
+                "REJECTED: %s failed Piotroski F-Score quality check (F-Score=%d, minimum=%d).",
+                ticker,
+                f_score,
+                PIOTROSKI_MIN_F_SCORE,
+            )
+            valuations.append(
+                ValuationResult(
+                    ticker=ticker,
+                    as_of_date=today,
+                    altman_z_score=z_score,
+                    skip_reason=(
+                        f"Failed Piotroski F-Score quality check (F-Score={f_score}, "
+                        f"minimum={PIOTROSKI_MIN_F_SCORE})."
+                    ),
+                )
+            )
+            continue
+
+        # Technical entry gate: only buy into a micro-dip, not a ticker
+        # that's already run hot.
+        rsi = calculate_rsi(ticker)
+        if rsi is None or rsi >= RSI_MAX_ENTRY_THRESHOLD:
+            rsi_display = f"{rsi:.1f}" if rsi is not None else "unavailable"
+            logger.warning(
+                "REJECTED: %s failed RSI micro-dip gate (RSI=%s, must be < %d).",
+                ticker,
+                rsi_display,
+                RSI_MAX_ENTRY_THRESHOLD,
+            )
+            valuations.append(
+                ValuationResult(
+                    ticker=ticker,
+                    as_of_date=today,
+                    altman_z_score=z_score,
+                    skip_reason=f"RSI at {rsi_display}. Waiting for micro-dip < {RSI_MAX_ENTRY_THRESHOLD}.",
+                )
+            )
+            continue
+
         try:
             valuation = compute_valuation(ticker, today, assumptions)
             valuation = replace(valuation, altman_z_score=z_score)
@@ -359,6 +470,7 @@ def run_todays_scan(
 
     logger.info("Running Pass 2: applying the sector-relative filter...")
     analyses: List[TickerAnalysis] = [score_ticker(v, sector_medians) for v in valuations]
+    analyses = [_blend_conviction_with_fcf_yield(a) for a in analyses]
 
     return analyses, sector_medians, valuations
 

@@ -148,6 +148,7 @@ class ValuationResult:
     wacc: Optional[float] = None
     beta: Optional[float] = None
     altman_z_score: Optional[float] = None
+    fcf_yield: Optional[float] = None
     income_stmt: Optional[pd.DataFrame] = field(default=None, repr=False)
     balance_sheet: Optional[pd.DataFrame] = field(default=None, repr=False)
     cash_flow: Optional[pd.DataFrame] = field(default=None, repr=False)
@@ -176,6 +177,7 @@ class TickerAnalysis:
     wacc: Optional[float] = None
     beta: Optional[float] = None
     altman_z_score: Optional[float] = None
+    fcf_yield: Optional[float] = None
     fcf_growth_rate: Optional[float] = None
     roic: Optional[float] = None
     conviction_score: Optional[float] = None
@@ -616,6 +618,7 @@ def compute_valuation(ticker: str, as_of_date: str, assumptions: DCFAssumptions)
         price_to_intrinsic=price_to_intrinsic,
         wacc=dcf_result["wacc"],
         beta=beta,
+        fcf_yield=dcf_result.get("fcf_yield"),
         income_stmt=income_stmt,
         balance_sheet=balance_sheet,
         cash_flow=cash_flow,
@@ -756,6 +759,7 @@ def score_ticker(
         wacc=valuation.wacc,
         beta=valuation.beta,
         altman_z_score=valuation.altman_z_score,
+        fcf_yield=valuation.fcf_yield,
         fcf_growth_rate=fcf_growth_rate,
         roic=roic,
         conviction_score=conviction_score,

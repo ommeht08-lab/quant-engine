@@ -1,17 +1,10 @@
 {
-  "generated_at": "2026-08-10T19:56:08.420908+00:00",
+  "generated_at": "2026-08-11T01:23:08.186872+00:00",
   "universe_size": 100,
-  "tickers_used": 54,
+  "tickers_used": 6,
   "sector_medians": {
-    "Technology": 6.108333152389579,
-    "Consumer Cyclical": 2.0356610881728763,
-    "Healthcare": 1.6291022925151861,
-    "Financial Services": 1.306414367808752,
-    "Consumer Defensive": 1.0716021979015988,
-    "Energy": 1.449116320653124,
-    "Industrials": 3.1554088050037983,
-    "Basic Materials": 2.879899031924166,
-    "Communication Services": 4.361504962308518,
-    "Real Estate": 5.096975622137325
+    "Technology": 7.867030982605865,
+    "Industrials": 6.379570191847411,
+    "Basic Materials": 2.879899031924166
   }
 }

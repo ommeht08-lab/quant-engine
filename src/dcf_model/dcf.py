@@ -204,6 +204,7 @@ def extract_valuation_inputs(financial_data: dict) -> dict:
     """
     income_stmt = financial_data.get("income_statement")
     balance_sheet = financial_data.get("balance_sheet")
+    cash_flow = financial_data.get("cash_flow")
 
     revenue = _get_row_value(income_stmt, ["Total Revenue", "TotalRevenue"])
     pretax_income = _get_row_value(income_stmt, ["Pretax Income", "PretaxIncome"])
@@ -239,6 +240,19 @@ def extract_valuation_inputs(financial_data: dict) -> dict:
     if interest_expense and total_debt:
         cost_of_debt = abs(interest_expense) / total_debt
 
+    operating_cash_flow = _get_row_value(
+        cash_flow,
+        [
+            "Operating Cash Flow",
+            "Cash Flow From Continuing Operating Activities",
+            "Total Cash From Operating Activities",
+        ],
+    )
+    # yfinance reports CapEx as a negative outflow (e.g. -20_000_000).
+    capital_expenditures = _get_row_value(
+        cash_flow, ["Capital Expenditure", "CapitalExpenditure", "Purchase Of PPE"]
+    )
+
     revenue_cagr = calculate_historical_revenue_cagr(income_stmt)
     revenue_growth_rate = (
         min(revenue_cagr, MAX_REVENUE_GROWTH_RATE) if revenue_cagr is not None else None
@@ -254,6 +268,8 @@ def extract_valuation_inputs(financial_data: dict) -> dict:
         "cash_and_equivalents": cash_and_equivalents,
         "tax_rate": tax_rate,
         "cost_of_debt": cost_of_debt,
+        "operating_cash_flow": operating_cash_flow,
+        "capital_expenditures": capital_expenditures,
         "current_price": financial_data.get("current_price"),
         "shares_outstanding": financial_data.get("shares_outstanding"),
         "beta": financial_data.get("beta"),
@@ -533,6 +549,57 @@ def calculate_intrinsic_value_per_share(
 
 
 # --------------------------------------------------------------------------
+# Market-based Enterprise Value & FCF Yield
+# --------------------------------------------------------------------------
+# Distinct from the DCF-derived "enterprise_value" above (present value of
+# projected FCF + terminal value) — this is the market-observed Enterprise
+# Value, used only to compute FCF Yield as a valuation cross-check.
+
+def calculate_enterprise_value(
+    current_price: Optional[float],
+    shares_outstanding: Optional[float],
+    total_debt: Optional[float],
+    cash_and_equivalents: Optional[float],
+) -> Optional[float]:
+    """
+    Market-based Enterprise Value: EV = Market Cap + Total Debt - Cash & Equivalents.
+
+    Returns:
+        EV as a float, or None if price/shares are unavailable (market
+        cap can't be computed without them).
+    """
+    if current_price is None or shares_outstanding is None:
+        return None
+    market_cap = current_price * shares_outstanding
+    return float(market_cap + (total_debt or 0.0) - (cash_and_equivalents or 0.0))
+
+
+def calculate_fcf_yield(
+    operating_cash_flow: Optional[float],
+    capital_expenditures: Optional[float],
+    enterprise_value: Optional[float],
+) -> Optional[float]:
+    """
+    FCF Yield = (Operating Cash Flow - CapEx) / Enterprise Value.
+
+    `capital_expenditures` is expected on yfinance's convention (already
+    a negative outflow), so it's added rather than subtracted here —
+    `operating_cash_flow + capital_expenditures` is equivalent to
+    `OCF - abs(CapEx)`.
+
+    Returns:
+        FCF Yield as a decimal (e.g. 0.05 == 5%), or None if any input
+        is unavailable or `enterprise_value` is not positive.
+    """
+    if operating_cash_flow is None or capital_expenditures is None:
+        return None
+    if enterprise_value is None or enterprise_value <= 0:
+        return None
+    free_cash_flow = operating_cash_flow + capital_expenditures
+    return float(free_cash_flow / enterprise_value)
+
+
+# --------------------------------------------------------------------------
 # Orchestration
 # --------------------------------------------------------------------------
 
@@ -676,6 +743,18 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
         + (inputs["cash_and_equivalents"] or 0.0)
     )
 
+    market_enterprise_value = calculate_enterprise_value(
+        current_price=inputs["current_price"],
+        shares_outstanding=inputs["shares_outstanding"],
+        total_debt=inputs["total_debt"],
+        cash_and_equivalents=inputs["cash_and_equivalents"],
+    )
+    fcf_yield = calculate_fcf_yield(
+        operating_cash_flow=inputs["operating_cash_flow"],
+        capital_expenditures=inputs["capital_expenditures"],
+        enterprise_value=market_enterprise_value,
+    )
+
     return {
         "wacc": wacc,
         "revenue_growth_rate": revenue_growth_rate,
@@ -688,6 +767,8 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
         "equity_value": equity_value,
         "intrinsic_value_per_share": intrinsic_value_per_share,
         "current_market_price": inputs["current_price"],
+        "market_enterprise_value": market_enterprise_value,
+        "fcf_yield": fcf_yield,
     }
 
 
