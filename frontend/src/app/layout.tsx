@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import Link from "next/link";
+import SearchBar from "@/components/SearchBar";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -23,7 +25,20 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col bg-neutral-950">
+        <header className="sticky top-0 z-10 border-b border-white/10 bg-neutral-950/90 backdrop-blur">
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-6 py-3">
+            <Link
+              href="/"
+              className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-500 transition-colors hover:text-emerald-400"
+            >
+              Om Mehta Equity Research
+            </Link>
+            <SearchBar />
+          </div>
+        </header>
+        {children}
+      </body>
     </html>
   );
 }

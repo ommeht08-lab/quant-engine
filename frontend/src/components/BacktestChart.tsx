@@ -11,12 +11,7 @@ import {
   YAxis,
 } from "recharts";
 import type { TooltipContentProps } from "recharts";
-
-interface BacktestPoint {
-  date: string;
-  strategy: number;
-  benchmark: number;
-}
+import { calculateBacktestMetrics, type BacktestPoint } from "@/lib/metrics";
 
 const currencyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -38,6 +33,60 @@ function formatCurrency(value: number): string {
 function returnSince(start: number, current: number): string {
   const pct = ((current - start) / start) * 100;
   return `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`;
+}
+
+function formatSignedPercent(value: number, digits = 2): string {
+  return `${value >= 0 ? "+" : ""}${value.toFixed(digits)}%`;
+}
+
+function formatDrawdown(value: number): string {
+  return value === 0 ? "0.00%" : `-${value.toFixed(2)}%`;
+}
+
+function MetricStatCard({
+  label,
+  value,
+  valueClassName,
+}: {
+  label: string;
+  value: string;
+  valueClassName?: string;
+}) {
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[.02] p-4">
+      <p className="text-xs uppercase tracking-wider text-neutral-500">{label}</p>
+      <p className={`mt-1 font-mono text-xl font-semibold ${valueClassName ?? "text-neutral-50"}`}>
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function BacktestMetricsGrid({ data }: { data: BacktestPoint[] }) {
+  const metrics = calculateBacktestMetrics(data);
+
+  return (
+    <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <MetricStatCard
+        label="Alpha (Annualized)"
+        value={formatSignedPercent(metrics.alpha)}
+        valueClassName={metrics.alpha >= 0 ? "text-emerald-400" : "text-rose-400"}
+      />
+      <MetricStatCard
+        label="Sharpe Ratio (Risk-Adjusted Return)"
+        value={metrics.sharpeRatio.toFixed(2)}
+      />
+      <MetricStatCard
+        label="Max Drawdown"
+        value={formatDrawdown(metrics.maxDrawdown)}
+        valueClassName="text-rose-400"
+      />
+      <MetricStatCard
+        label="Annualized Volatility"
+        value={`${metrics.annualizedVolatility.toFixed(2)}%`}
+      />
+    </div>
+  );
 }
 
 function CustomTooltip({ active, payload, label }: TooltipContentProps) {
@@ -154,6 +203,8 @@ export default function BacktestChart() {
           to populate this chart.
         </p>
       )}
+
+      {!isLoading && !error && data && data.length > 0 && <BacktestMetricsGrid data={data} />}
 
       {!isLoading && !error && data && data.length > 0 && (
         <div className="h-80 w-full">
