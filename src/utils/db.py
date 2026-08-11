@@ -54,9 +54,22 @@ ALTER_TABLE_ADD_ALTMAN_Z_SQL = """
 ALTER TABLE trade_logs ADD COLUMN IF NOT EXISTS altman_z_score FLOAT;
 """
 
+# Same idempotent-migration pattern as ALTER_TABLE_ADD_ALTMAN_Z_SQL, for the
+# Monte Carlo portfolio risk metrics (`src.risk.monte_carlo.calculate_portfolio_var`).
+# These are portfolio-level, not per-trade, so only the single synthetic
+# "RISK_SNAPSHOT" row logged at the end of a live run populates them —
+# every per-ticker trade row leaves them NULL.
+ALTER_TABLE_ADD_VAR_CVAR_SQL = """
+ALTER TABLE trade_logs ADD COLUMN IF NOT EXISTS var_95 FLOAT;
+ALTER TABLE trade_logs ADD COLUMN IF NOT EXISTS cvar_95 FLOAT;
+"""
+
 INSERT_SQL = """
-INSERT INTO trade_logs (ticker, action, quantity, execution_price, wacc, beta, conviction_score, altman_z_score)
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s);
+INSERT INTO trade_logs (
+    ticker, action, quantity, execution_price, wacc, beta, conviction_score, altman_z_score,
+    var_95, cvar_95
+)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
 """
 
 CREATE_BACKTEST_CURVE_TABLE_SQL = """
@@ -85,17 +98,20 @@ def log_trade(
     beta: Optional[float],
     conviction_score: Optional[float],
     altman_z_score: Optional[float],
+    var_95: Optional[float] = None,
+    cvar_95: Optional[float] = None,
 ) -> None:
     """
-    Record one executed trade to the `trade_logs` Postgres table.
+    Record one executed trade (or, for `var_95`/`cvar_95`, a portfolio-
+    level risk snapshot) to the `trade_logs` Postgres table.
 
     Connects using the `DATABASE_URL` environment variable, ensures the
     table exists (`CREATE TABLE IF NOT EXISTS`), migrates it forward if
-    it already existed from before `altman_z_score` was added (`ALTER
-    TABLE ... ADD COLUMN IF NOT EXISTS`, a no-op if already present and
-    never destructive to existing rows), and inserts a single row. `id`
-    and `timestamp` are populated by the database (auto-increment primary
-    key and `NOW()` respectively) — not passed in.
+    it already existed from before `altman_z_score` / `var_95` / `cvar_95`
+    were added (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, a no-op if
+    already present and never destructive to existing rows), and inserts
+    a single row. `id` and `timestamp` are populated by the database
+    (auto-increment primary key and `NOW()` respectively) — not passed in.
 
     Args:
         ticker: Stock ticker symbol, e.g. "AAPL".
@@ -107,6 +123,12 @@ def log_trade(
         conviction_score: The Conviction Score that drove this trade, if known.
         altman_z_score: The ticker's Altman Z-Score credit health check at
             the time of the trade decision, if known.
+        var_95: Portfolio-level 95% Monte Carlo VaR at the time of this
+            row, if known. Only meaningful on the end-of-run "RISK_SNAPSHOT"
+            row (`src.trading.alpaca_execution`) — per-trade rows leave
+            this None.
+        cvar_95: Portfolio-level 95% Monte Carlo CVaR (Expected Shortfall),
+            same caveat as `var_95`.
 
     Raises:
         RuntimeError: If `DATABASE_URL` is not set.
@@ -127,6 +149,7 @@ def log_trade(
         with conn.cursor() as cur:
             cur.execute(CREATE_TABLE_SQL)
             cur.execute(ALTER_TABLE_ADD_ALTMAN_Z_SQL)
+            cur.execute(ALTER_TABLE_ADD_VAR_CVAR_SQL)
             cur.execute(
                 INSERT_SQL,
                 (
@@ -138,6 +161,8 @@ def log_trade(
                     _to_native_float(beta),
                     _to_native_float(conviction_score),
                     _to_native_float(altman_z_score),
+                    _to_native_float(var_95),
+                    _to_native_float(cvar_95),
                 ),
             )
         conn.commit()

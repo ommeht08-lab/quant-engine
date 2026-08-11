@@ -522,11 +522,17 @@ def _safe_log_trade(
     beta: Optional[float],
     conviction_score: Optional[float],
     altman_z_score: Optional[float],
+    var_95: Optional[float] = None,
+    cvar_95: Optional[float] = None,
 ) -> None:
     """
     Call `log_trade`, but never let a telemetry failure (e.g. Postgres
     unreachable, `DATABASE_URL` unset) abort or interrupt trade execution.
     Failures are logged as warnings and swallowed.
+
+    `var_95`/`cvar_95` are portfolio-level, not per-trade — every call
+    site except the end-of-run risk snapshot leaves them at their None
+    default.
     """
     try:
         log_trade(
@@ -538,6 +544,8 @@ def _safe_log_trade(
             beta=beta,
             conviction_score=conviction_score,
             altman_z_score=altman_z_score,
+            var_95=var_95,
+            cvar_95=cvar_95,
         )
     except Exception as exc:  # noqa: BLE001 - telemetry must never block execution
         logger.warning("Trade telemetry logging failed for %s %s: %s", action, ticker, exc)
@@ -1037,6 +1045,26 @@ def main() -> None:
         risk_metrics["cvar_95"] * 100,
     )
     logger.info("*" * 88)
+
+    # Final database logging call of the run: a synthetic portfolio-level
+    # "RISK_SNAPSHOT" row (ticker/action are placeholders — this row
+    # carries no per-trade data) so the Next.js dashboard's /api/risk
+    # route can read back the latest var_95/cvar_95 without a separate
+    # table. Dry runs never log anything, same posture as every other
+    # telemetry call in this script — no orders were actually submitted.
+    if not args.dry_run:
+        _safe_log_trade(
+            ticker="PORTFOLIO",
+            action="RISK_SNAPSHOT",
+            quantity=0.0,
+            execution_price=0.0,
+            wacc=None,
+            beta=None,
+            conviction_score=None,
+            altman_z_score=None,
+            var_95=risk_metrics["var_95"],
+            cvar_95=risk_metrics["cvar_95"],
+        )
 
 
 if __name__ == "__main__":

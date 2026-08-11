@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import PortfolioAllocation from "@/components/PortfolioAllocation";
 import BacktestChart from "@/components/BacktestChart";
+import RiskHistogram from "@/components/RiskHistogram";
 
 const API_BASE_URL = "http://localhost:8000";
 
@@ -314,6 +315,10 @@ export default function Home() {
 
         <div className="mb-8">
           <BacktestChart />
+        </div>
+
+        <div className="mb-8">
+          <RiskHistogram />
         </div>
 
         <form
