@@ -26,7 +26,6 @@ from typing import Optional
 import pandas as pd
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 # Fallback assumptions used only when data cannot be derived from the
 # fetched financial statements.
@@ -54,6 +53,27 @@ MAX_REVENUE_GROWTH_RATE = 0.25
 # no longer economically sane.
 MIN_DISCOUNT_RATE = 0.05
 MAX_DISCOUNT_RATE = 0.20
+
+# Economic bounds for EXPLICITLY supplied (not historically-derived)
+# revenue growth / operating margin / terminal growth — the range a
+# caller (e.g. the dashboard's assumption sliders, or a direct API
+# query-string value) is allowed to override the model with. These
+# mirror the dashboard's own slider ranges (frontend/src/app/page.tsx)
+# so the API can't be made to accept a value the UI itself would never
+# offer, and exist specifically to reject economically meaningless
+# crafted inputs (e.g. a 5000% growth assumption compounded over 5
+# years) rather than silently returning an enormous, meaningless
+# valuation. They apply ONLY to explicit values — `None` (derive from
+# the company's own historical financials) is validated separately, via
+# MAX_REVENUE_GROWTH_RATE above, and negative historical growth is left
+# unbounded below since a genuinely shrinking company is a legitimate
+# real-world case this model must still be able to value.
+MIN_EXPLICIT_REVENUE_GROWTH_RATE = -0.10  # -10%: matches the frontend slider's floor
+MAX_EXPLICIT_REVENUE_GROWTH_RATE = 0.40  # 40%: matches the frontend slider's ceiling
+MIN_EXPLICIT_OPERATING_MARGIN = 0.0  # matches the frontend slider's floor
+MAX_EXPLICIT_OPERATING_MARGIN = 0.60  # matches the frontend slider's ceiling
+MIN_EXPLICIT_TERMINAL_GROWTH_RATE = 0.0  # matches the frontend slider's floor
+MAX_EXPLICIT_TERMINAL_GROWTH_RATE = 0.05  # matches the frontend slider's ceiling; also must stay well under WACC
 
 
 # --------------------------------------------------------------------------
@@ -276,6 +296,31 @@ def extract_valuation_inputs(financial_data: dict) -> dict:
     }
 
 
+def _validate_capital_inputs(inputs: dict) -> None:
+    """
+    Validate the capital-structure inputs pulled from financial
+    statements before they reach WACC / enterprise-value / intrinsic-
+    value math, so a corrupt or nonsensical statement value (a negative
+    share count, an infinite price from a bad data-provider response)
+    fails loudly and immediately instead of silently producing a
+    meaningless valuation several steps later.
+
+    Missing (`None`) values are left alone here — that's a normal,
+    already-handled "unavailable" case elsewhere in the pipeline (e.g.
+    `calculate_wacc` requires price/shares, defaults/floors others).
+    This only rejects values that are *present* but not finite, or
+    present and economically nonsensical (negative price/shares/debt/cash).
+    """
+    for field_name in ("current_price", "shares_outstanding", "total_debt", "cash_and_equivalents"):
+        value = inputs.get(field_name)
+        if value is None:
+            continue
+        if not math.isfinite(value):
+            raise ValueError(f"{field_name} must be finite, got {value}.")
+        if value < 0:
+            raise ValueError(f"{field_name} must not be negative, got {value}.")
+
+
 # --------------------------------------------------------------------------
 # 1. WACC
 # --------------------------------------------------------------------------
@@ -379,22 +424,29 @@ def project_free_cash_flows(
         Revenue_t   = Revenue_{t-1} * (1 + revenue_growth_rate)
         EBIT_t      = Revenue_t * operating_margin
         NOPAT_t     = EBIT_t * (1 - tax_rate)
+        ChangeInNWC_t = nwc_pct_revenue_change * (Revenue_t - Revenue_{t-1})
         FCF_t       = NOPAT_t + D&A_t - CapEx_t - ChangeInNWC_t
 
-    D&A, CapEx, and the change in Net Working Capital are each modeled as
-    constant percentages of projected revenue, since the caller only
-    configures growth rate and operating margin.
+    D&A and CapEx are modeled as constant percentages of projected
+    revenue. The change in Net Working Capital is modeled as a
+    percentage of the *change* in revenue (a growing business ties up
+    incremental working capital roughly in proportion to how much its
+    revenue actually grew that year), not a percentage of revenue
+    itself — a flat, ever-present drag off gross revenue would double-
+    count NWC as if the business rebuilt its entire working-capital base
+    from zero every year.
 
     Args:
         base_revenue: Most recent actual (trailing) revenue, used as the
-            starting point for projections.
+            starting point for projections and as Year 0's revenue for
+            the first year's change-in-NWC calculation.
         revenue_growth_rate: Constant annual revenue growth rate (decimal).
         operating_margin: Constant EBIT margin applied to projected revenue.
         tax_rate: Tax rate applied to EBIT to derive NOPAT.
         da_pct_revenue: Depreciation & amortization as a % of revenue.
         capex_pct_revenue: Capital expenditures as a % of revenue.
         nwc_pct_revenue_change: Change in net working capital as a % of
-            revenue.
+            the year-over-year change in revenue.
         years: Number of years to project.
 
     Returns:
@@ -410,6 +462,7 @@ def project_free_cash_flows(
         raise ValueError("years must be at least 1.")
 
     rows = []
+    prior_revenue = base_revenue
     revenue = base_revenue
     for year in range(1, years + 1):
         revenue = revenue * (1 + revenue_growth_rate)
@@ -417,8 +470,9 @@ def project_free_cash_flows(
         nopat = ebit * (1 - tax_rate)
         da = revenue * da_pct_revenue
         capex = revenue * capex_pct_revenue
-        change_in_nwc = revenue * nwc_pct_revenue_change
+        change_in_nwc = nwc_pct_revenue_change * (revenue - prior_revenue)
         fcf = nopat + da - capex - change_in_nwc
+        prior_revenue = revenue
 
         rows.append(
             {
@@ -629,6 +683,64 @@ class DCFAssumptions:
     capex_pct_revenue: float = DEFAULT_CAPEX_PCT_REVENUE
     nwc_pct_revenue_change: float = DEFAULT_NWC_PCT_REVENUE_CHANGE
 
+    def __post_init__(self) -> None:
+        """
+        Validate every publicly-settable assumption eagerly, at
+        construction time, rather than letting a bad value silently
+        propagate into WACC/FCF math and fail confusingly (or not at
+        all) many steps later.
+
+        Beyond finiteness, `revenue_growth_rate`/`operating_margin`
+        (when explicitly set — `None` means "derive from historicals"
+        and is bounded separately by MAX_REVENUE_GROWTH_RATE) and
+        `terminal_growth_rate` (always explicit) are checked against
+        MIN/MAX_EXPLICIT_* — an economically meaningless input (e.g.
+        revenue "growing" 5000% a year) must be rejected here, not
+        silently projected into an enormous, meaningless valuation.
+        """
+        if self.projection_years < 1:
+            raise ValueError(f"projection_years must be >= 1, got {self.projection_years}.")
+        if self.tax_rate is not None and not (0 <= self.tax_rate < 1):
+            raise ValueError(f"tax_rate must be in [0, 1) if set, got {self.tax_rate}.")
+
+        for field_name in (
+            "revenue_growth_rate",
+            "operating_margin",
+            "terminal_growth_rate",
+            "risk_free_rate",
+            "market_risk_premium",
+            "da_pct_revenue",
+            "capex_pct_revenue",
+            "nwc_pct_revenue_change",
+        ):
+            value = getattr(self, field_name)
+            if value is not None and not math.isfinite(value):
+                raise ValueError(f"{field_name} must be finite, got {value}.")
+
+        if self.revenue_growth_rate is not None and not (
+            MIN_EXPLICIT_REVENUE_GROWTH_RATE <= self.revenue_growth_rate <= MAX_EXPLICIT_REVENUE_GROWTH_RATE
+        ):
+            raise ValueError(
+                f"revenue_growth_rate must be in [{MIN_EXPLICIT_REVENUE_GROWTH_RATE}, "
+                f"{MAX_EXPLICIT_REVENUE_GROWTH_RATE}] if explicitly set, got {self.revenue_growth_rate}. "
+                "Leave it unset (None) to derive it from the company's own historical financials instead."
+            )
+        if self.operating_margin is not None and not (
+            MIN_EXPLICIT_OPERATING_MARGIN <= self.operating_margin <= MAX_EXPLICIT_OPERATING_MARGIN
+        ):
+            raise ValueError(
+                f"operating_margin must be in [{MIN_EXPLICIT_OPERATING_MARGIN}, "
+                f"{MAX_EXPLICIT_OPERATING_MARGIN}] if explicitly set, got {self.operating_margin}. "
+                "Leave it unset (None) to derive it from the company's own historical financials instead."
+            )
+        if not (
+            MIN_EXPLICIT_TERMINAL_GROWTH_RATE <= self.terminal_growth_rate <= MAX_EXPLICIT_TERMINAL_GROWTH_RATE
+        ):
+            raise ValueError(
+                f"terminal_growth_rate must be in [{MIN_EXPLICIT_TERMINAL_GROWTH_RATE}, "
+                f"{MAX_EXPLICIT_TERMINAL_GROWTH_RATE}], got {self.terminal_growth_rate}."
+            )
+
 
 def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) -> dict:
     """
@@ -657,6 +769,7 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
     """
     assumptions = assumptions or DCFAssumptions()
     inputs = extract_valuation_inputs(financial_data)
+    _validate_capital_inputs(inputs)
 
     if inputs["revenue"] is None:
         raise ValueError(
@@ -664,9 +777,17 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
             "cannot run DCF."
         )
 
-    tax_rate = inputs["tax_rate"]
-    if tax_rate is None:
-        tax_rate = assumptions.tax_rate if assumptions.tax_rate is not None else DEFAULT_TAX_RATE
+    # An explicit `assumptions.tax_rate` always wins — it's a deliberate
+    # caller override and must not be silently replaced by the rate
+    # derived from the financial statements just because one happened to
+    # be computable. Only fall through to the derived/default rate when
+    # the caller left `tax_rate` unset.
+    if assumptions.tax_rate is not None:
+        tax_rate = assumptions.tax_rate
+    elif inputs["tax_rate"] is not None:
+        tax_rate = inputs["tax_rate"]
+    else:
+        tax_rate = DEFAULT_TAX_RATE
         logger.warning("Effective tax rate unavailable; defaulting to %.1f%%.", tax_rate * 100)
 
     revenue_growth_rate = assumptions.revenue_growth_rate

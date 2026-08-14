@@ -5,6 +5,7 @@ import {
   type TickerSentiment,
 } from "@/lib/sentiment";
 import { cacheAside } from "@/lib/redis";
+import { requireSession } from "@/lib/auth";
 
 // Keep this dynamic (not statically optimized at build time) so our own
 // Redis cache-aside logic below runs fresh on every request — caching is
@@ -30,6 +31,10 @@ export async function GET(
   _request: Request,
   { params }: { params: Promise<{ symbol: string }> }
 ) {
+  if (!(await requireSession())) {
+    return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  }
+
   const { symbol } = await params;
   const ticker = symbol.toUpperCase();
 

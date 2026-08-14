@@ -6,8 +6,6 @@ import PortfolioAllocation from "@/components/PortfolioAllocation";
 import BacktestChart from "@/components/BacktestChart";
 import RiskHistogram from "@/components/RiskHistogram";
 
-const API_BASE_URL = "http://localhost:8000";
-
 interface FreeCashFlowYear {
   year: number;
   revenue: number;
@@ -33,9 +31,16 @@ interface EvaluationResponse {
     terminal_growth_rate: number;
     projection_years: number;
   };
+  // "historical" = derived from the company's own financials (the
+  // default); "custom" = an explicit slider value was sent and used
+  // instead. Lets the UI say what was ACTUALLY used rather than
+  // guessing from the numeric value alone.
+  revenue_growth_rate_source: "historical" | "custom";
+  operating_margin_source: "historical" | "custom";
   sector: string;
   price_to_intrinsic_value: number | null;
   sector_median_p_iv: number | null;
+  sector_median_unavailable_reason: string | null;
 }
 
 const compactCurrencyFormatter = new Intl.NumberFormat("en-US", {
@@ -145,6 +150,7 @@ interface SectorValuationComparisonProps {
   sector: string;
   priceToIntrinsicValue: number | null;
   sectorMedianPIV: number | null;
+  sectorMedianUnavailableReason: string | null;
 }
 
 function SectorValuationComparison({
@@ -152,6 +158,7 @@ function SectorValuationComparison({
   sector,
   priceToIntrinsicValue,
   sectorMedianPIV,
+  sectorMedianUnavailableReason,
 }: SectorValuationComparisonProps) {
   if (priceToIntrinsicValue === null || sectorMedianPIV === null) {
     return (
@@ -162,7 +169,7 @@ function SectorValuationComparison({
         <p className="text-sm text-neutral-500">
           {priceToIntrinsicValue === null
             ? "Price-to-intrinsic-value could not be computed for this ticker."
-            : `No sector median P/IV available yet for ${sector}.`}
+            : sectorMedianUnavailableReason ?? `No sector median P/IV available yet for ${sector}.`}
         </p>
       </div>
     );
@@ -234,6 +241,13 @@ function SectorValuationComparison({
 
 export default function Home() {
   const [ticker, setTicker] = useState("AAPL");
+  // Default mode: use each company's own historical revenue growth and
+  // operating margin — the growth/margin query params are OMITTED
+  // entirely in this mode (never sent as 0 or as the slider's current
+  // position), which is also the exact default the sector-median cache
+  // (src.api.sector_medians / the trading engine) is generated with, so
+  // the default request stays comparable against the default cache.
+  const [useCustomAssumptions, setUseCustomAssumptions] = useState(false);
   const [revenueGrowthRate, setRevenueGrowthRate] = useState(0.08);
   const [operatingMargin, setOperatingMargin] = useState(0.25);
   const [terminalGrowthRate, setTerminalGrowthRate] = useState(0.025);
@@ -256,13 +270,19 @@ export default function Home() {
 
     try {
       const params = new URLSearchParams({
-        revenue_growth_rate: String(revenueGrowthRate),
-        operating_margin: String(operatingMargin),
         terminal_growth_rate: String(terminalGrowthRate),
       });
+      // Only send explicit growth/margin overrides in custom mode — in
+      // historical mode these params are omitted entirely so the backend
+      // derives them from the company's own financials, never silently
+      // sending the slider's last position while claiming "historical".
+      if (useCustomAssumptions) {
+        params.set("revenue_growth_rate", String(revenueGrowthRate));
+        params.set("operating_margin", String(operatingMargin));
+      }
 
       const response = await fetch(
-        `${API_BASE_URL}/api/evaluate/${encodeURIComponent(trimmedTicker)}?${params.toString()}`
+        `/api/evaluate/${encodeURIComponent(trimmedTicker)}?${params.toString()}`
       );
 
       if (!response.ok) {
@@ -279,7 +299,7 @@ export default function Home() {
       setError(
         err instanceof Error
           ? err.message
-          : "Could not reach the valuation API. Is it running at http://localhost:8000?"
+          : "Could not reach the valuation API."
       );
     } finally {
       setIsLoading(false);
@@ -344,24 +364,34 @@ export default function Home() {
             </div>
 
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
-              <SliderField
-                id="revenue-growth"
-                label="Revenue Growth Rate"
-                value={revenueGrowthRate}
-                min={-0.1}
-                max={0.4}
-                step={0.005}
-                onChange={setRevenueGrowthRate}
-              />
-              <SliderField
-                id="operating-margin"
-                label="Operating Margin"
-                value={operatingMargin}
-                min={0}
-                max={0.6}
-                step={0.005}
-                onChange={setOperatingMargin}
-              />
+              <div
+                className={useCustomAssumptions ? undefined : "pointer-events-none opacity-40"}
+                aria-disabled={!useCustomAssumptions}
+              >
+                <SliderField
+                  id="revenue-growth"
+                  label="Revenue Growth Rate"
+                  value={revenueGrowthRate}
+                  min={-0.1}
+                  max={0.4}
+                  step={0.005}
+                  onChange={setRevenueGrowthRate}
+                />
+              </div>
+              <div
+                className={useCustomAssumptions ? undefined : "pointer-events-none opacity-40"}
+                aria-disabled={!useCustomAssumptions}
+              >
+                <SliderField
+                  id="operating-margin"
+                  label="Operating Margin"
+                  value={operatingMargin}
+                  min={0}
+                  max={0.6}
+                  step={0.005}
+                  onChange={setOperatingMargin}
+                />
+              </div>
               <SliderField
                 id="terminal-growth"
                 label="Terminal Growth Rate"
@@ -371,6 +401,37 @@ export default function Home() {
                 step={0.001}
                 onChange={setTerminalGrowthRate}
               />
+            </div>
+
+            <div className="sm:col-span-3">
+              <div className="flex items-center gap-3 rounded-lg border border-white/10 bg-neutral-900 px-4 py-3">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={useCustomAssumptions}
+                  id="assumption-mode-toggle"
+                  onClick={() => setUseCustomAssumptions((prev) => !prev)}
+                  className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
+                    useCustomAssumptions ? "bg-emerald-500" : "bg-neutral-700"
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                      useCustomAssumptions ? "translate-x-[22px]" : "translate-x-0.5"
+                    }`}
+                  />
+                </button>
+                <label htmlFor="assumption-mode-toggle" className="cursor-pointer text-sm">
+                  <span className="font-medium text-neutral-200">
+                    {useCustomAssumptions ? "Custom Assumptions" : "Company Historical Assumptions"}
+                  </span>
+                  <span className="ml-2 text-neutral-500">
+                    {useCustomAssumptions
+                      ? "Growth and margin sliders above are sent as explicit overrides."
+                      : "Revenue growth & operating margin are derived from each company's own historical financials."}
+                  </span>
+                </label>
+              </div>
             </div>
 
             <button
@@ -448,11 +509,37 @@ export default function Home() {
               />
             </div>
 
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <MetricCard
+                label="Revenue Growth Rate Used"
+                value={formatPercent(result.assumptions.revenue_growth_rate)}
+                sublabel={
+                  result.revenue_growth_rate_source === "historical"
+                    ? "Company historical (derived)"
+                    : "Custom (slider override)"
+                }
+              />
+              <MetricCard
+                label="Operating Margin Used"
+                value={formatPercent(result.assumptions.operating_margin)}
+                sublabel={
+                  result.operating_margin_source === "historical"
+                    ? "Company historical (derived)"
+                    : "Custom (slider override)"
+                }
+              />
+              <MetricCard
+                label="Terminal Growth Rate"
+                value={formatPercent(result.assumptions.terminal_growth_rate)}
+              />
+            </div>
+
             <SectorValuationComparison
               ticker={result.ticker}
               sector={result.sector}
               priceToIntrinsicValue={result.price_to_intrinsic_value}
               sectorMedianPIV={result.sector_median_p_iv}
+              sectorMedianUnavailableReason={result.sector_median_unavailable_reason}
             />
 
             <div className="rounded-2xl border border-white/10 bg-white/[.03] p-6 sm:p-8">

@@ -15,6 +15,15 @@ interface TradeLog {
   conviction_score: number | null;
 }
 
+interface TradesPage {
+  trades: TradeLog[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+const PAGE_SIZE = 50;
+
 const currencyFormatter = new Intl.NumberFormat("en-US", {
   style: "currency",
   currency: "USD",
@@ -69,23 +78,28 @@ function ActionBadge({ action }: { action: string }) {
 
 export default function TradesPage() {
   const [trades, setTrades] = useState<TradeLog[] | null>(null);
+  const [total, setTotal] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function loadTrades() {
+    async function loadFirstPage() {
       setIsLoading(true);
       setError(null);
       try {
-        const response = await fetch("/api/trades");
+        const response = await fetch(`/api/trades?limit=${PAGE_SIZE}&offset=0`);
         if (!response.ok) {
           const body = await response.json().catch(() => null);
           throw new Error(body?.error ?? `Request failed (HTTP ${response.status}).`);
         }
-        const data: TradeLog[] = await response.json();
-        if (!cancelled) setTrades(data);
+        const data: TradesPage = await response.json();
+        if (!cancelled) {
+          setTrades(data.trades);
+          setTotal(data.total);
+        }
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Could not load trade history.");
@@ -96,11 +110,30 @@ export default function TradesPage() {
       }
     }
 
-    loadTrades();
+    loadFirstPage();
     return () => {
       cancelled = true;
     };
   }, []);
+
+  async function loadMore() {
+    if (!trades) return;
+    setIsLoadingMore(true);
+    try {
+      const response = await fetch(`/api/trades?limit=${PAGE_SIZE}&offset=${trades.length}`);
+      if (!response.ok) {
+        const body = await response.json().catch(() => null);
+        throw new Error(body?.error ?? `Request failed (HTTP ${response.status}).`);
+      }
+      const data: TradesPage = await response.json();
+      setTrades((prev) => [...(prev ?? []), ...data.trades]);
+      setTotal(data.total);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not load more trades.");
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-50">
@@ -146,7 +179,7 @@ export default function TradesPage() {
         {!isLoading && !error && trades && trades.length > 0 && (
           <div className="rounded-2xl border border-white/10 bg-white/[.03] p-6 sm:p-8">
             <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-neutral-400">
-              {trades.length} Trade{trades.length === 1 ? "" : "s"}
+              Showing {trades.length} of {total} Trade{total === 1 ? "" : "s"}
             </h2>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[820px] border-collapse text-sm">
@@ -193,6 +226,19 @@ export default function TradesPage() {
                 </tbody>
               </table>
             </div>
+
+            {trades.length < total && (
+              <div className="mt-6 flex justify-center">
+                <button
+                  type="button"
+                  onClick={loadMore}
+                  disabled={isLoadingMore}
+                  className="rounded-lg border border-white/10 bg-white/[.03] px-4 py-2 text-sm font-medium text-neutral-300 transition-colors hover:border-emerald-500/30 hover:text-emerald-400 disabled:opacity-50"
+                >
+                  {isLoadingMore ? "Loading…" : `Load ${Math.min(PAGE_SIZE, total - trades.length)} more`}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

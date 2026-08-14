@@ -6,8 +6,54 @@ name: Daily Portfolio Rebalance
     - cron: '45 19 * * 1-5'
   workflow_dispatch:
 
+# Only one rebalance run (of any trigger — scheduled or manual) may be
+# in flight at a time. Without this, a manual `workflow_dispatch` fired
+# while the scheduled run is still executing (or two overlapping manual
+# runs) could each independently liquidate/rebalance/hedge against the
+# same account concurrently — the in-process duplicate-order guards
+# (`_open_order_symbols`/`_is_duplicate_submission` in
+# src/trading/alpaca_execution.py) only protect within a single run, not
+# across two runs racing each other. `cancel-in-progress: false` — never
+# cancel a run that may already be mid-way through submitting real
+# orders; a new run simply waits for the current one to finish instead.
+concurrency:
+  group: rebalance
+  cancel-in-progress: false
+
 jobs:
+  # Runs the isolation-safe test suite with NO production secrets
+  # available to it — the same fixtures in tests/conftest.py that
+  # poison credentials and block real Postgres/Alpaca/Redis/yfinance
+  # access apply here too, but the absence of secrets.* in this job's
+  # env is defense in depth on top of that, not a substitute for it.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install test dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Compile check
+        run: python -m compileall -q src tests
+
+      - name: Pyflakes
+        run: pyflakes src tests
+
+      - name: Run isolation-safe test suite
+        run: python -m pytest -q
+
+  # Only runs if `test` succeeds — a failing/broken test suite (e.g. a
+  # reverted isolation fixture, a regressed safety check) must never let
+  # this job execute against the real paper-trading account.
   execute_trades:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { requireSession } from "@/lib/auth";
 
 // Always hit Alpaca live — this is a live account snapshot, never a
 // cacheable resource.
@@ -76,6 +77,10 @@ async function alpacaGet<T>(path: string, config: AlpacaConfig): Promise<T> {
  * weights.
  */
 export async function GET() {
+  if (!(await requireSession())) {
+    return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  }
+
   let config: AlpacaConfig;
   try {
     config = getAlpacaConfig();

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { Pool } from "pg";
 import { cacheAside } from "@/lib/redis";
+import { requireSession } from "@/lib/auth";
 
 // A pg.Pool is stashed on `globalThis` (not a plain module-level variable)
 // so it survives Next.js dev-server HMR reloads instead of leaking a new
@@ -74,6 +75,10 @@ async function fetchBacktestCurve(): Promise<BacktestPoint[]> {
  * (cache-aside) in Upstash Redis for `CACHE_TTL_SECONDS`.
  */
 export async function GET() {
+  if (!(await requireSession())) {
+    return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  }
+
   if (!process.env.DATABASE_URL) {
     return NextResponse.json(
       { error: "DATABASE_URL is not configured for this deployment." },

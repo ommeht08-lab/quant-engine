@@ -3,24 +3,29 @@ Black-Scholes-Merton (BSM) options pricing, used to size a SPY put hedge
 against the portfolio's Monte Carlo Value at Risk
 (`src.risk.monte_carlo.calculate_portfolio_var`).
 
-The hedge sizing logic (`calculate_spy_hedge`) asks: "how many SPY put
-contracts, each moving by its own Delta per $1 move in SPY, are needed so
-that a 1-for-1 offsetting move in the puts would cover the portfolio's
-dollar VaR?" It is a linear (Delta-only) approximation — it ignores
-gamma, theta decay, and changes in implied volatility over the hedge's
-life — appropriate for a first-order daily hedge-sizing check, not a
+Hedge sizing (`calculate_spy_hedge`) uses a scenario-based method rather
+than a linear Delta-only approximation: it prices the candidate put at
+the current SPY spot AND at an assumed stressed spot
+(`spy_price * (1 - stress_move_fraction)`), and sizes the number of
+contracts from the *modeled option payoff* under that scenario — which
+captures the put's actual convexity (gamma) within the stress move,
+unlike a pure Delta-linear estimate. It still ignores theta decay and
+changes in implied volatility over the hedge's life, and the stress-move
+magnitude itself is a stated assumption, not derived from the VaR
+horizon — appropriate for a first-order daily hedge-sizing check, not a
 precise options risk model.
 """
 
 import logging
 import math
+from typing import Optional
 
 from scipy.stats import norm
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 CONTRACT_MULTIPLIER = 100  # one standard US equity option contract covers 100 shares
+DEFAULT_STRESS_MOVE_FRACTION = 0.07  # assumed SPY drawdown scenario used to size the hedge's payoff
 
 
 def calculate_bsm_d1_d2(
@@ -110,36 +115,51 @@ def calculate_spy_hedge(
     days_to_expiry: int = 30,
     implied_vol: float = 0.15,
     risk_free_rate: float = 0.04,
+    stress_move_fraction: float = DEFAULT_STRESS_MOVE_FRACTION,
+    hedge_budget_dollars: Optional[float] = None,
+    max_contracts: Optional[int] = None,
 ) -> int:
     """
-    Size a SPY put hedge intended to offset `portfolio_var_dollars` of
-    downside exposure, using the put's BSM Delta:
+    Size a SPY put hedge intended to cover `portfolio_var_dollars` of
+    downside exposure under an assumed SPY stress scenario, by pricing
+    the put at both the current spot and a stressed spot and sizing from
+    the modeled payoff difference (not a linear Delta approximation):
 
-        Contracts = portfolio_var_dollars / (abs(Put_Delta) * spy_price * 100)
+        stressed_spot     = spy_price * (1 - stress_move_fraction)
+        pnl_per_contract  = (BSM_put_price(stressed_spot, ...) - BSM_put_price(spy_price, ...)) * 100
+        contracts         = ceil(portfolio_var_dollars / pnl_per_contract)
 
-    i.e. each contract's dollar exposure per $1 move in SPY is
-    `abs(Put_Delta) * spy_price * 100` (100 shares/contract); dividing
-    the total dollar VaR by that per-contract sensitivity gives the
-    number of contracts whose combined Delta-hedge notional matches it.
+    Rounds UP (`ceil`, not floor) since the goal is to fully cover a
+    stated loss — under-hedging by a fraction of a contract defeats the
+    purpose. `hedge_budget_dollars`/`max_contracts`, if given, are then
+    applied as hard ceilings on top of that; either can leave the sized
+    hedge covering less than the full stated VaR — that's the point of
+    having a budget, not a bug.
 
     Args:
-        portfolio_var_dollars: Dollar amount of portfolio VaR to offset
+        portfolio_var_dollars: Dollar amount of portfolio VaR to cover
             (a positive number — the magnitude of the loss, not signed).
-        spy_price: Current SPY price, used both as the BSM spot price and
-            (via `strike_price`) to size each contract's exposure.
-        strike_price: Put strike price. Pass `spy_price` itself for an
-            at-the-money (ATM) hedge.
-        days_to_expiry: Days to the put's expiry (calendar days).
-        implied_vol: Assumed annualized implied volatility (decimal).
+        spy_price: Current SPY price (the BSM spot price).
+        strike_price: Put strike price — pass the *actual* listed
+            contract's strike, not a synthetic ATM value, once a real
+            contract has been selected (see
+            `src.trading.alpaca_execution.execute_spy_var_hedge`).
+        days_to_expiry: Days to the put's actual expiry (calendar days).
+        implied_vol: Assumed/observed annualized implied volatility (decimal).
         risk_free_rate: Assumed annualized risk-free rate (decimal).
+        stress_move_fraction: Assumed SPY drawdown scenario used to price
+            the stressed put, e.g. 0.07 == a 7% SPY decline. This is a
+            stated modeling assumption, not derived from the VaR horizon.
+        hedge_budget_dollars: Optional hard cap on total premium spent
+            (`contracts * current_put_price * 100`).
+        max_contracts: Optional hard cap on the number of contracts.
 
     Returns:
-        The integer number of put contracts to buy (floored, never
-        negative). Returns 0 for any non-positive/invalid input
-        (`portfolio_var_dollars`, `spy_price`, `strike_price`,
-        `days_to_expiry`, or `implied_vol` <= 0) rather than raising,
-        since "no hedge needed/possible" is a valid everyday outcome
-        (e.g. VaR is 0 because fewer than 2 holdings are priced).
+        The integer number of put contracts to buy (>= 0). Returns 0 for
+        any non-positive/invalid input, a non-positive modeled payoff
+        (e.g. `stress_move_fraction` outside `(0, 1)`), or a zero/negative
+        `hedge_budget_dollars` — "no hedge needed/possible" is a valid
+        everyday outcome (e.g. VaR is unavailable) rather than an error.
     """
     if (
         portfolio_var_dollars is None
@@ -150,30 +170,43 @@ def calculate_spy_hedge(
         or strike_price <= 0
         or days_to_expiry <= 0
         or implied_vol <= 0
+        or not (0 < stress_move_fraction < 1)
     ):
         return 0
 
     time_to_expiry_years = days_to_expiry / 365.0
-    put_delta = calculate_bsm_put_delta(
-        spot_price=spy_price,
-        strike_price=strike_price,
-        time_to_expiry_years=time_to_expiry_years,
-        risk_free_rate=risk_free_rate,
-        implied_vol=implied_vol,
+    current_put_price = calculate_bsm_put_price(
+        spy_price, strike_price, time_to_expiry_years, risk_free_rate, implied_vol
+    )
+    stressed_spot = spy_price * (1 - stress_move_fraction)
+    stressed_put_price = calculate_bsm_put_price(
+        stressed_spot, strike_price, time_to_expiry_years, risk_free_rate, implied_vol
     )
 
-    per_contract_exposure = abs(put_delta) * spy_price * CONTRACT_MULTIPLIER
-    if per_contract_exposure <= 0:
+    pnl_per_contract = (stressed_put_price - current_put_price) * CONTRACT_MULTIPLIER
+    if pnl_per_contract <= 0 or not math.isfinite(pnl_per_contract):
         return 0
 
-    contracts = portfolio_var_dollars / per_contract_exposure
-    if not math.isfinite(contracts):
+    raw_contracts = portfolio_var_dollars / pnl_per_contract
+    if not math.isfinite(raw_contracts):
         return 0
 
-    return int(math.floor(contracts))
+    contracts = math.ceil(raw_contracts)
+
+    if hedge_budget_dollars is not None:
+        if hedge_budget_dollars <= 0 or current_put_price <= 0:
+            return 0
+        max_affordable = math.floor(hedge_budget_dollars / (current_put_price * CONTRACT_MULTIPLIER))
+        contracts = min(contracts, max_affordable)
+
+    if max_contracts is not None:
+        contracts = min(contracts, max_contracts)
+
+    return max(contracts, 0)
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     var_dollars = 5_000.0
     spy_price = 580.0
     contracts = calculate_spy_hedge(var_dollars, spy_price, strike_price=spy_price)

@@ -13,11 +13,19 @@ import {
 } from "recharts";
 import type { TooltipContentProps } from "recharts";
 
-interface RiskMetrics {
+interface RiskMetricsOk {
+  status: "ok";
   var95: number;
   cvar95: number;
   asOf: string;
 }
+
+interface RiskMetricsUnavailable {
+  status: "unavailable";
+  asOf: string;
+}
+
+type RiskMetrics = RiskMetricsOk | RiskMetricsUnavailable;
 
 interface DistributionPoint {
   x: number;
@@ -125,7 +133,7 @@ export default function RiskHistogram() {
     };
   }, []);
 
-  const distribution = risk ? buildDistribution(risk.var95) : [];
+  const distribution = risk && risk.status === "ok" ? buildDistribution(risk.var95) : [];
 
   return (
     <div className="rounded-2xl border border-white/10 bg-white/[.03] p-6 sm:p-8">
@@ -158,7 +166,16 @@ export default function RiskHistogram() {
         </p>
       )}
 
-      {!isLoading && !error && risk && (
+      {!isLoading && !error && risk && risk.status === "unavailable" && (
+        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+          Portfolio VaR was unavailable for the most recent trading run (as of{" "}
+          {new Date(risk.asOf).toLocaleString()}) — not enough usable price history or the
+          simulation itself failed. This is not the same as zero risk; check the trading engine
+          logs for the specific cause.
+        </div>
+      )}
+
+      {!isLoading && !error && risk && risk.status === "ok" && (
         <>
           <div className="mb-6 grid grid-cols-2 gap-4">
             <RiskMetricCard label="1-Month 95% VaR" value={formatPercent(risk.var95)} />

@@ -2,8 +2,13 @@
 PostgreSQL telemetry for logging executed algorithmic trades.
 
 Connects to the database identified by the `DATABASE_URL` environment
-variable (e.g. postgresql://user:password@host:5432/dbname), ensures the
-`trade_logs` table exists, and inserts one row per executed trade.
+variable (e.g. postgresql://user:password@host:5432/dbname). Schema
+creation/migration is a separate, explicit step (`ensure_schema`) from
+logging a row: entry points call `ensure_schema()` exactly once per
+process, and `log_trade`/`log_backtest_curve` then just insert — they no
+longer run `CREATE TABLE`/`ALTER TABLE` on every single call, which
+previously meant a 4-statement DDL round-trip before every individual
+trade insert.
 
 This is telemetry, not a source of truth for portfolio state or order
 execution — Alpaca's own account/position endpoints remain authoritative.
@@ -19,7 +24,6 @@ import psycopg2
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 
 def _to_native_float(value: Optional[float]) -> Optional[float]:
@@ -89,6 +93,47 @@ VALUES (%s, %s, %s);
 """
 
 
+def _get_database_url() -> str:
+    load_dotenv()
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise RuntimeError(
+            "DATABASE_URL is not set. Add it to `.env` to enable database telemetry."
+        )
+    return database_url
+
+
+def ensure_schema() -> None:
+    """
+    Create/migrate every table this module writes to (`trade_logs`,
+    `backtest_curve`). Idempotent — every statement is `CREATE TABLE IF
+    NOT EXISTS` / `ADD COLUMN IF NOT EXISTS`, safe to call repeatedly and
+    never destructive to existing rows.
+
+    Entry points (`src.trading.alpaca_execution.main`,
+    `src.backtesting.historical_tester.run_backtest`) call this once at
+    process start; `log_trade`/`log_backtest_curve` assume the schema
+    already exists and do not run any DDL themselves.
+
+    Raises:
+        RuntimeError: If `DATABASE_URL` is not set.
+        psycopg2.Error: If the connection or a DDL statement fails.
+    """
+    database_url = _get_database_url()
+    conn = None
+    try:
+        conn = psycopg2.connect(database_url)
+        with conn.cursor() as cur:
+            cur.execute(CREATE_TABLE_SQL)
+            cur.execute(ALTER_TABLE_ADD_ALTMAN_Z_SQL)
+            cur.execute(ALTER_TABLE_ADD_VAR_CVAR_SQL)
+            cur.execute(CREATE_BACKTEST_CURVE_TABLE_SQL)
+        conn.commit()
+    finally:
+        if conn is not None:
+            conn.close()
+
+
 def log_trade(
     ticker: str,
     action: str,
@@ -105,13 +150,12 @@ def log_trade(
     Record one executed trade (or, for `var_95`/`cvar_95`, a portfolio-
     level risk snapshot) to the `trade_logs` Postgres table.
 
-    Connects using the `DATABASE_URL` environment variable, ensures the
-    table exists (`CREATE TABLE IF NOT EXISTS`), migrates it forward if
-    it already existed from before `altman_z_score` / `var_95` / `cvar_95`
-    were added (`ALTER TABLE ... ADD COLUMN IF NOT EXISTS`, a no-op if
-    already present and never destructive to existing rows), and inserts
-    a single row. `id` and `timestamp` are populated by the database
-    (auto-increment primary key and `NOW()` respectively) — not passed in.
+    Connects using the `DATABASE_URL` environment variable and inserts a
+    single row. Assumes the schema already exists — call `ensure_schema()`
+    once at process start before any `log_trade` calls; this function no
+    longer runs any `CREATE TABLE`/`ALTER TABLE` itself. `id` and
+    `timestamp` are populated by the database (auto-increment primary key
+    and `NOW()` respectively) — not passed in.
 
     Args:
         ticker: Stock ticker symbol, e.g. "AAPL".
@@ -136,20 +180,12 @@ def log_trade(
             catch this (and RuntimeError) rather than let a telemetry
             failure abort trade execution.
     """
-    load_dotenv()
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        raise RuntimeError(
-            "DATABASE_URL is not set. Add it to `.env` to enable trade telemetry logging."
-        )
+    database_url = _get_database_url()
 
     conn = None
     try:
         conn = psycopg2.connect(database_url)
         with conn.cursor() as cur:
-            cur.execute(CREATE_TABLE_SQL)
-            cur.execute(ALTER_TABLE_ADD_ALTMAN_Z_SQL)
-            cur.execute(ALTER_TABLE_ADD_VAR_CVAR_SQL)
             cur.execute(
                 INSERT_SQL,
                 (
@@ -183,10 +219,11 @@ def log_backtest_curve(
     Replace the `backtest_curve` Postgres table with a fresh equity-curve
     timeseries, read by the Next.js dashboard's backtest visualizer.
 
-    Ensures the table exists, clears any previously logged curve
-    (`TRUNCATE TABLE`), and inserts one row per date. A backtest run is
-    a full replacement of "the" curve, not an append — there is only
-    ever one current curve for the frontend to display.
+    Clears any previously logged curve (`TRUNCATE TABLE`) and inserts one
+    row per date. A backtest run is a full replacement of "the" curve,
+    not an append — there is only ever one current curve for the frontend
+    to display. Assumes the schema already exists — call `ensure_schema()`
+    once at process start; this function no longer runs `CREATE TABLE` itself.
 
     Args:
         dates: ISO date strings (e.g. "2024-08-01"), one per data point,
@@ -208,18 +245,12 @@ def log_backtest_curve(
             "log_backtest_curve: dates, strategy_values, and spy_values must be the same length."
         )
 
-    load_dotenv()
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        raise RuntimeError(
-            "DATABASE_URL is not set. Add it to `.env` to enable backtest curve logging."
-        )
+    database_url = _get_database_url()
 
     conn = None
     try:
         conn = psycopg2.connect(database_url)
         with conn.cursor() as cur:
-            cur.execute(CREATE_BACKTEST_CURVE_TABLE_SQL)
             cur.execute(TRUNCATE_BACKTEST_CURVE_SQL)
             cur.executemany(
                 INSERT_BACKTEST_CURVE_SQL,

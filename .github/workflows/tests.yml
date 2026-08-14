@@ -1,0 +1,44 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Same Python version as .github/workflows/rebalance.yml (the
+      # scheduled live-execution workflow) — dependency resolution and
+      # test behavior should be verified against the version that
+      # actually runs in production, not whatever's on a contributor's
+      # machine.
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Compile check
+        run: python -m compileall -q src tests
+
+      - name: Pyflakes
+        run: pyflakes src tests
+
+      # No `.env` exists in CI and none of the secrets rebalance.yml uses
+      # are provided here on purpose — this workflow must never be able
+      # to reach a real Postgres/Alpaca/Redis/yfinance endpoint.
+      # tests/conftest.py's isolation fixtures (poisoned credentials,
+      # blocked sockets, blocked psycopg2/TradingClient/yfinance
+      # construction) are the actual enforcement; running with no
+      # secrets configured is defense in depth on top of that, not a
+      # substitute for it.
+      - name: Run tests
+        run: python -m pytest -q
