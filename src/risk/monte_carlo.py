@@ -45,6 +45,41 @@ per-asset, per-simulated-path) BEFORE weighting/summing into a portfolio
 return — never the other way around. `_summarize` receives, and reports,
 already-simple portfolio returns; it does not itself perform any
 log-to-simple conversion.
+
+Missing-history weights: renormalize survivors, or refuse
+------------------------------------------------------------
+A ticker `_log_returns_by_ticker` can't fetch usable history for (a
+delisted symbol, an outage, too few closes) is dropped from the return
+matrix — but it may still carry a real, non-zero portfolio weight; it
+is a genuine risky position we simply couldn't model, not the same
+thing as cash (which was never in `holdings` to begin with and
+correctly contributes zero risk by its absence). Leaving the survivors'
+weights at their ORIGINAL values after a drop would silently treat the
+dropped ticker as if it had zero return AND zero weight simultaneously,
+scaling the simulated portfolio return — and therefore VaR/CVaR — down
+by whatever fraction of weight vanished, understating risk without any
+signal that anything was excluded.
+
+`calculate_portfolio_var` instead applies one explicit, two-part policy,
+applied identically before branching into either the univariate or
+multivariate path (never duplicated per-path):
+
+    1. Coverage floor (`MIN_PORTFOLIO_COVERAGE_FRACTION`, mirroring
+       `src.api.sector_medians.MIN_OVERALL_COVERAGE_FRACTION`'s same
+       "how much data loss is tolerable before the result can't be
+       trusted" role): if the SURVIVING tickers' combined weight is less
+       than this fraction of the ORIGINAL requested weight
+       (`sum(holdings.values())`), too much of the portfolio is
+       unmodeled to say anything meaningful — status "insufficient_data",
+       not a number computed from an unrepresentative remnant.
+    2. Otherwise, survivors are renormalized so their weights sum to the
+       ORIGINAL total requested weight (not hardcoded to 1.0) —
+       redistributing exactly the weight lost to missing-history
+       exclusions across the tickers that CAN be modeled, while leaving
+       any genuine cash/unallocated headroom (weight that was never in
+       `holdings`) untouched. When nothing was dropped, this scale
+       factor is exactly 1.0 — a complete-data portfolio's result is
+       therefore bit-for-bit unaffected by this policy.
 """
 
 import logging
@@ -66,6 +101,15 @@ VAR_LOOKBACK_TRADING_DAYS = 252  # ~1 trading year
 DEFAULT_SIMULATIONS = 10_000
 DEFAULT_HORIZON_DAYS = 21  # ~1 trading month
 VAR_TAIL_PERCENTILE = 5  # 95% VaR/CVaR => 5th percentile of the return distribution
+
+# Minimum fraction of the ORIGINAL requested portfolio weight
+# (sum(holdings.values())) that must survive with usable price history
+# before a result is trusted at all — below this, too much of the
+# portfolio is unmodeled for renormalizing the remainder to be a
+# meaningful stand-in for the whole. Mirrors
+# `src.api.sector_medians.MIN_OVERALL_COVERAGE_FRACTION`'s identical
+# role (a systemic, run-level data-loss guard, not a per-asset check).
+MIN_PORTFOLIO_COVERAGE_FRACTION = 0.5
 
 
 @dataclass
@@ -267,7 +311,12 @@ def calculate_portfolio_var(
             a fresh, non-deterministic generator.
 
     Returns:
-        A `VaRResult`. See the class docstring for the status/units contract.
+        A `VaRResult`. See the class docstring for the status/units
+        contract. Also "insufficient_data" (never a silently-understated
+        "ok" result) if fewer than MIN_PORTFOLIO_COVERAGE_FRACTION of the
+        original requested weight retains usable price history, or if no
+        surviving ticker has a positive weight at all — see the module
+        docstring's "Missing-history weights" section.
 
     Raises:
         ValueError: `simulations`/`horizon_days` aren't positive, or any
@@ -305,8 +354,46 @@ def calculate_portfolio_var(
         )
 
     rng = rng if rng is not None else np.random.default_rng()
+    # Exactly the same ticker order as the usable return matrix's own
+    # columns — weights are built FROM this list, never from a separately
+    # iterated collection, so a weight can never end up misaligned with
+    # the return column it's meant to pair with.
     tickers = list(returns_df.columns)
-    weights = np.array([holdings[ticker] for ticker in tickers])
+
+    total_requested_weight = float(sum(holdings.values()))
+    surviving_weights = np.array([holdings[ticker] for ticker in tickers], dtype=float)
+    surviving_weight_sum = float(surviving_weights.sum())
+
+    if not math.isfinite(surviving_weight_sum) or surviving_weight_sum <= 0:
+        return VaRResult(
+            status="insufficient_data",
+            message=(
+                "No ticker with usable price history retained a positive portfolio weight "
+                "after excluding assets that lacked it."
+            ),
+        )
+
+    coverage = surviving_weight_sum / total_requested_weight
+    if coverage < MIN_PORTFOLIO_COVERAGE_FRACTION:
+        return VaRResult(
+            status="insufficient_data",
+            message=(
+                f"Only {coverage:.0%} of the requested portfolio weight had usable price "
+                f"history (minimum {MIN_PORTFOLIO_COVERAGE_FRACTION:.0%}) — refusing to "
+                "compute VaR from an unrepresentative subset of the portfolio."
+            ),
+        )
+
+    # Renormalize survivors to sum to the ORIGINAL total requested weight
+    # — not hardcoded to 1.0 — redistributing exactly the weight lost to
+    # missing-history exclusions across the tickers that CAN be modeled,
+    # while leaving any genuine cash/unallocated headroom (weight that
+    # was never in `holdings`) untouched. When nothing was dropped this
+    # scale factor is exactly 1.0, a no-op, so a complete-data portfolio's
+    # result is unaffected. Feeds identically into both the univariate
+    # and multivariate paths below — the policy is applied exactly once,
+    # never duplicated per path.
+    weights = surviving_weights * (total_requested_weight / surviving_weight_sum)
 
     if len(tickers) == 1:
         return _simulate_univariate(returns_df.iloc[:, 0], float(weights[0]), simulations, horizon_days, rng)
