@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Pool } from "pg";
 import {
   getTickerSentimentAndMacro,
@@ -7,6 +8,8 @@ import {
   type TickerSentiment,
 } from "@/lib/sentiment";
 import { cacheAside } from "@/lib/redis";
+import { requireSession } from "@/lib/auth";
+import { safeHeadlineHref } from "@/lib/headline-links";
 
 // Always query live — a tear sheet is a point-in-time snapshot of the
 // latest trade telemetry, never a cacheable resource.
@@ -157,14 +160,16 @@ function HeadlineList({ headlines }: { headlines: Headline[] }) {
 
   return (
     <ul className="space-y-3">
-      {headlines.map((headline, index) => (
+      {headlines.map((headline, index) => {
+        const href = safeHeadlineHref(headline.link);
+        return (
         <li
           key={`${headline.link ?? headline.title}-${index}`}
           className="border-b border-white/5 pb-3 last:border-0 last:pb-0"
         >
-          {headline.link ? (
+          {href ? (
             <a
-              href={headline.link}
+              href={href}
               target="_blank"
               rel="noopener noreferrer"
               className="text-sm font-medium text-neutral-200 transition-colors hover:text-emerald-400"
@@ -180,7 +185,8 @@ function HeadlineList({ headlines }: { headlines: Headline[] }) {
             {headline.publishedAt && <span>{formatTimestamp(headline.publishedAt)}</span>}
           </div>
         </li>
-      ))}
+        );
+      })}
     </ul>
   );
 }
@@ -238,6 +244,16 @@ export default async function TickerTearSheetPage({
 }: {
   params: Promise<{ symbol: string }>;
 }) {
+  // Defense in depth: this page queries Postgres/Redis directly (see
+  // `getLatestTrade`/`cacheAside` below) rather than going through an
+  // already-protected API route, so it must not rely solely on
+  // `src/proxy.ts` for authentication — a matcher change or refactor
+  // there must not silently expose trade telemetry. Same session check
+  // as every private API route (`src/lib/auth.ts#requireSession`).
+  if (!(await requireSession())) {
+    redirect("/login");
+  }
+
   const { symbol } = await params;
   const ticker = symbol.toUpperCase();
   const [trade, sentiment] = await Promise.all([

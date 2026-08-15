@@ -49,6 +49,9 @@ def _synthetic_financial_data() -> dict:
     }
 
 
+TEST_SERVICE_TOKEN = "test-service-token-do-not-use-in-prod"  # noqa: S105 - test-only fixture value
+
+
 @pytest.fixture
 def client(monkeypatch):
     monkeypatch.setattr(api_main, "fetch_company_financials", lambda ticker: _synthetic_financial_data())
@@ -56,7 +59,10 @@ def client(monkeypatch):
     monkeypatch.setattr(
         api_main, "get_sector_median_price_to_intrinsic", lambda sector, assumptions=None: (None, "no cache in test")
     )
-    return TestClient(api_main.app)
+    monkeypatch.setenv(api_main.VALUATION_API_TOKEN_ENV_VAR, TEST_SERVICE_TOKEN)
+    test_client = TestClient(api_main.app)
+    test_client.headers.update({"Authorization": f"Bearer {TEST_SERVICE_TOKEN}"})
+    return test_client
 
 
 class TestHistoricalVsCustomAssumptionMode:

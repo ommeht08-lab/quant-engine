@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireSession } from "@/lib/auth";
+import { assertSafeAlpacaBaseUrl } from "@/lib/alpaca-url";
 
 // Always hit Alpaca live — this is a live account snapshot, never a
 // cacheable resource.
@@ -43,10 +44,11 @@ export interface PositionsPayload {
 function getAlpacaConfig(): AlpacaConfig {
   const apiKey = process.env.APCA_API_KEY_ID;
   const secretKey = process.env.APCA_API_SECRET_KEY;
-  const baseUrl = process.env.APCA_API_BASE_URL;
-  if (!apiKey || !secretKey || !baseUrl) {
+  const rawBaseUrl = process.env.APCA_API_BASE_URL;
+  if (!apiKey || !secretKey || !rawBaseUrl) {
     throw new Error("Alpaca API credentials are not configured for this deployment.");
   }
+  const baseUrl = assertSafeAlpacaBaseUrl(rawBaseUrl);
   return { apiKey, secretKey, baseUrl };
 }
 
@@ -85,9 +87,12 @@ export async function GET() {
   try {
     config = getAlpacaConfig();
   } catch (error) {
+    // Logged server-side only; the error message itself never contains
+    // the actual credential/URL values, only a description of which
+    // configuration requirement wasn't met.
     console.error(error);
     return NextResponse.json(
-      { error: "Alpaca API credentials are not configured for this deployment." },
+      { error: "Alpaca API is not configured correctly for this deployment." },
       { status: 500 }
     );
   }

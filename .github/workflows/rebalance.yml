@@ -1,21 +1,39 @@
 name: Daily Portfolio Rebalance
 
+# Manual-only while security/governance hardening is underway (see
+# docs/security-threat-model.md). This previously ran automatically on
+# a weekday `schedule` trigger, submitting real (paper) orders with no
+# human decision point per run — that trigger is intentionally removed
+# here. Re-enabling an automated schedule is a deliberate follow-up
+# decision for the repository owner once hardening/validation is
+# complete, not something this branch does on its own.
 "on":
-  schedule:
-    # 45 19 * * 1-5 = 19:45 UTC, Monday-Friday (3:45 PM EDT / 2:45 PM EST).
-    - cron: '45 19 * * 1-5'
   workflow_dispatch:
+    inputs:
+      execute:
+        description: >-
+          Leave as "dry-run" (the default) to scan and print every order
+          that WOULD be placed, without submitting anything. Select
+          "execute" to actually submit real (paper-only — see
+          PAPER_TRADING_HOSTNAME in src/trading/alpaca_execution.py,
+          which this workflow cannot override) orders. This input is the
+          ONLY way this workflow ever submits an order.
+        required: false
+        type: choice
+        default: dry-run
+        options:
+          - dry-run
+          - execute
 
-# Only one rebalance run (of any trigger — scheduled or manual) may be
-# in flight at a time. Without this, a manual `workflow_dispatch` fired
-# while the scheduled run is still executing (or two overlapping manual
-# runs) could each independently liquidate/rebalance/hedge against the
-# same account concurrently — the in-process duplicate-order guards
-# (`_open_order_symbols`/`_is_duplicate_submission` in
-# src/trading/alpaca_execution.py) only protect within a single run, not
-# across two runs racing each other. `cancel-in-progress: false` — never
-# cancel a run that may already be mid-way through submitting real
-# orders; a new run simply waits for the current one to finish instead.
+# Only one rebalance run (of any trigger) may be in flight at a time.
+# Without this, two overlapping manual runs could each independently
+# liquidate/rebalance/hedge against the same account concurrently — the
+# in-process duplicate-order guards (`_open_order_symbols`/
+# `_is_duplicate_submission` in src/trading/alpaca_execution.py) only
+# protect within a single run, not across two runs racing each other.
+# `cancel-in-progress: false` — never cancel a run that may already be
+# mid-way through submitting real orders; a new run simply waits for the
+# current one to finish instead.
 concurrency:
   group: rebalance
   cancel-in-progress: false
@@ -67,12 +85,27 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run live trading execution
+      - name: Run rebalance (dry-run unless "execute" is explicitly selected)
         env:
+          # Needed in EVERY mode: even a dry run reads the real (paper
+          # -only) account/positions to show what it WOULD do — see
+          # `main()`'s use of `trading_client.get_account()` in
+          # src/trading/alpaca_execution.py, which runs regardless of
+          # --dry-run.
           APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
           APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
           APCA_API_BASE_URL: ${{ secrets.APCA_API_BASE_URL }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
-          UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
-        run: python -m src.trading.alpaca_execution
+          # Only needed for a REAL run's trade-telemetry logging — the
+          # dry-run code path never calls ensure_schema()/log_trade, so
+          # these secrets are absent from the job's environment (empty
+          # string, not the real value) unless "execute" was explicitly
+          # selected.
+          DATABASE_URL: ${{ github.event.inputs.execute == 'execute' && secrets.DATABASE_URL || '' }}
+          UPSTASH_REDIS_REST_URL: ${{ github.event.inputs.execute == 'execute' && secrets.UPSTASH_REDIS_REST_URL || '' }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ github.event.inputs.execute == 'execute' && secrets.UPSTASH_REDIS_REST_TOKEN || '' }}
+        run: |
+          if [ "${{ github.event.inputs.execute }}" = "execute" ]; then
+            python -m src.trading.alpaca_execution
+          else
+            python -m src.trading.alpaca_execution --dry-run
+          fi

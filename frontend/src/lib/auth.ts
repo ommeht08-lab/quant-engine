@@ -1,6 +1,12 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { cookies } from "next/headers";
 
+import {
+  assertSecretMeetsRequirements,
+  DASHBOARD_PASSWORD_REQUIREMENT,
+  SESSION_SECRET_REQUIREMENT,
+} from "@/lib/secret-validation";
+
 /**
  * Shared-passphrase session gate for this dashboard.
  *
@@ -23,13 +29,24 @@ const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 function getSessionSecret(): string {
   const secret = process.env.SESSION_SECRET;
-  if (!secret) {
-    throw new Error(
-      "SESSION_SECRET is not set. Add it to `frontend/.env.local` (see .env.local.example) — " +
-        "it signs the dashboard's session cookie and must be a long random value."
-    );
-  }
+  assertSecretMeetsRequirements(secret, SESSION_SECRET_REQUIREMENT);
   return secret;
+}
+
+/**
+ * Derive a domain-separated subkey from `SESSION_SECRET` for a use
+ * OTHER than signing the session cookie — e.g. the login rate
+ * limiter's client-identifier HMAC
+ * (`src/lib/client-identifier.ts`/`src/app/login/actions.ts`).
+ *
+ * `SESSION_SECRET` itself is never reused directly as a second HMAC
+ * key for an unrelated purpose: HMACing it with a fixed, purpose-
+ * specific `label` keeps the two uses cryptographically independent, so
+ * a weakness or environment specific to one use case can't retroactively
+ * compromise the other. Every caller MUST use a distinct, stable label.
+ */
+export function deriveSubkey(label: string): string {
+  return createHmac("sha256", getSessionSecret()).update(label).digest("hex");
 }
 
 function sign(payload: string): string {
@@ -76,11 +93,7 @@ export function verifySessionToken(token: string | undefined | null): boolean {
  */
 export function verifyPassword(candidate: string): boolean {
   const configured = process.env.DASHBOARD_PASSWORD;
-  if (!configured) {
-    throw new Error(
-      "DASHBOARD_PASSWORD is not set. Add it to `frontend/.env.local` (see .env.local.example)."
-    );
-  }
+  assertSecretMeetsRequirements(configured, DASHBOARD_PASSWORD_REQUIREMENT);
 
   const actual = Buffer.from(candidate);
   const expected = Buffer.from(configured);

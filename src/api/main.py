@@ -5,13 +5,29 @@ Run locally with:
     uvicorn src.api.main:app --reload
 
 See the README for full setup and usage instructions.
+
+This service is called server-to-server only, by the Next.js app's
+`/api/evaluate/[ticker]` Route Handler (never directly by a browser) —
+see that route's docstring for why. Accordingly:
+
+  - There is no CORS middleware. No browser origin is ever meant to
+    fetch this API directly, so no `Access-Control-Allow-Origin` header
+    (wildcard or otherwise) is served; a browser attempting a
+    cross-origin request is blocked by the browser's own same-origin
+    policy with no cooperation needed from this app.
+  - `/api/evaluate/{ticker}` requires a `VALUATION_API_TOKEN` bearer
+    token (see `require_service_token` below), known only to this
+    service and the Next.js server. `/` is the only endpoint left
+    public, as a minimal liveness/health check.
 """
 
+import hmac
 import logging
+import os
 from typing import List, Optional
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
+from dotenv import load_dotenv
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel
 
 from src.api.sector_medians import get_sector_median_price_to_intrinsic
@@ -25,21 +41,85 @@ logger = logging.getLogger(__name__)
 # block to gate this behind the way the other two entry-point scripts do).
 logging.basicConfig(level=logging.INFO)
 
+load_dotenv()
+
+VALUATION_API_TOKEN_ENV_VAR = "VALUATION_API_TOKEN"
+
+# Kept in exact sync with frontend/src/lib/secret-validation.ts's
+# VALUATION_API_TOKEN_REQUIREMENT — both sides validate the SAME token
+# against the SAME requirements (format/placeholder/minimum-length only;
+# neither side measures or claims to measure entropy — see that file's
+# top-of-file comment), so a value either side would accept is never one
+# the other side would reject (and vice versa). If either changes,
+# change both.
+VALUATION_API_TOKEN_MIN_LENGTH = 32
+_KNOWN_PLACEHOLDER_TOKEN_VALUES = frozenset({"replace-with-a-long-random-value"})
+
 app = FastAPI(
     title="Automated Corporate Finance Valuation Engine",
     description="DCF-based intrinsic valuation API.",
     version="0.1.0",
 )
 
-# Allow all origins for now. This API is intended to be consumed by a
-# separate Next.js frontend, whose origin isn't known/fixed yet.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+
+def _configured_service_token_or_none() -> Optional[str]:
+    """
+    The configured `VALUATION_API_TOKEN`, or `None` if it fails any of
+    this codebase's baseline secret-format checks (mirrored exactly on
+    the frontend side — see the module-level comment above): unset,
+    whitespace-only, surrounded by leading/trailing whitespace, still
+    the literal example placeholder from `.env.example`, a single
+    character repeated to reach the length requirement, or shorter than
+    `VALUATION_API_TOKEN_MIN_LENGTH`. Any of these means this deployment
+    does not actually have a usable service token configured, and every
+    protected request must be refused the same way a genuinely-unset
+    token would be (see `require_service_token`).
+    """
+    configured_token = os.getenv(VALUATION_API_TOKEN_ENV_VAR)
+    if not configured_token:
+        return None
+    if configured_token.strip() == "":
+        return None
+    if configured_token != configured_token.strip():
+        return None
+    if configured_token in _KNOWN_PLACEHOLDER_TOKEN_VALUES:
+        return None
+    if len(set(configured_token)) == 1:
+        return None
+    if len(configured_token) < VALUATION_API_TOKEN_MIN_LENGTH:
+        return None
+    return configured_token
+
+
+async def require_service_token(authorization: Optional[str] = Header(default=None)) -> None:
+    """
+    FastAPI dependency enforcing the service-to-service bearer token on
+    every route it's attached to. The token travels as `Authorization:
+    Bearer <token>` and is compared with `hmac.compare_digest` (constant
+    time — a naive `==` would leak how many leading bytes matched via
+    response-time differences).
+
+    Fails closed: if `VALUATION_API_TOKEN` fails any check in
+    `_configured_service_token_or_none` (unset, blank/whitespace-padded,
+    still the `.env.example` placeholder, a single repeated character,
+    or shorter than `VALUATION_API_TOKEN_MIN_LENGTH`), every request to
+    a protected route is rejected (503, "not configured") rather than
+    silently allowing unauthenticated access or accepting an obviously-
+    not-a-real-secret token. Error details never include the configured
+    or presented token value.
+    """
+    configured_token = _configured_service_token_or_none()
+    if configured_token is None:
+        raise HTTPException(
+            status_code=503, detail="Valuation API authentication is not configured on this deployment."
+        )
+
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or malformed Authorization header.")
+
+    presented_token = authorization[len("Bearer "):]
+    if not hmac.compare_digest(presented_token, configured_token):
+        raise HTTPException(status_code=401, detail="Invalid service token.")
 
 
 class FreeCashFlowYear(BaseModel):
@@ -80,7 +160,7 @@ def read_root() -> dict:
     return {"status": "ok", "service": "valuation-engine-api"}
 
 
-@app.get("/api/evaluate/{ticker}", response_model=EvaluationResponse)
+@app.get("/api/evaluate/{ticker}", response_model=EvaluationResponse, dependencies=[Depends(require_service_token)])
 def evaluate_ticker(
     ticker: str,
     revenue_growth_rate: Optional[float] = Query(

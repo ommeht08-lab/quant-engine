@@ -2009,9 +2009,10 @@ def main() -> None:
     args = parser.parse_args()
 
     # Fails closed (raises RuntimeError -> sys.exit(1) below) unless
-    # APCA_API_BASE_URL is Alpaca's paper endpoint, or the explicit
-    # live-trading opt-in is set. No TradingClient is constructed before
-    # this check, and no scan runs either.
+    # APCA_API_BASE_URL is exactly Alpaca's paper endpoint — see
+    # `load_config`'s docstring: there is no bypass of any kind. No
+    # TradingClient is constructed before this check, and no scan runs
+    # either.
     config = load_config()
     trading_client = build_trading_client(config)
 

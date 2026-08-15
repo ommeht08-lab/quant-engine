@@ -1,9 +1,11 @@
 """
 Group K: CI workflow configuration contract.
 
-`.github/workflows/rebalance.yml` is the scheduled LIVE-execution
-workflow — a failing/reverted-isolation test suite must not be able to
-still fire real orders. This is checked via plain text/structural
+`.github/workflows/rebalance.yml` is the manual-only, dry-run-by-default
+LIVE-execution workflow — a failing/reverted-isolation test suite must
+not be able to still fire real orders, and real order submission must
+require an explicit `workflow_dispatch` "execute" selection (there is no
+automatic `schedule` trigger). This is checked via plain text/structural
 parsing (no PyYAML dependency added just for this) since the file's
 shape is simple and stable: two jobs (`test`, `execute_trades`), a
 `needs:` edge between them, and production secrets confined to the
@@ -47,13 +49,27 @@ def _job_block(content: str, job_name: str) -> str:
 
 
 class TestScheduleAndTriggerPreserved:
-    def test_cron_schedule_is_preserved(self):
+    def test_no_automatic_schedule_trigger(self):
+        """Manual-only while security/governance hardening is underway
+        (see the workflow file's own top-of-file comment and
+        docs/security-threat-model.md) — a `schedule:`/`cron:` trigger
+        previously let this workflow submit real paper orders
+        automatically, with no human decision point per run."""
         content = _read_workflow()
-        assert "cron: '45 19 * * 1-5'" in content
+        assert "schedule:" not in content
+        assert "cron:" not in content
 
     def test_manual_dispatch_trigger_is_preserved(self):
         content = _read_workflow()
         assert "workflow_dispatch:" in content
+
+    def test_manual_dispatch_defaults_to_dry_run(self):
+        content = _read_workflow()
+        assert "default: dry-run" in content
+
+    def test_manual_dispatch_offers_an_explicit_execute_option(self):
+        content = _read_workflow()
+        assert "- execute" in content
 
 
 class TestConcurrencyGuard:

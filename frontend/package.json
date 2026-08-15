@@ -6,7 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test:security": "node --test src/lib/*.test.ts",
+    "test": "npm run test:security"
+  },
+  "engines": {
+    "node": ">=23.6.0"
   },
   "dependencies": {
     "@upstash/redis": "^1.38.2",
