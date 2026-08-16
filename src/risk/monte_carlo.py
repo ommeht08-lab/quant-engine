@@ -112,6 +112,27 @@ VAR_TAIL_PERCENTILE = 5  # 95% VaR/CVaR => 5th percentile of the return distribu
 MIN_PORTFOLIO_COVERAGE_FRACTION = 0.5
 
 
+def _coerce_positive_int(value) -> Optional[int]:
+    """
+    Return `value` as a genuine positive `int` if it is a whole number
+    greater than zero — an `int`, or a `float` with no fractional part
+    (e.g. `10.0`) and not NaN/infinity — and not a `bool` (a `bool` is
+    technically an `int` subclass in Python; silently treating
+    `True`/`False` as `1`/`0` here would be an easy, real mistake).
+    Returns `None` for anything else: a fractional float (e.g. `10.5`,
+    the exact reproduced defect for `simulations`), NaN, +/-infinity, a
+    non-positive value, a bool, or a non-numeric type.
+    """
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, float) and math.isfinite(value) and value.is_integer():
+        whole = int(value)
+        return whole if whole > 0 else None
+    return None
+
+
 @dataclass
 class VaRResult:
     """
@@ -319,15 +340,26 @@ def calculate_portfolio_var(
         docstring's "Missing-history weights" section.
 
     Raises:
-        ValueError: `simulations`/`horizon_days` aren't positive, or any
-            holdings weight is negative or non-finite — these are caller
-            bugs, distinct from the `"insufficient_data"`/`"error"`
-            statuses used for ordinary real-world data gaps.
+        ValueError: `simulations`/`horizon_days` aren't a genuine positive
+            whole number (this includes non-finite values like NaN/
+            infinity, fractional values like `10.5`, and bools — see
+            `_coerce_positive_int`), or any holdings weight is negative
+            or non-finite — these are caller bugs, distinct from the
+            `"insufficient_data"`/`"error"` statuses used for ordinary
+            real-world data gaps. Raised here, up front, before any
+            network/cache-backed lookup runs — never leaked as an
+            internal NumPy `TypeError` from deep inside the simulation
+            call after that work has already happened.
     """
-    if simulations <= 0:
-        raise ValueError("simulations must be a positive integer.")
-    if horizon_days <= 0:
-        raise ValueError("horizon_days must be a positive integer.")
+    validated_simulations = _coerce_positive_int(simulations)
+    if validated_simulations is None:
+        raise ValueError(f"simulations must be a positive integer, got {simulations!r}.")
+    simulations = validated_simulations
+
+    validated_horizon_days = _coerce_positive_int(horizon_days)
+    if validated_horizon_days is None:
+        raise ValueError(f"horizon_days must be a positive integer, got {horizon_days!r}.")
+    horizon_days = validated_horizon_days
 
     if not holdings:
         return VaRResult(status="insufficient_data", message="No holdings provided.")

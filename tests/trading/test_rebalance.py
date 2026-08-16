@@ -250,6 +250,84 @@ class TestPostFillCapEnforcement:
         assert result is False
         assert len(client.submitted_orders) == 1  # the trim was attempted
 
+    def test_tiny_partial_fill_remains_over_cap_and_reports_incomplete(self, monkeypatch):
+        """
+        Regression for Finding 1: a partial fill must be judged by its
+        CONFIRMED notional, never treated as proof the cap was restored
+        just because the fill was positive. weight = 20_000/100_000 =
+        20% > 15% cap; a full trim needs $5,000. Here only 1 share @
+        $100 actually fills — remaining weight is still ~19.9%, nowhere
+        near the 15% cap — so this must be reported incomplete.
+        """
+        position = make_position("AAPL", qty=200, market_value=20_000.0, current_price=100.0)
+        client = FakeTradingClient(positions=[position])
+        monkeypatch.setattr(engine, "_safe_log_trade", lambda **kwargs: None)
+        client.script_fill(
+            "AAPL", statuses=[OrderStatus.FILLED], filled_qtys=[1.0], filled_avg_prices=[100.0]
+        )
+
+        result = engine._check_post_fill_caps(
+            client, {"AAPL": position}, equity=100_000.0, top_picks=[_pick("AAPL")], dry_run=False,
+            open_order_symbols=set(),
+        )
+
+        assert result is False
+        assert len(client.submitted_orders) == 1  # the trim was attempted, just insufficient
+
+    def test_sufficient_partial_fill_reaches_the_cap(self, monkeypatch):
+        """
+        A partial fill whose CONFIRMED notional actually covers the
+        required trim amount must still report complete — the fix must
+        not become "any partial fill is incomplete," only "an
+        insufficient one is."
+        """
+        position = make_position("AAPL", qty=200, market_value=20_000.0, current_price=100.0)
+        client = FakeTradingClient(positions=[position])
+        monkeypatch.setattr(engine, "_safe_log_trade", lambda **kwargs: None)
+        # 50 shares @ $100 = exactly the $5,000 required to reach the cap.
+        client.script_fill(
+            "AAPL", statuses=[OrderStatus.FILLED], filled_qtys=[50.0], filled_avg_prices=[100.0]
+        )
+
+        result = engine._check_post_fill_caps(
+            client, {"AAPL": position}, equity=100_000.0, top_picks=[_pick("AAPL")], dry_run=False,
+            open_order_symbols=set(),
+        )
+
+        assert result is True
+
+    def test_pending_trim_order_reports_incomplete(self, monkeypatch):
+        """A trim SELL still non-terminal after the full polling window must report incomplete, not filled."""
+        position = make_position("AAPL", qty=200, market_value=20_000.0, current_price=100.0)
+        client = FakeTradingClient(positions=[position])
+        monkeypatch.setattr(engine.time, "sleep", lambda *_: None)
+        client.script_fill(
+            "AAPL",
+            statuses=[OrderStatus.NEW] * engine.ORDER_POLL_MAX_ATTEMPTS,
+            filled_qtys=[0.0] * engine.ORDER_POLL_MAX_ATTEMPTS,
+            filled_avg_prices=[None] * engine.ORDER_POLL_MAX_ATTEMPTS,
+        )
+
+        result = engine._check_post_fill_caps(
+            client, {"AAPL": position}, equity=100_000.0, top_picks=[_pick("AAPL")], dry_run=False,
+            open_order_symbols=set(),
+        )
+
+        assert result is False
+
+    def test_unconfirmed_trim_order_reports_incomplete(self, monkeypatch):
+        """If the order's status can't be confirmed at all (lookup failure), must report incomplete."""
+        position = make_position("AAPL", qty=200, market_value=20_000.0, current_price=100.0)
+        client = FakeTradingClient(positions=[position])
+        monkeypatch.setattr(engine, "_await_order_resolution", lambda *a, **k: None)
+
+        result = engine._check_post_fill_caps(
+            client, {"AAPL": position}, equity=100_000.0, top_picks=[_pick("AAPL")], dry_run=False,
+            open_order_symbols=set(),
+        )
+
+        assert result is False
+
     def test_sector_breach_across_multiple_positions_is_not_auto_corrected(self):
         # Each position is individually within MAX_POSITION_WEIGHT (10% each),
         # but three of them in the same sector sum to 30% > MAX_SECTOR_WEIGHT (25%).
@@ -303,6 +381,196 @@ class TestPostFillCapEnforcement:
         assert order.symbol == "T0"
         assert order.side.value == "sell"
         assert order.notional == pytest.approx(5_000.0)  # 20_000 - (0.15 * 100_000)
+
+
+class TestPostFillCapNotionalTolerance:
+    """
+    Regression for Track A Phase 1.5B discrepancy 4: the post-trim
+    tolerance must be a small, fixed DOLLAR amount (one cent + a
+    float-precision epsilon), never a fixed WEIGHT-FRACTION percentage
+    that scales into real dollars on a larger account. All scenarios use
+    a $100,000 equity account: MAX_POSITION_WEIGHT (15%) caps a position
+    at $15,000; a position starting at $20,000 (20%) needs a $5,000 trim.
+    """
+
+    @staticmethod
+    def _scripted_position_and_client(filled_qty, filled_price=100.0):
+        position = make_position("AAPL", qty=200, market_value=20_000.0, current_price=100.0)
+        client = FakeTradingClient(positions=[position])
+        client.script_fill(
+            "AAPL", statuses=[OrderStatus.FILLED], filled_qtys=[filled_qty], filled_avg_prices=[filled_price]
+        )
+        return position, client
+
+    def test_remaining_value_exactly_at_the_cap_reports_complete(self, monkeypatch):
+        """Trim fills exactly $5,000 (50 shares @ $100) -- remaining lands exactly at the $15,000 cap."""
+        monkeypatch.setattr(engine, "_safe_log_trade", lambda **kwargs: None)
+        position, client = self._scripted_position_and_client(filled_qty=50.0)
+
+        result = engine._check_post_fill_caps(
+            client, {"AAPL": position}, equity=100_000.0, top_picks=[_pick("AAPL")], dry_run=False,
+            open_order_symbols=set(),
+        )
+
+        assert result is True
+
+    def test_sub_cent_rounding_residual_reports_complete(self, monkeypatch):
+        """A fraction-of-a-cent residual ($0.005 over cap) is pure float noise, not a real shortfall."""
+        monkeypatch.setattr(engine, "_safe_log_trade", lambda **kwargs: None)
+        # 49.99995 shares @ $100 = $4,999.995 filled -> remaining = $15,000.005 (cap + $0.005).
+        position, client = self._scripted_position_and_client(filled_qty=49.99995)
+
+        result = engine._check_post_fill_caps(
+            client, {"AAPL": position}, equity=100_000.0, top_picks=[_pick("AAPL")], dry_run=False,
+            open_order_symbols=set(),
+        )
+
+        assert result is True
+
+    def test_one_cent_residual_reports_complete(self, monkeypatch):
+        """Exactly a one-cent residual ($15,000.01) is within POST_TRIM_NOTIONAL_TOLERANCE_DOLLARS."""
+        monkeypatch.setattr(engine, "_safe_log_trade", lambda **kwargs: None)
+        # 49.9999 shares @ $100 = $4,999.99 filled -> remaining = $15,000.01 (cap + $0.01).
+        position, client = self._scripted_position_and_client(filled_qty=49.9999)
+
+        result = engine._check_post_fill_caps(
+            client, {"AAPL": position}, equity=100_000.0, top_picks=[_pick("AAPL")], dry_run=False,
+            open_order_symbols=set(),
+        )
+
+        assert result is True
+
+    def test_one_dollar_residual_reports_incomplete(self, monkeypatch):
+        """A genuine $1 residual ($15,001) is a real shortfall -- must be reported incomplete."""
+        monkeypatch.setattr(engine, "_safe_log_trade", lambda **kwargs: None)
+        # 49.99 shares @ $100 = $4,999 filled -> remaining = $15,001 (cap + $1).
+        position, client = self._scripted_position_and_client(filled_qty=49.99)
+
+        result = engine._check_post_fill_caps(
+            client, {"AAPL": position}, equity=100_000.0, top_picks=[_pick("AAPL")], dry_run=False,
+            open_order_symbols=set(),
+        )
+
+        assert result is False
+
+    def test_fifty_dollar_residual_reports_incomplete(self, monkeypatch):
+        """A genuine $50 residual ($15,050) must be reported incomplete."""
+        monkeypatch.setattr(engine, "_safe_log_trade", lambda **kwargs: None)
+        # 49.5 shares @ $100 = $4,950 filled -> remaining = $15,050 (cap + $50).
+        position, client = self._scripted_position_and_client(filled_qty=49.5)
+
+        result = engine._check_post_fill_caps(
+            client, {"AAPL": position}, equity=100_000.0, top_picks=[_pick("AAPL")], dry_run=False,
+            open_order_symbols=set(),
+        )
+
+        assert result is False
+
+    def test_one_hundred_dollar_residual_reports_incomplete(self, monkeypatch):
+        """
+        A genuine $100 residual ($15,100) must be reported incomplete --
+        this is the EXACT margin the old 0.1-percentage-point weight
+        tolerance (worth $100 on a $100,000 account) would have wrongly
+        accepted as 'close enough.'
+        """
+        monkeypatch.setattr(engine, "_safe_log_trade", lambda **kwargs: None)
+        # 49 shares @ $100 = $4,900 filled -> remaining = $15,100 (cap + $100).
+        position, client = self._scripted_position_and_client(filled_qty=49.0)
+
+        result = engine._check_post_fill_caps(
+            client, {"AAPL": position}, equity=100_000.0, top_picks=[_pick("AAPL")], dry_run=False,
+            open_order_symbols=set(),
+        )
+
+        assert result is False
+
+    def test_tiny_partial_fill_reports_incomplete(self, monkeypatch):
+        """A tiny partial fill (1 share of the 50 needed) is nowhere close -- must be incomplete."""
+        monkeypatch.setattr(engine, "_safe_log_trade", lambda **kwargs: None)
+        position, client = self._scripted_position_and_client(filled_qty=1.0)
+
+        result = engine._check_post_fill_caps(
+            client, {"AAPL": position}, equity=100_000.0, top_picks=[_pick("AAPL")], dry_run=False,
+            open_order_symbols=set(),
+        )
+
+        assert result is False
+
+    def test_full_fill_reports_complete(self, monkeypatch):
+        """A full $5,000 fill (default unscripted fill path) restores the cap exactly -- must be complete."""
+        monkeypatch.setattr(engine, "_safe_log_trade", lambda **kwargs: None)
+        position = make_position("AAPL", qty=200, market_value=20_000.0, current_price=100.0)
+        client = FakeTradingClient(positions=[position])  # no script -> default full fill at requested notional
+
+        result = engine._check_post_fill_caps(
+            client, {"AAPL": position}, equity=100_000.0, top_picks=[_pick("AAPL")], dry_run=False,
+            open_order_symbols=set(),
+        )
+
+        assert result is True
+
+    def test_sufficient_partial_fill_reports_complete(self, monkeypatch):
+        """A partial fill that still fully covers the required trim (55 of 50 shares needed) must be complete."""
+        monkeypatch.setattr(engine, "_safe_log_trade", lambda **kwargs: None)
+        position, client = self._scripted_position_and_client(filled_qty=55.0)
+
+        result = engine._check_post_fill_caps(
+            client, {"AAPL": position}, equity=100_000.0, top_picks=[_pick("AAPL")], dry_run=False,
+            open_order_symbols=set(),
+        )
+
+        assert result is True
+
+    def test_dollar_tolerance_is_not_wide_enough_to_be_a_weight_fraction_in_disguise(self):
+        """
+        Sanity check on the constant itself: on a very large account, the
+        old 0.1-percentage-point tolerance would have been worth
+        thousands of dollars. The new tolerance must stay a fixed, tiny
+        dollar amount regardless of account size.
+        """
+        assert engine.POST_TRIM_NOTIONAL_TOLERANCE_DOLLARS < 1.0  # comfortably under $1, on ANY account size
+        assert engine.POST_TRIM_NOTIONAL_TOLERANCE_DOLLARS > 0.01 - 1e-9  # at least covers a literal cent
+
+    def test_sector_total_uses_proven_remaining_weight_not_assumed_restored_weight(self, monkeypatch, caplog):
+        """
+        The sector-level aggregate must be computed from T0's ACTUAL
+        proven remaining weight (16%, after an insufficient trim) --
+        never from the weight it WOULD have had if the trim were assumed
+        to have fully restored it to the 15% cap. With the correct
+        (proven) weight, T0 (16%) + T1 (5%) + T2 (4.99%) = 25.99% >
+        MAX_SECTOR_WEIGHT (25%) and the sector-breach warning must fire.
+        With the (buggy) assumed weight, 15% + 5% + 4.99% = 24.99% would
+        NOT have exceeded 25%, and the warning would never have appeared.
+        """
+        import logging
+
+        caplog.set_level(logging.WARNING, logger="src.trading.alpaca_execution")
+        monkeypatch.setattr(engine, "_safe_log_trade", lambda **kwargs: None)
+
+        # T0: $20,000 (20%) -> needs a $5,000 trim to reach the $15,000
+        # cap, but only $4,000 fills -> remaining = $16,000 (16%).
+        t0 = make_position("T0", qty=200, market_value=20_000.0, current_price=100.0)
+        t1 = make_position("T1", qty=50, market_value=5_000.0, current_price=100.0)
+        t2 = make_position("T2", qty=49, market_value=4_990.0, current_price=100.0)
+        positions = {"T0": t0, "T1": t1, "T2": t2}
+        client = FakeTradingClient(positions=list(positions.values()))
+        client.script_fill("T0", statuses=[OrderStatus.FILLED], filled_qtys=[40.0], filled_avg_prices=[100.0])
+        top_picks = [_pick("T0", sector="Technology"), _pick("T1", sector="Technology"), _pick("T2", sector="Technology")]
+
+        result = engine._check_post_fill_caps(
+            client, positions, equity=100_000.0, top_picks=top_picks, dry_run=False, open_order_symbols=set()
+        )
+
+        assert result is False  # T0's own insufficient trim already makes this incomplete
+        sector_breach_logged = any(
+            "sector" in record.message.lower() and "MAX_SECTOR_WEIGHT" in record.message
+            for record in caplog.records
+        )
+        assert sector_breach_logged, (
+            "Sector total must have used T0's PROVEN remaining weight (16%), not an assumed "
+            "restored-to-cap weight (15%) -- only the proven weight pushes the sector total "
+            "(16% + 5% + 4.99% = 25.99%) over MAX_SECTOR_WEIGHT (25%)."
+        )
 
 
 class TestOptionHedgePositionProtection:

@@ -33,9 +33,13 @@ def get_ticker_object(ticker: str) -> yf.Ticker:
         A yfinance.Ticker instance.
 
     Raises:
-        ValueError: If ticker is missing or not a string.
+        ValueError: If ticker is missing, not a string, or empty after
+            stripping whitespace (a whitespace-only string like `"   "`
+            is truthy in Python and previously slipped past the old
+            `not ticker` check, reaching `yf.Ticker("")` with an empty
+            symbol instead of being rejected here).
     """
-    if not ticker or not isinstance(ticker, str):
+    if not isinstance(ticker, str) or not ticker.strip():
         raise ValueError("A valid ticker symbol string must be provided.")
     return yf.Ticker(ticker.strip().upper())
 

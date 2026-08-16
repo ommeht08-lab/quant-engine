@@ -707,7 +707,21 @@ def compute_valuation(
         )
 
     inputs = extract_valuation_inputs(financial_data)
-    tax_rate = inputs["tax_rate"] if inputs["tax_rate"] is not None else DEFAULT_TAX_RATE
+    # Resolve the effective tax rate with EXACTLY the same precedence
+    # `run_dcf_valuation` (dcf.py) already applied internally above:
+    # explicit `assumptions.tax_rate` first, then the statement-derived
+    # rate, then `DEFAULT_TAX_RATE`. This was previously computed
+    # independently here (ignoring an explicit override entirely), which
+    # let a single ticker use a different tax rate in its DCF/WACC math
+    # than in the ROIC/Conviction Score inputs stored on this result and
+    # consumed downstream by `calculate_roic`/`score_ticker` — the two
+    # numbers must always agree, since they describe the same valuation run.
+    if assumptions.tax_rate is not None:
+        tax_rate = assumptions.tax_rate
+    elif inputs["tax_rate"] is not None:
+        tax_rate = inputs["tax_rate"]
+    else:
+        tax_rate = DEFAULT_TAX_RATE
 
     return ValuationResult(
         ticker=ticker,

@@ -98,6 +98,64 @@ class TestValidation:
             calculate_portfolio_var({"AAPL": float("inf")})
 
 
+class TestNumericBoundaryHardening:
+    """
+    Regression for Finding 4: `simulations`/`horizon_days` must reject a
+    fractional value, NaN, infinity, or a bool with the DOCUMENTED
+    `ValueError` -- never leak an internal NumPy `TypeError` (the exact
+    reproduced defect: `calculate_portfolio_var({...}, simulations=10.5)`
+    used to reach deep into `rng.normal(...)` before failing). A
+    non-empty `holdings` dict is used deliberately in the adversarial
+    cases below: the fix validates `simulations`/`horizon_days` BEFORE
+    `_log_returns_by_ticker` is ever called, so these must raise
+    `ValueError` without ever reaching a ticker/network lookup --
+    proving the fix, not just working around it by emptying `holdings`.
+    """
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            {"simulations": 10.5},  # the exact reproduced defect
+            {"simulations": float("nan")},
+            {"simulations": float("inf")},
+            {"simulations": True},  # bool is an int subclass -- must not silently mean "1 simulation"
+            {"simulations": "10"},
+            {"horizon_days": 21.5},
+            {"horizon_days": float("nan")},
+            {"horizon_days": float("inf")},
+            {"horizon_days": True},
+            {"horizon_days": "21"},
+        ],
+    )
+    def test_adversarial_simulations_or_horizon_raises_value_error_not_type_error(self, kwargs):
+        base = dict(holdings={"AAPL": 1.0})
+        base.update(kwargs)
+        with pytest.raises(ValueError):
+            calculate_portfolio_var(**base)
+
+    def test_nan_simulations_previously_slipped_past_a_bare_positivity_check(self):
+        """
+        `float("nan") <= 0` is False in Python (NaN compares False to
+        everything), so the OLD `if simulations <= 0: raise ...` check
+        would never have caught this -- it must be rejected explicitly.
+        """
+        with pytest.raises(ValueError):
+            calculate_portfolio_var({"AAPL": 1.0}, simulations=float("nan"))
+
+    def test_integral_float_simulations_and_horizon_are_still_honored(self):
+        """`100.0`/`5.0` (whole-number floats) are legitimate values, not corrupted ones -- must not be rejected."""
+        from src.risk.monte_carlo import _coerce_positive_int
+
+        assert _coerce_positive_int(100.0) == 100
+        assert _coerce_positive_int(5.0) == 5
+        assert isinstance(_coerce_positive_int(100.0), int)
+
+    def test_empty_holdings_with_valid_numeric_args_never_touches_ticker_lookup(self):
+        """Sanity check that empty holdings short-circuits before any network-backed lookup, regardless of args."""
+        result = calculate_portfolio_var({}, simulations=100.0, horizon_days=5.0)
+        assert result.status == "insufficient_data"
+
+
 class TestLogToSimpleReturnConversion:
     def test_expm1_matches_manual_conversion(self):
         log_return = -0.05

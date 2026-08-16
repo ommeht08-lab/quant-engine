@@ -267,6 +267,23 @@ _CAP_EPSILON = 1e-9  # floating-point tolerance so redistribution converges clea
 
 DRIFT_THRESHOLD = 0.03  # only rebalance an already-held pick if weight drifts > 3 points
 
+# Tolerance applied when proving a post-fill cap-trim actually restored a
+# position to at/under MAX_POSITION_WEIGHT (see `_check_post_fill_caps`).
+# This is a DOLLAR/notional tolerance, not a weight-fraction one — a fixed
+# weight-fraction tolerance scales with account size (0.1 percentage point
+# is $100 of slack on a $100,000 account, and $10,000 on a $10,000,000
+# one), which is far more slack than the rounding it's meant to absorb
+# actually requires. The only real source of residual "shortfall" this
+# needs to cover is cent-level notional rounding (`round(excess_value,
+# 2)` at submission time) and ordinary floating-point representation
+# noise in the market_value/equity arithmetic above — both are on the
+# order of a single cent, regardless of account size. One cent plus a
+# small explicit floating-point epsilon comfortably covers both without
+# ever being wide enough to silently accept a genuine, actionable
+# remaining breach (a real $1/$50/$100 residual must still be reported
+# incomplete — see `TestPostFillCapNotionalTolerance`).
+POST_TRIM_NOTIONAL_TOLERANCE_DOLLARS = 0.01 + 1e-6  # one cent + float-precision epsilon
+
 ORDER_POLL_MAX_ATTEMPTS = 10  # how many times to poll a submitted order for a resolved status
 ORDER_POLL_INTERVAL_SECONDS = 0.5  # delay between polls
 
@@ -1604,6 +1621,24 @@ def execute_spy_var_hedge(
     client doesn't reliably expose that, and this is documented as a
     remaining, unavoidable approximation.
 
+    IMPORTANT — this budget is a THEORETICAL premium ceiling, not an
+    enforceable actual-spend ceiling. `HEDGE_BUDGET_FRACTION_OF_EQUITY`
+    bounds `calculate_spy_hedge`'s contract count against its own
+    BSM-modeled `current_put_price` (computed from `HEDGE_IMPLIED_VOL`
+    and the selected contract's strike/expiry) — but the order actually
+    submitted below is a real MARKET order, which fills at the option's
+    real bid/ask at that moment. A real fill can cost more (or less) per
+    contract than the modeled price this budget was checked against,
+    meaning actual premium spent is not guaranteed to stay within
+    `HEDGE_BUDGET_FRACTION_OF_EQUITY` of equity, only the MODELED
+    estimate is. See `src.risk.hedging`'s module docstring and
+    `docs/limitations-register.md` L-016 (High severity). Enforcing an
+    actual-spend ceiling would require fetching a live option quote and
+    submitting a LIMIT order bounded by it — not implemented in this
+    pass, since no option-quote data client exists anywhere in this
+    codebase today and adding one is a genuine scope expansion, not a
+    bounded fix; proposed as the next bounded task.
+
     Joint buying-power safety (live runs only): immediately before
     sizing, a FRESH `trading_client.get_account().buying_power` reading
     is taken and used as an ADDITIONAL ceiling — `hedge_budget_dollars`
@@ -1809,7 +1844,7 @@ def _trim_position_to_cap(
     symbol: str,
     excess_value: float,
     open_order_symbols: Optional[set] = None,
-) -> bool:
+) -> Optional[float]:
     """
     Submit a SELL of roughly `excess_value` (the dollar amount a
     position sits over MAX_POSITION_WEIGHT) to trim it back toward cap,
@@ -1837,11 +1872,22 @@ def _trim_position_to_cap(
             unsafe (skipped) rather than risking a duplicate.
 
     Returns:
-        True if the trim resolved with a positive filled quantity
-        (partial fills count — the position is at least closer to cap),
-        False otherwise (including "skipped" cases — duplicate order or
-        closed market). Callers should treat False as the position
-        remaining over cap and report the rebalance as incomplete.
+        The confirmed filled notional value (`filled_qty *
+        filled_avg_price`, always > 0) if the trim SELL resolved with a
+        positive confirmed fill — including a partial fill, which still
+        returns its own (smaller) actual notional rather than the
+        requested `excess_value`. Returns `None` if nothing was
+        submitted (duplicate/closed-market skip), the submission failed,
+        the order was rejected, the fill status couldn't be confirmed at
+        all, or the confirmed fill quantity is zero.
+
+        A non-`None` return is NOT proof the cap was fully restored — a
+        partial fill smaller than `excess_value` still returns a
+        (smaller) positive value. Callers must compare the returned
+        notional against how much trim was actually required — see
+        `_check_post_fill_caps`, which recomputes the resulting weight
+        from this value rather than assuming any positive fill was
+        sufficient.
     """
     if _is_duplicate_submission(symbol, open_order_symbols):
         logger.warning(
@@ -1849,11 +1895,11 @@ def _trim_position_to_cap(
             "this run (e.g. a still-pending rebalance sell) — not submitting an overlapping trim SELL.",
             symbol,
         )
-        return False
+        return None
 
     if not _market_is_open(trading_client):
         logger.warning("POST-FILL CAP CORRECTION for %s SKIPPED: market closed at submission time.", symbol)
-        return False
+        return None
 
     try:
         submitted = trading_client.submit_order(
@@ -1866,26 +1912,27 @@ def _trim_position_to_cap(
         )
     except APIError as exc:
         logger.warning("Failed to submit post-fill cap-trim SELL for %s: %s", symbol, exc)
-        return False
+        return None
 
     _mark_symbol_pending(symbol, open_order_symbols)
     order = _await_order_resolution(trading_client, submitted.id)
     _mark_symbol_resolved(symbol, order, open_order_symbols)
     if order is None:
         logger.warning("Could not confirm post-fill cap-trim SELL order status for %s.", symbol)
-        return False
+        return None
 
     filled_qty = float(order.filled_qty) if order.filled_qty else 0.0
     if order.status == OrderStatus.REJECTED or filled_qty <= 0:
         logger.warning(
             "Post-fill cap-trim SELL for %s did not fill (status=%s).", symbol, order.status.value
         )
-        return False
+        return None
 
     filled_price = float(order.filled_avg_price) if order.filled_avg_price else 0.0
+    filled_notional = filled_qty * filled_price
     logger.info(
-        "POST-FILL CAP CORRECTION: trimmed %s by %.4f shares (~$%.2f) to restore MAX_POSITION_WEIGHT.",
-        symbol, filled_qty, filled_qty * filled_price,
+        "POST-FILL CAP CORRECTION: trimmed %s by %.4f shares (~$%.2f of the $%.2f required).",
+        symbol, filled_qty, filled_notional, excess_value,
     )
     _safe_log_trade(
         ticker=symbol,
@@ -1897,7 +1944,7 @@ def _trim_position_to_cap(
         conviction_score=None,
         altman_z_score=None,
     )
-    return True
+    return filled_notional if filled_notional > 0 else None
 
 
 def _check_post_fill_caps(
@@ -1968,11 +2015,36 @@ def _check_post_fill_caps(
                     "after fills — submitting a trim-to-cap SELL.",
                     symbol, weight * 100, MAX_POSITION_WEIGHT * 100,
                 )
-                corrected = _trim_position_to_cap(trading_client, symbol, excess_value, open_order_symbols)
-                if corrected:
-                    weight = MAX_POSITION_WEIGHT
-                else:
+                trimmed_notional = _trim_position_to_cap(trading_client, symbol, excess_value, open_order_symbols)
+                if trimmed_notional is None:
                     fully_resolved = False
+                else:
+                    # Prove the remaining weight from the CONFIRMED fill,
+                    # never assume any positive fill was sufficient — a
+                    # tiny partial fill must still be reported incomplete
+                    # (see the module's Finding-1 fix notes). The
+                    # tolerance here is a DOLLAR/notional amount (one
+                    # cent + a float-precision epsilon), never a fixed
+                    # weight-fraction — a fixed percentage tolerance
+                    # would scale into real dollars on a larger account
+                    # (see POST_TRIM_NOTIONAL_TOLERANCE_DOLLARS's own
+                    # docstring) and silently accept a genuine remaining
+                    # breach as "close enough."
+                    remaining_market_value = max(market_value - trimmed_notional, 0.0)
+                    maximum_allowed_value = MAX_POSITION_WEIGHT * equity
+                    remaining_weight = remaining_market_value / equity
+                    if remaining_market_value <= maximum_allowed_value + POST_TRIM_NOTIONAL_TOLERANCE_DOLLARS:
+                        weight = min(remaining_weight, MAX_POSITION_WEIGHT)
+                    else:
+                        weight = remaining_weight
+                        logger.warning(
+                            "POST-FILL CAP CORRECTION for %s trimmed only $%.2f of the $%.2f required — "
+                            "remaining value $%.2f still exceeds the $%.2f cap (+ $%.4f tolerance); "
+                            "rebalance marked incomplete.",
+                            symbol, trimmed_notional, excess_value, remaining_market_value,
+                            maximum_allowed_value, POST_TRIM_NOTIONAL_TOLERANCE_DOLLARS,
+                        )
+                        fully_resolved = False
 
         sector = sector_by_ticker.get(symbol, "Unknown")
         sector_totals[sector] = sector_totals.get(sector, 0.0) + weight
