@@ -1,0 +1,22 @@
+{
+  "description": "SHA-256 checksums of every frozen snapshot file. Deterministic: contains no wall-clock regeneration timestamp by design (see module docstring, 'Determinism design').",
+  "files": {
+    "snapshots/CAT_snapshot.json": {
+      "sha256": "651d366c01415c2da33733058dabb9ac6e4f40cdf5b20e743c0b83ebc3a52c93",
+      "ticker": "CAT"
+    },
+    "snapshots/INTC_snapshot.json": {
+      "sha256": "d73e4b40bce2442a75affde82aaa563ffdea9c68c7257e70cc325663cff24930",
+      "ticker": "INTC"
+    },
+    "snapshots/MSFT_snapshot.json": {
+      "sha256": "7c50a3e9fb2d27095a890ad8d11732d4ccc72ef9350998604adb3af7a3c845a8",
+      "ticker": "MSFT"
+    },
+    "snapshots/VZ_snapshot.json": {
+      "sha256": "77b8ea27b8decaff5fe3b4aad857c632a852445eda0b7f2342f594cd3c4b5f3d",
+      "ticker": "VZ"
+    }
+  },
+  "hash_algorithm": "SHA-256"
+}

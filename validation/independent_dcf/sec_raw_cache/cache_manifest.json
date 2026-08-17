@@ -1,0 +1,26 @@
+{
+  "description": "SHA-256 and byte size of every immutable raw SEC EDGAR input file this validation depends on. Verified before every offline rebuild; only --refresh-sec (not run during this correction pass) may change these files.",
+  "files": {
+    "company_tickers.json": {
+      "sha256": "3b780187c999788271f776aea9e0726b8ce828db08cc97f17a987b9d18719395",
+      "size_bytes": 795117
+    },
+    "companyfacts_CAT.json": {
+      "sha256": "01ddc6ffa741f0a7da440e2949b2ed19cec14fab35435a398e3f3d0100019715",
+      "size_bytes": 5868239
+    },
+    "companyfacts_INTC.json": {
+      "sha256": "70056711b8b04d3a27e4a42b6d86e26f85ddaa3d59e480039d66ccfb353eb0b8",
+      "size_bytes": 4311809
+    },
+    "companyfacts_MSFT.json": {
+      "sha256": "f8aae2965b20ad0df44bdf7ccbedf797d275b6b8dc030154a7a311361bb7246f",
+      "size_bytes": 4881196
+    },
+    "companyfacts_VZ.json": {
+      "sha256": "e319d31a81cf3f17423edbb3e18d129653b348cfd8c902034e5a329bf2bf0624",
+      "size_bytes": 4349995
+    }
+  },
+  "hash_algorithm": "SHA-256"
+}
