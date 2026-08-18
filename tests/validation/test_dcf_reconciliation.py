@@ -58,7 +58,6 @@ from validation.dcf_reconciliation.coverage import (
     EXPECTED_SCALAR_COMPARISONS_PER_COMPANY,
     EXPECTED_SCALAR_COMPARISONS_TOTAL,
     OUTPUT_METRIC_LABELS,
-    SENSITIVITY_TABLE_SHAPE,
     iter_all_scalar_comparisons,
     sensitivity_coverage_rows,
 )
@@ -197,8 +196,6 @@ def test_workbook_metric_discovery_by_labels(ticker):
 
 @pytest.mark.parametrize("ticker", TICKERS)
 def test_every_required_base_metric_compared_exactly_once(ticker):
-    _snapshot, financial_data = load_all()[ticker]
-    result = run_dcf_valuation(financial_data, DCFAssumptions())
     wb = Workbook(str(V2_WORKBOOK_PATH))
     wb_metrics = locate_dcf_metrics(wb, ticker)
 
