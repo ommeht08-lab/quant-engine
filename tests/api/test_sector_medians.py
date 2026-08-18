@@ -215,9 +215,12 @@ class TestRiskFreeRateCompatibility:
         """Same as above, but the astronomically large integer is in the CACHE FILE itself (a malformed JSON payload)."""
         path = tmp_path / "cache.json"
         cache = _write_cache(path)
-        cache["risk_free_rate"] = 10**10000
-        with open(path, "w") as f:
-            json.dump(cache, f)
+        cache["risk_free_rate"] = "__HUGE_INTEGER__"
+        payload = json.dumps(cache).replace(
+            '"__HUGE_INTEGER__"',
+            "1" + "0" * 10000,
+        )
+        path.write_text(payload)
         assumptions = DCFAssumptions(risk_free_rate=0.04)
 
         median, reason = get_sector_median_price_to_intrinsic("Technology", assumptions=assumptions, path=path)

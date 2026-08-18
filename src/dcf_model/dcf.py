@@ -413,7 +413,11 @@ def _validate_capital_inputs(inputs: dict) -> None:
             continue
         value = _require_finite_numeric(value, field_name)
         if value < 0:
-            raise ValueError(f"{field_name} must not be negative, got {value}.")
+            # Do not interpolate an untrusted numeric value here. Python
+            # 3.11+ deliberately refuses to stringify integers above its
+            # digit-safety limit, which would replace this domain error with
+            # an unrelated integer-conversion ValueError.
+            raise ValueError(f"{field_name} must not be negative.")
 
 
 # --------------------------------------------------------------------------

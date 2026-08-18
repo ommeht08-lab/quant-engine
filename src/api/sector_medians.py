@@ -298,8 +298,9 @@ def load_sector_medians(path: Path = CACHE_PATH) -> dict:
         "unavailable" rather than break the live API with a 500) if:
           - the file doesn't exist yet (e.g. before the first generation
             run) -- returns a bare `EMPTY_CACHE` copy;
-          - the file contains invalid JSON syntax, or can't be read/
-            decoded (an I/O error, or content that isn't valid UTF-8) --
+          - the file contains invalid or unsupported JSON content (including
+            an integer beyond Python's safe digit-conversion limit), or can't
+            be read/decoded (an I/O error, or content that isn't valid UTF-8) --
             returns an `EMPTY_CACHE` copy tagged with
             `_MALFORMED_CACHE_REASON_KEY`;
           - the file contains syntactically VALID JSON whose top-level
@@ -323,12 +324,15 @@ def load_sector_medians(path: Path = CACHE_PATH) -> dict:
     try:
         with open(path) as f:
             payload = json.load(f)
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+    except (ValueError, UnicodeDecodeError) as exc:
         logger.warning(
-            "Sector median cache at %s contains invalid JSON (%s); treating as unavailable.", path, exc
+            "Sector median cache at %s contains invalid or unsupported JSON content (%s); "
+            "treating as unavailable.",
+            path,
+            exc,
         )
         malformed = dict(EMPTY_CACHE)
-        malformed[_MALFORMED_CACHE_REASON_KEY] = f"invalid JSON syntax ({exc})"
+        malformed[_MALFORMED_CACHE_REASON_KEY] = f"invalid or unsupported JSON content ({exc})"
         return malformed
     except OSError as exc:
         logger.warning("Sector median cache at %s could not be read (%s); treating as unavailable.", path, exc)
