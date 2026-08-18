@@ -146,6 +146,53 @@ constraint the model cannot currently overcome).
 - **If wrong**: A systematic bias in cost of equity, and therefore WACC, across
   every valuation in the same direction and magnitude
 
+### A-028 — Revenue-CAGR `years_elapsed` convention: actual elapsed calendar time, not period count
+- **Model affected**: DCF historical revenue CAGR
+  (`calculate_historical_revenue_cagr`, [`dcf.py`](../src/dcf_model/dcf.py)); see
+  `docs/model-specifications/dcf.md`'s "Historical revenue-growth and
+  operating-margin derivation" section for the full authoritative definition
+- **Current value/policy**: `years_elapsed = (latest_fiscal_period_end −
+  earliest_fiscal_period_end).days / 365.25`, where the earliest/latest periods
+  are found by dropping periods with no reported revenue, sorting the remainder
+  by actual fiscal-period-end date, and taking the first/last of that sorted set
+  (subject to both having strictly positive revenue). This was already the
+  codebase's implemented behavior; Track A Phase 2C made it the documented,
+  authoritative convention after the written specification's silence on the
+  point produced a real, tolerance-exceeding independent-validation discrepancy
+  for a company on an irregular fiscal calendar (see "If wrong" below)
+- **Rationale**: A fiscal calendar is not guaranteed to recur on the same
+  calendar day every year (52/53-week fiscal calendars, occasional calendar
+  shifts). `(number of periods − 1)` implicitly assumes perfectly even annual
+  spacing; actual elapsed calendar time does not, and is the economically
+  correct denominator for an annualized (CAGR) growth rate regardless of how a
+  company's fiscal periods happen to be spaced
+- **Evidence/source**: Track A Phase 2B's independent-validation reconciliation
+  (`validation/dcf_reconciliation/`) found this exact ambiguity: Intel
+  Corporation's (`INTC`) five frozen fiscal-period-end dates (2021-12-25,
+  2022-12-31, 2023-12-30, 2024-12-28, 2025-12-27) span 1,463 actual days, not
+  the 1,461 days (`4 × 365.25`) that a `(5 periods − 1) = 4`-year assumption
+  implies — a difference large enough to move INTC's Revenue CAGR by ~0.0124
+  percentage points, exceeding the documented `±0.01`pp reconciliation
+  tolerance. See `docs/model-change-log.md`'s Phase 2C entry and
+  `validation/dcf_reconciliation/history/phase2b_initial_no_go/` for the
+  original failing evidence
+- **Sensitivity required**: No — this is a definitional/date-arithmetic
+  convention, not a tunable parameter; there is nothing to sensitivity-sweep
+- **Validation status**: Independently re-validated as of Track A Phase 2C: a
+  second, independently-built workbook (V2), built from this clarified
+  specification blind to the codebase, was reconciled against production —
+  all four companies (MSFT, CAT, INTC, VZ) pass, a **GO** result — see
+  `validation/independent_dcf/README_v2.md` and
+  `validation/dcf_reconciliation/reconciliation_report.md`. Second-reviewer
+  sign-off (a separate checklist item in
+  `docs/independent-validation-plan.md`) is still PENDING
+- **If wrong**: For a company whose fiscal-period-end dates are evenly spaced
+  (recur on the same calendar day every year), this convention and the naive
+  `(periods − 1)` count produce an identical result, so there is no practical
+  difference to be "wrong" about. For a company on an irregular or 52/53-week
+  fiscal calendar, using `(periods − 1)` instead would misstate `years_elapsed`
+  and therefore the annualized CAGR — as it did for INTC in Phase 2B
+
 ## Screens and Conviction Score
 
 ### A-010 — Altman Z-Score distress threshold and sector exclusions

@@ -51,5 +51,23 @@ data/interim/
 *.csv
 *.xlsx
 
+# Track A Phase 2C (H-1 remediation): narrow exceptions for the specific
+# workbooks that are durable independent-DCF-validation EVIDENCE, not raw or
+# interim data pulls -- the general *.xlsx rule above is for financial data
+# pulls, which these are not. Each file is the frozen, hashed record that a
+# genuine reconciliation was run (or, for the archive, that one genuinely
+# failed and why) -- see docs/independent-validation-plan.md and
+# validation/dcf_reconciliation/history/phase2b_initial_no_go/README.md.
+# Leaving them git-ignored would let that record silently disappear on a
+# `git clean` or a fresh clone, with no history to recover it from. Listed
+# by exact path only -- this does NOT re-enable *.xlsx generally, and no
+# other workbook in the repository is exempted.
+# (independent_dcf_validation.xlsx, V1, is already tracked from a prior
+# force-add and needs no exception here; it is listed in the three
+# artifacts' own documentation for context.)
+!/validation/dcf_reconciliation/dcf_reconciliation.xlsx
+!/validation/dcf_reconciliation/history/phase2b_initial_no_go/dcf_reconciliation.xlsx
+!/validation/independent_dcf/independent_dcf_validation_v2.xlsx
+
 # Logs
 *.log

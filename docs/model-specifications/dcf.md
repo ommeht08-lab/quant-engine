@@ -60,6 +60,47 @@ every company — it derives each company's own historical figures:
   `WACC − g` in the terminal-value formula degenerate. **Not** floored below —
   a genuinely shrinking company's negative CAGR is used as-is, a deliberate
   modeling choice (see `A-002` in the assumptions register).
+
+  **`years_elapsed` — authoritative definition (Track A Phase 2C; previously
+  ambiguous, see `L-019` in the limitations register, `A-028` in the
+  assumptions register, and the Phase 2C entry in
+  `docs/model-change-log.md`):**
+
+  ```
+  years_elapsed = (latest_fiscal_period_end − earliest_fiscal_period_end).days / 365.25
+  ```
+
+  `earliest_fiscal_period_end` and `latest_fiscal_period_end` are the fiscal
+  period end **dates** of the earliest and latest usable observations, found
+  by: (1) dropping any period with no reported revenue value; (2) sorting the
+  remaining periods **by their actual fiscal-period-end date**, not by
+  column order or by row position; (3) taking the resulting first
+  (earliest-dated) and last (latest-dated) periods, subject to both having
+  strictly positive revenue — if either the earliest- or latest-dated
+  period's revenue is not strictly positive, historical CAGR is not derived
+  (returns `None`, falling through to the documented fallback/override
+  precedence) rather than substituting a different period.
+
+  `years_elapsed` is **actual elapsed calendar time between those two
+  dates**, expressed as a fraction of an average Gregorian year (365.25
+  days) — it is explicitly **not** `(number of periods − 1)`. The two are
+  easy to conflate for a company that reports on a strict, unchanging
+  fiscal calendar (e.g. every fiscal year ending exactly one calendar year
+  after the last, to the day), where they coincidentally produce the same
+  number. They diverge for a company on an irregular or 52/53-week fiscal
+  calendar, where consecutive fiscal-period-end dates are not exactly 365
+  or 366 days apart — `(number of periods − 1)` silently assumes perfectly
+  equal annual spacing and misstates the actual elapsed time in that case.
+  This is not a hypothetical: Intel Corporation's (`INTC`) five most recent
+  frozen fiscal-period-end dates are 2021-12-25, 2022-12-31, 2023-12-30,
+  2024-12-28, and 2025-12-27 — 1,463 actual elapsed days between the first
+  and last, not the 1,461 days (`4 × 365.25`) that `(5 periods − 1) = 4`
+  years would imply. Using the wrong convention for INTC changes
+  `years_elapsed` from `4.0` to `4.005475701574264`, which — compounded
+  through a negative CAGR base — was large enough to fail Track A Phase
+  2B's independent-validation reconciliation at its documented `±0.01`
+  percentage-point tolerance (see `docs/independent-validation-plan.md`'s
+  Phase 2B/2C history and `validation/dcf_reconciliation/history/`).
 - **Operating margin** = simple average of EBIT / Revenue across every period with
   both a usable EBIT (or Operating Income, as a fallback label) and positive
   revenue (`calculate_historical_average_operating_margin`, in

@@ -260,20 +260,36 @@ change conclusions materially.
 - **Severity**: High
 - **Affected model(s)**: DCF (primarily); by extension, everything built on top of
   it
-- **Description**: No independently-built second implementation (e.g. a
-  spreadsheet DCF, built from the written specification rather than from this
-  codebase's source) has yet been checked against this codebase's output for any
-  ticker. The test suite verifies internal consistency, boundary conditions, and
-  override precedence — it cannot catch a systematic bug that both the
-  implementation and its own tests share (e.g. a formula both were written to
-  agree with, even if that formula itself has an error).
+- **Description**: The test suite verifies internal consistency, boundary
+  conditions, and override precedence — it cannot catch a systematic bug that
+  both the implementation and its own tests share (e.g. a formula both were
+  written to agree with, even if that formula itself has an error). A
+  genuinely independent second implementation is required to catch that class
+  of error.
 - **Mitigation**: [`docs/independent-validation-plan.md`](independent-validation-plan.md)
-  specifies exactly this validation, not yet executed.
-- **Status**: Planned, not started. This is one of the named Track A stop/go gate
-  items — Track B may not proceed until this is complete for whatever model Track B
-  is about to use.
-- **Consequence for interpretation**: No DCF output from this codebase should be
-  treated as independently verified as of this writing.
+  specifies exactly this validation. Track A Phase 2A built the first
+  independent workbook (V1); Phase 2B ran the reconciliation and found a
+  genuine, tolerance-exceeding discrepancy for INTC, traced to an undocumented
+  `years_elapsed` convention (see `L-019`, resolved), not a codebase defect —
+  `src/dcf_model/dcf.py` required no change. Phase 2C clarified the
+  specification (`A-028`), built a second independent workbook (V2) from it,
+  and reran the full reconciliation against V2: all four companies (MSFT,
+  CAT, INTC, VZ) now pass base-case reconciliation and all 908 sensitivity
+  scalar comparisons — see
+  `validation/dcf_reconciliation/reconciliation_report.md`.
+- **Status**: Reconciliation reached a **GO** verdict as of Track A Phase 2C.
+  This is one of the named Track A stop/go gate items, and a GO verdict is a
+  precondition for Track B to proceed on this model — but the
+  `docs/independent-validation-plan.md` sign-off checklist's **second-reviewer
+  requirement is still PENDING** (not performed in any session to date), so
+  this limitation is not yet fully closed. Track B should not treat this
+  entry as closed until that second review is recorded.
+- **Consequence for interpretation**: DCF output from this codebase has now
+  been reconciled against an independently-built second implementation for
+  four companies spanning different profiles (large-cap capital-light,
+  capital-intensive, negative-growth, and leveraged), with a GO result — but
+  this remains a single-reviewer (the building session's own) result until
+  second-reviewer sign-off is recorded.
 
 ## L-013 — Test coverage gaps
 
@@ -454,3 +470,48 @@ change conclusions materially.
   during the holding period — the worse the actual outcome for a dropped pick, the
   larger the resulting overstatement, since the omission (rather than a loss) is
   what gets applied.
+
+## L-019 — Revenue-CAGR `years_elapsed` was an undocumented convention (resolved Track A Phase 2C)
+
+- **Severity**: Medium (resolved as a documentation defect; the underlying
+  arithmetic discrepancy it exposed was small in absolute terms but exceeded a
+  documented validation tolerance)
+- **Affected model(s)**: DCF historical revenue CAGR
+  (`calculate_historical_revenue_cagr`, [`dcf.py`](../src/dcf_model/dcf.py))
+- **Description**: Prior to Track A Phase 2C, `docs/model-specifications/dcf.md`
+  stated the CAGR formula (`CAGR = (Revenue_latest / Revenue_earliest) **
+  (1 / years_elapsed) - 1`) but did not define, in prose, exactly how
+  `years_elapsed` is computed. The codebase computes it as actual elapsed
+  calendar days between the earliest and latest fiscal-period-end dates,
+  divided by 365.25 — but a from-spec-only reader could just as reasonably
+  read `years_elapsed` as "(number of periods − 1)," a common textbook CAGR
+  shortcut for evenly-spaced annual observations. Track A Phase 2B's
+  independent-validation workbook (V1), built without reading `dcf.py`, chose
+  the latter interpretation. For MSFT, CAT, and VZ — whose frozen
+  fiscal-period-end dates recur on the same calendar day every year — the two
+  interpretations coincidentally produce an identical `years_elapsed` (exactly
+  `4.0`), so V1 matched the codebase to full floating-point precision on those
+  three companies' Revenue CAGR. For INTC, whose fiscal-period-end dates are
+  not evenly spaced (2021-12-25, 2022-12-31, 2023-12-30, 2024-12-28,
+  2025-12-27 — 1,463 actual days, not 1,461), the two interpretations diverge
+  (`4.005475701574264` vs. `4.0`), producing a genuine ~0.0124 percentage-point
+  Revenue CAGR discrepancy that exceeded the documented `±0.01`pp
+  reconciliation tolerance and produced a Phase 2B NO-GO. See
+  `validation/dcf_reconciliation/history/phase2b_initial_no_go/` for the
+  original failing evidence.
+- **Mitigation**: `docs/model-specifications/dcf.md` now states
+  `years_elapsed`'s exact definition (actual elapsed calendar days between the
+  earliest- and latest-dated valid observations, divided by 365.25), formalized
+  as `A-028` in the assumptions register. The codebase's existing behavior
+  already conformed to this clarified convention and required no change. A
+  second independent workbook (V2), built from the corrected specification, is
+  used to re-validate under Track A Phase 2C.
+- **Status**: Specification ambiguity resolved (Phase 2C). See
+  `docs/model-change-log.md`'s Phase 2C entry and `A-028` for the
+  authoritative convention and its independent re-validation status.
+- **Consequence for interpretation**: For any company with evenly-spaced
+  fiscal-period-end dates, this had no numerical effect. For a company on an
+  irregular or 52/53-week fiscal calendar (as INTC's frozen snapshot happens to
+  be), a reconciliation performed against a `(periods − 1)`-based independent
+  calculation would show a small but real Revenue CAGR discrepancy that is not
+  a codebase defect — it is a resolved specification-precision gap.

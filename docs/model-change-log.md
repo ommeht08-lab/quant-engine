@@ -353,6 +353,152 @@ every other entry in this log.
   warnings are the pre-existing third-party LibreSSL/`urllib3` and
   `websockets.legacy` deprecation warnings; both left untouched, as required).
 
+## Uncommitted working-tree changes — Track A Phase 2C ("CAGR years_elapsed specification clarification")
+
+**Status: not yet committed.** Documentation-clarification step (below)
+followed by an independent workbook V2 build and a full reconciliation
+rerun against it — both parts of this same change, recorded together here.
+
+- **What changed**: Documentation only, in this step —
+  [`docs/model-specifications/dcf.md`](model-specifications/dcf.md)'s
+  "Historical revenue-growth and operating-margin derivation" section now
+  states `years_elapsed`'s exact definition (actual elapsed calendar days
+  between the earliest- and latest-dated valid revenue observations, divided
+  by 365.25 — never `(number of periods − 1)`), which the written
+  specification had previously left ambiguous. New entries: `A-028` in
+  [`docs/assumptions-register.md`](assumptions-register.md) (formalizing the
+  convention as a named assumption) and `L-019` in
+  [`docs/limitations-register.md`](limitations-register.md) (recording the
+  ambiguity that Track A Phase 2B's independent-validation reconciliation
+  exposed, and its resolution). `L-012` updated to reflect that Phase 2A/2B
+  have actually executed (not merely planned) and that Phase 2C is in
+  progress. `src/dcf_model/dcf.py` was **not** modified in this step —
+  `calculate_historical_revenue_cagr`'s existing implementation (actual
+  elapsed calendar days / 365.25) already matched the now-clarified
+  specification; the ambiguity was in the prose, not the code.
+- **Why**: Track A Phase 2B's independent-validation workbook (V1, built
+  without reading `dcf.py`, per `docs/independent-validation-plan.md`'s
+  genuine-independence requirement) computed `years_elapsed` as a plain
+  period count. For INTC — whose frozen fiscal-period-end dates are not
+  evenly spaced (2021-12-25, 2022-12-31, 2023-12-30, 2024-12-28,
+  2025-12-27) — this diverged from the codebase's actual-elapsed-calendar-
+  days convention by enough (`4.0` vs. `4.005475701574264`) to move Revenue
+  CAGR by ~0.0124 percentage points, exceeding the documented `±0.01`pp
+  reconciliation tolerance and producing a Phase 2B NO-GO (archived at
+  `validation/dcf_reconciliation/history/phase2b_initial_no_go/`). Per
+  `docs/independent-validation-plan.md`'s own NO-GO protocol, the ambiguity
+  had to be resolved and documented — not silently re-run, and not "fixed"
+  by loosening the tolerance or by editing either calculation path to force
+  agreement.
+- **Output effect**: None from this step alone (documentation only; no
+  `src/` file changed). The clarified convention matches
+  `src/dcf_model/dcf.py`'s pre-existing behavior exactly, so no DCF output
+  for any company changes as a result of this documentation update.
+- **Tests**: None added in this documentation-only step. Regression tests
+  covering the clarified convention (an irregular-fiscal-date CAGR test
+  using INTC's actual dates/revenues, among others) are added in the
+  following step of this same Phase 2C change, tracked in
+  `tests/validation/test_dcf_reconciliation.py`.
+
+### Phase 2C, continued: independent workbook V2 and reconciliation rerun
+
+- **What changed**: A second independent workbook, V2
+  (`validation/independent_dcf/independent_dcf_validation_v2.xlsx`,
+  built by new scripts `build_workbook_v2.py`/`shadow_calc_v2.py`), was
+  constructed from the clarified specification above — blind to `src/`
+  and to the reconciliation implementation until V2 was fully built,
+  audited, and hashed (see `validation/independent_dcf/README_v2.md`).
+  V1 (`independent_dcf_validation.xlsx`) is preserved byte-for-byte
+  unchanged; its Phase 2B evidence is archived at
+  `validation/dcf_reconciliation/history/phase2b_initial_no_go/`, never
+  edited. `validation/dcf_reconciliation/`'s reconciliation tooling
+  (`capture.py`, `reconcile.py`) was then retargeted at V2 (with a hash
+  guard on both V1 and V2 before every run), and three defects found in
+  the Phase 2B reconciliation *tooling itself* (not the DCF model) were
+  fixed: (1) `xlsx_writer.py`'s number-format-ID allocator could silently
+  collide two distinct custom formats onto the same ID (e.g. a dollar
+  amount rendering as a raw percentage) — rewritten to assign every
+  distinct format a unique ID generically, with no per-format special
+  casing; (2) sensitivity coverage was mislabeled as a single ambiguous
+  "cells" count — now reported as both "Scenario Rows" and actual "Scalar
+  Comparisons" (28+28+72+63+36 = 227 per company, 908 total), via a new
+  shared `coverage.py` module; (3) the reconciliation workbook only showed
+  full formula-driven detail for Sensitivity Tables 1-2 — a new "All
+  Sensitivity Comparisons" sheet now carries all 908 scalar comparisons
+  as their own live-formula rows.
+- **Why**: Per `docs/independent-validation-plan.md`'s NO-GO protocol —
+  the Phase 2B discrepancy is now resolved (specification clarified,
+  V2 built from it) and the reconciliation re-run to confirm the fix
+  actually closes the gap, not merely asserted to.
+- **Output effect**: None on any production model output — `src/dcf_model/dcf.py`
+  was not modified anywhere in Phase 2C (Phase 2B had already established
+  its `years_elapsed` computation matched the clarified specification).
+  The effect is entirely on the independent-validation artifacts: V2
+  (new), and `validation/dcf_reconciliation/`'s reconciliation outputs
+  (regenerated against V2). Result: all four companies (MSFT, CAT, INTC,
+  VZ) now pass base-case reconciliation and all 908 sensitivity scalar
+  comparisons against V2 — **GO** verdict, pending separate second-reviewer
+  sign-off (still not performed). See
+  `validation/dcf_reconciliation/reconciliation_report.md`.
+- **Tests**: `tests/validation/test_dcf_reconciliation.py` covers both the
+  Phase 2B/2C findings (irregular-fiscal-date CAGR correctness, V1/V2 hash
+  guards, V2 date-subtraction-not-COUNT verification, OOXML format-ID
+  collision checks, exact scalar-comparison counts, full Table 1-5
+  workbook coverage, formula-tied PASS/FAIL, formula-error scans) and the
+  pre-existing negative controls (missing-cell / perturbed-value
+  detection, deterministic regeneration, archived-evidence immutability).
+
+### Phase 2C, continued: independent second-reviewer audit remediation (H-1, M-1)
+
+An independent, read-only second-reviewer audit of the above work (per
+`docs/independent-validation-plan.md`'s still-pending sign-off requirement)
+found two confirmed defects, neither in the DCF model itself. Both are
+remediated here; `src/dcf_model/dcf.py` was not touched.
+
+- **H-1 — durable evidence excluded by `.gitignore`**: the repository's
+  blanket `*.xlsx` rule (meant for raw/interim financial data pulls)
+  incidentally also excluded `dcf_reconciliation.xlsx`, its archived
+  `history/phase2b_initial_no_go/` copy, and V2
+  (`independent_dcf_validation_v2.xlsx`) from version control entirely --
+  none would have survived a `git clean` or been present after a fresh
+  clone. **Fix**: three narrow, exact-path `!`-exceptions added to
+  `.gitignore` (see its own comment block) for exactly these three files;
+  the general `*.xlsx` rule is unchanged for everything else. V1
+  (`independent_dcf_validation.xlsx`) needed no change -- already tracked.
+  Nothing was staged or committed as part of this fix. See
+  `validation/dcf_reconciliation/README.md`'s "Durable evidence and
+  `.gitignore`" section.
+- **M-1 — empty cached PASS/FAIL values on formula cells**: `workbook_builder.py`'s
+  `_comparison_row` wrote a correctly-referenced live `IF(...,"PASS","FAIL")`
+  formula for every comparison cell, but cached an empty string alongside
+  it -- structurally correct, functionally blank to any reader that does
+  not run an actual spreadsheet recalculation (none is available anywhere
+  in this repository's tooling). **Fix**: `_comparison_row` now also
+  computes the verdict in Python, via `compare.py`'s
+  `compare_rate`/`compare_monetary` (the same functions
+  `reconciliation_results.json`'s own verdicts come from) applied to the
+  exact codebase/workbook/tolerance values written into that row, and
+  caches that as the cell's value. The formula text is unchanged. `n/a`
+  (invalid-combination) rows were and remain handled separately, as
+  literal text, never through this formula path. See
+  `validation/dcf_reconciliation/README.md`'s "What 'PASS/FAIL' means at
+  each layer" section for the resulting three-tier distinction
+  (structurally verified / Python-computed cached verdict / actual
+  spreadsheet recalculation -- the last of which remains unverified, by
+  design, since no spreadsheet engine was used).
+- **Output effect**: `dcf_reconciliation.xlsx` (this directory's own
+  workbook) was regenerated to incorporate the M-1 fix. V1, V2, and the
+  archived Phase 2B evidence were not regenerated and their SHA-256 hashes
+  are unchanged -- `capture.py`'s existing hash guard would have raised
+  before writing anything if either had drifted.
+- **Tests**: new negative controls in `tests/validation/test_dcf_reconciliation.py`
+  assert every formula-based PASS/FAIL cell has a non-empty cached value,
+  independently recompute each cached verdict from the row's own values
+  and tolerance and require an exact match, detect a deliberately
+  perturbed comparison value as FAIL, detect a deliberately wrong cached
+  verdict as a defect, and confirm the H-1 `.gitignore` exceptions are
+  both present and narrowly scoped.
+
 ## Pre-remediation-branch history
 
 Commits before `26221de` (e.g. `9927a26` "DevOps: Fix Tailwind CSS compilation and

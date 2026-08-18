@@ -1,0 +1,19 @@
+{
+  "artifacts": {
+    "codebase_outputs.json": "364d01d8837d5a8796061e5fd5a10e8078f6d2c6b3598b62f5197b0b57bc64c9",
+    "dcf_reconciliation.xlsx": "fdb6daa10bee0baa9fc312b8e03a7a1312724b56ac0406d42a59d9d2c76365b4",
+    "reconciliation_report.md": "dcbcec3bc05c9816f5434cb1a9028d9b33d4cb9ba112428189dc97acd875e63f",
+    "reconciliation_results.json": "abdc614cbdba82f783eb390b94d8bb2a3cbe1ce61ec0f7387fcda3650b8bdfa8"
+  },
+  "description": "SHA-256 of every reconciliation artifact this session produced, except this manifest file itself (a manifest cannot meaningfully hash its own final bytes before they are written).",
+  "original_workbook_sha256": "942b5f096cf546d63487add31eb29b1b690f0819f923f01436093f9bbc75eba1",
+  "reconciliation_target": "v2",
+  "snapshot_sha256": {
+    "CAT": "651d366c01415c2da33733058dabb9ac6e4f40cdf5b20e743c0b83ebc3a52c93",
+    "INTC": "d73e4b40bce2442a75affde82aaa563ffdea9c68c7257e70cc325663cff24930",
+    "MSFT": "7c50a3e9fb2d27095a890ad8d11732d4ccc72ef9350998604adb3af7a3c845a8",
+    "VZ": "77b8ea27b8decaff5fe3b4aad857c632a852445eda0b7f2342f594cd3c4b5f3d"
+  },
+  "v1_workbook_sha256": "942b5f096cf546d63487add31eb29b1b690f0819f923f01436093f9bbc75eba1",
+  "v2_workbook_sha256": "cd2d225cfe0825ff56aa8f866c3b80b6bec5f87a8b02dc3f76724e4abdd27d6b"
+}

@@ -1,11 +1,20 @@
 # Independent Validation Plan
 
-Status: **plan only — not yet executed.** This document specifies the next phase's
-independent DCF validation; it does not implement it. Per
-[`docs/model-development-roadmap.md`](model-development-roadmap.md), Track A
-requires this validation to exist before Track B (performance research) may begin,
-"specifically to catch a systematic bug that the same code checking itself against
-itself could never catch." See `L-012` in
+Status: **executed, reconciliation result GO; second-reviewer sign-off
+PENDING.** This document originally specified the validation as a plan only;
+it has since been executed through Phase 2A (independent workbook V1 built),
+Phase 2B (first reconciliation attempt — NO-GO, a genuine specification
+ambiguity found for INTC), and Phase 2C (specification clarified;
+independent workbook V2 built and reconciled — all four companies pass,
+GO). See "Execution history" at the end of this document for the full
+record. Per [`docs/model-development-roadmap.md`](model-development-roadmap.md),
+Track A requires this validation to reach a **GO** verdict, per this
+document's own sign-off checklist, before Track B (performance research) may
+begin, "specifically to catch a systematic bug that the same code checking
+itself against itself could never catch." The reconciliation verdict is GO;
+the sign-off checklist's second-reviewer item is not yet checked (see
+"Review / sign-off checklist" above) — Track B should treat this gate as not
+yet fully satisfied until that review is recorded. See `L-012` in
 [`docs/limitations-register.md`](limitations-register.md).
 
 ## Purpose
@@ -225,3 +234,37 @@ injection, sign-off checklist, stop/go gate) should be reused for any other mode
 Track B comes to depend on (e.g. the Monte Carlo VaR engine, once Track B item 10's
 risk-model comparison begins) — this document's structure, not just its DCF-
 specific content, is the reusable template.
+
+## Execution history
+
+- **Phase 2A** — Independent workbook V1 built for MSFT, CAT, INTC, VZ from this
+  document and `docs/model-specifications/dcf.md`/`wacc-capm.md`'s prose, without
+  reading or importing `src/dcf_model/dcf.py`, per the genuine-independence
+  requirement above. See `validation/independent_dcf/README.md`.
+- **Phase 2B** — First codebase-to-workbook reconciliation, per the "Comparison
+  procedure" above. Result: **NO-GO**. MSFT, CAT, and VZ matched the workbook to
+  full floating-point precision on every required metric. INTC failed at Revenue
+  CAGR (first intermediate divergence, ~0.0124 percentage points, exceeding the
+  documented `±0.01`pp tolerance) — traced to this document's own written
+  specification (via `docs/model-specifications/dcf.md`) not defining
+  `years_elapsed`'s exact day-count convention, which V1's builder (reasonably,
+  and independently) resolved differently from the codebase's actual
+  implementation. Full evidence archived at
+  `validation/dcf_reconciliation/history/phase2b_initial_no_go/` (never edited
+  after archival — it is the historical record that this ambiguity existed and
+  produced a real failure, not a hypothetical one).
+- **Phase 2C** — Per the NO-GO protocol above ("the discrepancy is investigated
+  and either fixed ... or documented as an accepted limitation before
+  re-attempting validation"): the ambiguity was resolved by clarifying
+  `docs/model-specifications/dcf.md`'s `years_elapsed` definition to actual
+  elapsed calendar days between fiscal-period-end dates, divided by 365.25 (see
+  `A-028` in the assumptions register and `L-019` in the limitations register).
+  The codebase's existing implementation already conformed to the clarified
+  definition and required no change. A second independent workbook (V2) was then
+  built from the corrected specification, still blind to the codebase, and
+  reconciled again. Result: all four companies (MSFT, CAT, INTC, VZ) pass
+  base-case reconciliation and all 908 sensitivity scalar comparisons against
+  V2 — **GO**. See `validation/independent_dcf/README_v2.md` for V2's
+  artifacts and `validation/dcf_reconciliation/reconciliation_report.md` for
+  the full reconciliation result. Second-reviewer sign-off (see the
+  checklist above) was not performed in this session and remains PENDING.
