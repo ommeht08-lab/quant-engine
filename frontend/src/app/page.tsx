@@ -5,6 +5,7 @@ import type { FormEvent } from "react";
 import PortfolioAllocation from "@/components/PortfolioAllocation";
 import BacktestChart from "@/components/BacktestChart";
 import RiskHistogram from "@/components/RiskHistogram";
+import { valuationErrorFromResponse, type ValuationRequestError } from "@/lib/valuation-errors";
 
 interface FreeCashFlowYear {
   year: number;
@@ -254,14 +255,14 @@ export default function Home() {
 
   const [result, setResult] = useState<EvaluationResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ValuationRequestError | null>(null);
 
   async function runValuation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const trimmedTicker = ticker.trim().toUpperCase();
     if (!trimmedTicker) {
-      setError("Enter a ticker symbol.");
+      setError({ kind: "input", message: "Enter a ticker symbol." });
       return;
     }
 
@@ -287,9 +288,7 @@ export default function Home() {
 
       if (!response.ok) {
         const body = await response.json().catch(() => null);
-        throw new Error(
-          body?.detail ?? `Valuation request failed (HTTP ${response.status}).`
-        );
+        throw valuationErrorFromResponse(response.status, body);
       }
 
       const data: EvaluationResponse = await response.json();
@@ -297,9 +296,9 @@ export default function Home() {
     } catch (err) {
       setResult(null);
       setError(
-        err instanceof Error
-          ? err.message
-          : "Could not reach the valuation API."
+        err && typeof err === "object" && "kind" in err && "message" in err
+          ? (err as ValuationRequestError)
+          : { kind: "unavailable", message: "The valuation service did not respond." }
       );
     } finally {
       setIsLoading(false);
@@ -410,7 +409,7 @@ export default function Home() {
             </button>
 
             <div className="lg:col-span-3">
-              <div className="flex items-center gap-3 border border-[var(--line)] bg-[rgba(7,21,33,.46)] px-4 py-3">
+              <div className="flex items-center gap-3 border-t border-[var(--line)] py-4">
                 <button
                   type="button"
                   role="switch"
@@ -443,8 +442,14 @@ export default function Home() {
         </form>
 
         {error && (
-          <div className="status-error mb-5" role="alert">
-            {error}
+          <div
+            className={`${error.kind === "unavailable" ? "status-warning" : "status-error"} mb-5`}
+            role="alert"
+          >
+            <strong className="block text-[var(--paper)]">
+              {error.kind === "unavailable" ? "Live valuation is not connected" : "Valuation could not run"}
+            </strong>
+            <span className="mt-1 block">{error.message}</span>
           </div>
         )}
 

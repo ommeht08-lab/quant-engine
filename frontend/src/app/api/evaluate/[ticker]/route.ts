@@ -63,8 +63,11 @@ export async function GET(
       error instanceof Error ? error.message : "unknown error"
     );
     return NextResponse.json(
-      { error: "The valuation backend is not configured for this deployment." },
-      { status: 500 }
+      {
+        code: "VALUATION_BACKEND_UNCONFIGURED",
+        error: "Live valuation is not connected to this deployment yet.",
+      },
+      { status: 503 }
     );
   }
 
@@ -83,8 +86,11 @@ export async function GET(
       error instanceof Error ? error.message : "unknown error"
     );
     return NextResponse.json(
-      { error: "The valuation backend is not configured for this deployment." },
-      { status: 500 }
+      {
+        code: "VALUATION_BACKEND_UNCONFIGURED",
+        error: "Live valuation is not connected to this deployment yet.",
+      },
+      { status: 503 }
     );
   }
 
@@ -114,7 +120,10 @@ export async function GET(
       isTimeout ? "request timed out" : error instanceof Error ? error.message : "unknown error"
     );
     return NextResponse.json(
-      { error: "Could not reach the valuation backend." },
+      {
+        code: "VALUATION_BACKEND_UNREACHABLE",
+        error: "The live valuation service did not respond. Portfolio data remains available below.",
+      },
       { status: 502 }
     );
   } finally {
