@@ -15,6 +15,7 @@ execution job only.
 from pathlib import Path
 
 WORKFLOW_PATH = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "rebalance.yml"
+HEARTBEAT_WORKFLOW_PATH = WORKFLOW_PATH.parent / "database-heartbeat.yml"
 
 
 def _read_workflow() -> str:
@@ -122,3 +123,35 @@ class TestGeneralTestsWorkflowUnaffected:
     def test_tests_workflow_has_no_production_secrets(self):
         tests_workflow = WORKFLOW_PATH.parent / "tests.yml"
         assert "secrets." not in tests_workflow.read_text()
+
+
+class TestDatabaseHeartbeatWorkflow:
+    """The scheduled database check must remain isolated from trading."""
+
+    def test_heartbeat_runs_three_times_daily_and_can_run_manually(self):
+        content = HEARTBEAT_WORKFLOW_PATH.read_text()
+        assert 'cron: "17 3,11,19 * * *"' in content
+        assert "workflow_dispatch:" in content
+
+    def test_heartbeat_receives_only_the_database_secret(self):
+        content = HEARTBEAT_WORKFLOW_PATH.read_text()
+        assert "secrets.DATABASE_URL" in content
+        assert content.count("secrets.") == 1
+
+    def test_heartbeat_cannot_invoke_trading_or_external_data_clients(self):
+        content = HEARTBEAT_WORKFLOW_PATH.read_text()
+        for forbidden_text in (
+            "alpaca_execution",
+            "APCA_API_KEY_ID",
+            "APCA_API_SECRET_KEY",
+            "UPSTASH_REDIS_REST_URL",
+            "UPSTASH_REDIS_REST_TOKEN",
+            "yfinance",
+        ):
+            assert forbidden_text not in content
+
+    def test_heartbeat_runs_the_dedicated_read_only_module(self):
+        content = HEARTBEAT_WORKFLOW_PATH.read_text()
+        assert "python -m src.utils.database_heartbeat" in content
+        assert "permissions:\n  contents: read" in content
+        assert "cancel-in-progress: true" in content

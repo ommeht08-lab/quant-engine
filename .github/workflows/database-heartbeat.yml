@@ -1,0 +1,46 @@
+name: Read-only Supabase heartbeat
+
+# Supabase Free projects may pause after a week of insufficient database
+# activity.  This workflow performs three small, meaningful availability
+# checks per day without running the trading engine or modifying application
+# data.  Supabase does not publish an exact keep-awake threshold, so this is a
+# best-effort Free-plan measure rather than an uptime guarantee.
+"on":
+  schedule:
+    # GitHub Actions cron uses UTC.  The deliberately non-round minute avoids
+    # the busiest part of the hour, when scheduled workflows are more likely
+    # to be delayed.
+    - cron: "17 3,11,19 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: database-heartbeat
+  cancel-in-progress: true
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Install only the Postgres driver required by the heartbeat.  The full
+      # application dependency set includes trading and market-data clients
+      # that this workflow must never import or contact.
+      - name: Install Postgres driver
+        run: python -m pip install --disable-pip-version-check "psycopg2-binary==2.9.10"
+
+      - name: Run read-only heartbeat
+        env:
+          # Deliberately the only production secret available to this job.
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python -m src.utils.database_heartbeat
