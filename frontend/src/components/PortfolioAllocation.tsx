@@ -82,33 +82,33 @@ export default function PortfolioAllocation() {
       : [];
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[.03] p-6 sm:p-8">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-400">
-          Live Portfolio Allocation
+    <section className="panel h-full p-6 sm:p-8">
+      <div className="panel-header">
+        <h2 className="panel-title">
+          Paper portfolio allocation
         </h2>
         {data && (
-          <span className="font-mono text-xs text-neutral-500">
+          <span className="panel-kicker">
             Equity: {formatCurrency(data.equity)}
           </span>
         )}
       </div>
 
       {isLoading && (
-        <p className="py-8 text-center text-sm text-neutral-500">Loading live positions…</p>
+        <p className="py-8 text-center text-sm text-[var(--paper-dim)]">Loading paper positions…</p>
       )}
 
       {error && !isLoading && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+        <div className="status-error">
           {error}
         </div>
       )}
 
       {!isLoading && !error && rows.length === 0 && (
-        <p className="py-8 text-center text-sm text-neutral-500">
-          No open positions. Once the autonomous execution engine holds a position, its
-          risk-adjusted (inverse-beta) weight will show up here.
-        </p>
+        <div className="empty-state py-8 text-center">
+          <strong className="block text-[var(--paper-muted)]">No paper positions are open.</strong>
+          <span className="mt-1 block">Allocation appears after a completed paper execution records holdings.</span>
+        </div>
       )}
 
       {!isLoading && !error && rows.length > 0 && (
@@ -118,17 +118,17 @@ export default function PortfolioAllocation() {
               <div className="mb-1.5 flex items-baseline justify-between text-sm">
                 <Link
                   href={`/ticker/${row.symbol}`}
-                  className="font-mono font-semibold text-neutral-50 transition-colors hover:text-emerald-400"
+                  className="font-mono font-semibold text-[var(--paper)] transition-colors hover:text-[var(--verdigris)]"
                 >
                   {row.symbol}
                 </Link>
-                <span className="font-mono text-neutral-300">
+                <span className="font-mono text-xs text-[var(--paper-muted)]">
                   {row.percentage.toFixed(2)}% · {formatCurrency(row.marketValue)}
                 </span>
               </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-neutral-800">
+              <div className="h-1.5 w-full overflow-hidden bg-[var(--ledger)]">
                 <div
-                  className="bg-emerald-500 h-2 rounded-full"
+                  className="h-1.5 bg-[var(--verdigris)]"
                   style={{ width: `${Math.min(row.percentage, 100)}%` }}
                 />
               </div>
@@ -136,6 +136,6 @@ export default function PortfolioAllocation() {
           ))}
         </div>
       )}
-    </div>
+    </section>
   );
 }

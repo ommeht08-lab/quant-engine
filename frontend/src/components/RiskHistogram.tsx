@@ -79,9 +79,9 @@ function RiskMetricCard({
   value: string;
 }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[.02] p-4">
-      <p className="text-xs uppercase tracking-wider text-neutral-500">{label}</p>
-      <p className="mt-1 font-mono text-xl font-semibold text-rose-400">{value}</p>
+    <div className="metric-panel p-4">
+      <p className="data-label text-[var(--paper-dim)]">{label}</p>
+      <p className="mt-2 font-mono text-xl font-semibold text-[var(--signal)]">{value}</p>
     </div>
   );
 }
@@ -92,8 +92,8 @@ function CustomTooltip({ active, payload }: TooltipContentProps) {
   if (!point) return null;
 
   return (
-    <div className="rounded-lg border border-white/10 bg-neutral-900 px-4 py-3 text-sm shadow-xl">
-      <p className="font-mono font-semibold text-neutral-200">{formatPercent(point.x)}</p>
+    <div className="border border-[var(--line-strong)] bg-[var(--ink-raised)] px-4 py-3 text-sm shadow-xl">
+      <p className="font-mono font-semibold text-[var(--paper)]">{formatPercent(point.x)}</p>
     </div>
   );
 }
@@ -136,38 +136,37 @@ export default function RiskHistogram() {
   const distribution = risk && risk.status === "ok" ? buildDistribution(risk.var95) : [];
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[.03] p-6 sm:p-8">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-400">
-          Portfolio Risk — Monte Carlo VaR / CVaR
+    <section className="panel h-full p-6 sm:p-8">
+      <div className="panel-header">
+        <h2 className="panel-title">
+          Portfolio risk
         </h2>
         {risk && (
-          <span className="font-mono text-xs text-neutral-500">
+          <span className="panel-kicker">
             as of {new Date(risk.asOf).toLocaleString()}
           </span>
         )}
       </div>
 
       {isLoading && (
-        <p className="py-16 text-center text-sm text-neutral-500">Loading risk metrics…</p>
+        <p className="py-16 text-center text-sm text-[var(--paper-dim)]">Loading risk metrics…</p>
       )}
 
       {error && !isLoading && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+        <div className="status-error">
           {error}
         </div>
       )}
 
       {!isLoading && !error && !risk && (
-        <p className="py-16 text-center text-sm text-neutral-500">
-          No risk snapshot logged yet. Run the live trading engine
-          (<code className="font-mono text-neutral-400">python -m src.trading.alpaca_execution</code>)
-          to populate this chart.
-        </p>
+        <div className="empty-state py-12 text-center">
+          <strong className="block text-[var(--paper-muted)]">Risk monitoring is awaiting its first recorded calculation.</strong>
+          <span className="mt-1 block">This panel remains empty until a completed paper execution records a portfolio risk snapshot. Do not run trading solely to populate it.</span>
+        </div>
       )}
 
       {!isLoading && !error && risk && risk.status === "unavailable" && (
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-300">
+        <div className="status-warning">
           Portfolio VaR was unavailable for the most recent trading run (as of{" "}
           {new Date(risk.asOf).toLocaleString()}) — not enough usable price history or the
           simulation itself failed. This is not the same as zero risk; check the trading engine
@@ -199,7 +198,7 @@ export default function RiskHistogram() {
                   domain={["dataMin", "dataMax"]}
                   tickFormatter={(value: number) => formatPercent(value)}
                   stroke="rgba(255,255,255,0.3)"
-                  tick={{ fill: "#a3a3a3", fontSize: 11 }}
+                  tick={{ fill: "#6f7d80", fontSize: 11 }}
                   tickLine={false}
                   axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
                 />
@@ -208,26 +207,26 @@ export default function RiskHistogram() {
                   content={(props) => <CustomTooltip {...props} />}
                   cursor={{ fill: "rgba(255,255,255,0.05)" }}
                 />
-                <Bar dataKey="density" fill="#3f3f46" isAnimationActive={false} />
+                <Bar dataKey="density" fill="#24404d" isAnimationActive={false} />
                 <ReferenceLine
                   x={risk.var95}
-                  stroke="#f43f5e"
+                  stroke="#e47168"
                   strokeWidth={2}
                   strokeDasharray="4 4"
-                  label={{ value: "VaR 95%", position: "top", fill: "#f43f5e", fontSize: 11 }}
+                  label={{ value: "VaR 95%", position: "top", fill: "#e47168", fontSize: 11 }}
                 />
                 <ReferenceLine
                   x={risk.cvar95}
-                  stroke="#fb923c"
+                  stroke="#d2a55f"
                   strokeWidth={2}
                   strokeDasharray="4 4"
-                  label={{ value: "CVaR", position: "top", fill: "#fb923c", fontSize: 11 }}
+                  label={{ value: "CVaR", position: "top", fill: "#d2a55f", fontSize: 11 }}
                 />
               </BarChart>
             </ResponsiveContainer>
           </div>
 
-          <p className="mt-5 text-xs text-neutral-500">
+          <p className="mt-5 text-xs leading-5 text-[var(--paper-dim)]">
             Illustrative return distribution (normal approximation calibrated to the logged 95%
             VaR) — the raw 10,000-path Monte Carlo simulation isn&rsquo;t persisted, only its
             VaR/CVaR summary statistics. Computed over a rolling 1-month (21 trading day) horizon
@@ -235,6 +234,6 @@ export default function RiskHistogram() {
           </p>
         </>
       )}
-    </div>
+    </section>
   );
 }

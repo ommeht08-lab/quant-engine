@@ -85,10 +85,10 @@ function SliderField({ id, label, value, min, max, step, onChange }: SliderField
   return (
     <div>
       <div className="mb-2 flex items-baseline justify-between gap-2">
-        <label htmlFor={id} className="text-sm font-medium text-neutral-300">
+        <label htmlFor={id} className="text-xs font-medium text-[var(--paper-muted)]">
           {label}
         </label>
-        <span className="font-mono text-sm text-emerald-400">{formatPercent(value)}</span>
+        <span className="font-mono text-xs text-[var(--brass)]">{formatPercent(value)}</span>
       </div>
       <input
         id={id}
@@ -98,7 +98,7 @@ function SliderField({ id, label, value, min, max, step, onChange }: SliderField
         step={step}
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
-        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-neutral-800 accent-emerald-500"
+        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-[var(--ledger)] accent-[var(--verdigris)]"
       />
     </div>
   );
@@ -114,21 +114,21 @@ interface MetricCardProps {
 function MetricCard({ label, value, emphasis = false, sublabel }: MetricCardProps) {
   return (
     <div
-      className={`rounded-2xl border p-6 ${
+      className={`metric-panel p-5 ${
         emphasis
-          ? "border-emerald-500/30 bg-emerald-500/[.06]"
-          : "border-white/10 bg-white/[.03]"
+          ? "border-[rgba(85,184,170,.4)] bg-[var(--verdigris-soft)]"
+          : ""
       }`}
     >
-      <p className="text-xs font-medium uppercase tracking-wider text-neutral-400">{label}</p>
+      <p className="data-label text-[var(--paper-dim)]">{label}</p>
       <p
-        className={`mt-2 font-mono tracking-tight ${
-          emphasis ? "text-4xl text-emerald-400" : "text-2xl text-neutral-50"
+        className={`mt-3 font-mono tracking-tight ${
+          emphasis ? "text-4xl text-[var(--verdigris)]" : "text-2xl text-[var(--paper)]"
         }`}
       >
         {value}
       </p>
-      {sublabel && <p className="mt-1 text-xs text-neutral-500">{sublabel}</p>}
+      {sublabel && <p className="mt-2 text-xs leading-5 text-[var(--paper-dim)]">{sublabel}</p>}
     </div>
   );
 }
@@ -139,7 +139,7 @@ interface SectorBadgeProps {
 
 function SectorBadge({ sector }: SectorBadgeProps) {
   return (
-    <span className="inline-flex items-center rounded-full border border-white/10 bg-white/[.05] px-3 py-1 text-xs font-semibold uppercase tracking-wide text-neutral-300">
+    <span className="inline-flex items-center border border-[var(--line)] bg-[rgba(236,232,220,.04)] px-3 py-1 font-mono text-[10px] font-semibold uppercase tracking-[.1em] text-[var(--paper-muted)]">
       {sector}
     </span>
   );
@@ -162,11 +162,11 @@ function SectorValuationComparison({
 }: SectorValuationComparisonProps) {
   if (priceToIntrinsicValue === null || sectorMedianPIV === null) {
     return (
-      <div className="rounded-2xl border border-white/10 bg-white/[.03] p-6 sm:p-8">
-        <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-neutral-400">
+      <div className="panel p-6 sm:p-8">
+        <h2 className="panel-title mb-2">
           Sector-Relative Valuation
         </h2>
-        <p className="text-sm text-neutral-500">
+        <p className="text-sm leading-6 text-[var(--paper-dim)]">
           {priceToIntrinsicValue === null
             ? "Price-to-intrinsic-value could not be computed for this ticker."
             : sectorMedianUnavailableReason ?? `No sector median P/IV available yet for ${sector}.`}
@@ -181,16 +181,16 @@ function SectorValuationComparison({
   const medianBarPct = Math.min((sectorMedianPIV / maxScale) * 100, 100);
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[.03] p-6 sm:p-8">
+    <div className="panel p-6 sm:p-8">
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-400">
+        <h2 className="panel-title">
           Sector-Relative Valuation
         </h2>
         <span
           className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
             passes
-              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-              : "border-rose-500/30 bg-rose-500/10 text-rose-400"
+              ? "border-[rgba(85,184,170,.35)] bg-[var(--verdigris-soft)] text-[var(--verdigris)]"
+              : "border-[rgba(228,113,104,.35)] bg-[rgba(228,113,104,.09)] text-[var(--signal)]"
           }`}
         >
           {passes ? "✓ Below Sector Median" : "✗ Above Sector Median"}
@@ -200,16 +200,16 @@ function SectorValuationComparison({
       <div className="space-y-4">
         <div>
           <div className="mb-1.5 flex items-baseline justify-between text-sm">
-            <span className="text-neutral-300">{ticker} P/IV</span>
+            <span className="text-[var(--paper-muted)]">{ticker} P/IV</span>
             <span
-              className={`font-mono font-semibold ${passes ? "text-emerald-400" : "text-rose-400"}`}
+              className={`font-mono font-semibold ${passes ? "text-[var(--verdigris)]" : "text-[var(--signal)]"}`}
             >
               {priceToIntrinsicValue.toFixed(2)}x
             </span>
           </div>
-          <div className="h-2.5 w-full overflow-hidden rounded-full bg-neutral-800">
+          <div className="h-2 w-full overflow-hidden bg-[var(--ledger)]">
             <div
-              className={`h-full rounded-full ${passes ? "bg-emerald-500" : "bg-rose-500"}`}
+              className={`h-full ${passes ? "bg-[var(--verdigris)]" : "bg-[var(--signal)]"}`}
               style={{ width: `${stockBarPct}%` }}
             />
           </div>
@@ -217,21 +217,21 @@ function SectorValuationComparison({
 
         <div>
           <div className="mb-1.5 flex items-baseline justify-between text-sm">
-            <span className="text-neutral-300">{sector} Sector Median</span>
-            <span className="font-mono font-semibold text-neutral-300">
+            <span className="text-[var(--paper-muted)]">{sector} Sector Median</span>
+            <span className="font-mono font-semibold text-[var(--paper-muted)]">
               {sectorMedianPIV.toFixed(2)}x
             </span>
           </div>
-          <div className="h-2.5 w-full overflow-hidden rounded-full bg-neutral-800">
+          <div className="h-2 w-full overflow-hidden bg-[var(--ledger)]">
             <div
-              className="h-full rounded-full bg-neutral-500"
+              className="h-full bg-[var(--paper-dim)]"
               style={{ width: `${medianBarPct}%` }}
             />
           </div>
         </div>
       </div>
 
-      <p className="mt-5 text-xs text-neutral-500">
+      <p className="mt-5 text-xs leading-5 text-[var(--paper-dim)]">
         Passes the sector-relative Margin of Safety filter when {ticker}&rsquo;s P/IV is at or
         below the {sector} sector median.
       </p>
@@ -314,41 +314,36 @@ export default function Home() {
     priceDelta !== null && result?.current_price ? priceDelta / result.current_price : null;
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-50">
-      <div className="mx-auto max-w-6xl px-6 py-12">
-        <header className="mb-10">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-500">
-            Valuation Engine
-          </p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight text-neutral-50 sm:text-4xl">
-            Discounted Cash Flow Dashboard
-          </h1>
-          <p className="mt-2 max-w-2xl text-sm text-neutral-400">
-            Run a live DCF valuation against real-time market and financial statement
-            data, and see how intrinsic value responds to your assumptions.
+    <div className="page-shell">
+      <div className="shell-container pb-20">
+        <header className="page-header">
+          <div>
+            <p className="eyebrow mb-5">Intrinsic value desk</p>
+            <h1 className="display-title">Turn market price into a research question.</h1>
+          </div>
+          <p className="page-deck">
+            Build a discounted cash flow case from company history or your own operating
+            assumptions, then read it against portfolio exposure, risk, and evidence from the
+            paper account.
           </p>
         </header>
 
-        <div className="mb-8">
-          <PortfolioAllocation />
+        <div className="section-intro">
+          <div>
+            <p className="eyebrow mb-2">Model workbench</p>
+            <h2>Set the case, then inspect the spread.</h2>
+          </div>
+          <p>
+            Historical mode keeps company-derived growth and margins. Custom mode makes every
+            override explicit.
+          </p>
         </div>
 
-        <div className="mb-8">
-          <BacktestChart />
-        </div>
-
-        <div className="mb-8">
-          <RiskHistogram />
-        </div>
-
-        <form
-          onSubmit={runValuation}
-          className="mb-8 rounded-2xl border border-white/10 bg-white/[.03] p-6 sm:p-8"
-        >
+        <form onSubmit={runValuation} className="panel mb-5 p-6 sm:p-8">
           <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,220px)_1fr_auto] lg:items-end">
             <div>
-              <label htmlFor="ticker" className="mb-2 block text-sm font-medium text-neutral-300">
-                Ticker Symbol
+              <label htmlFor="ticker" className="data-label mb-2 block text-[var(--paper-dim)]">
+                Ticker
               </label>
               <input
                 id="ticker"
@@ -359,7 +354,7 @@ export default function Home() {
                 maxLength={10}
                 autoComplete="off"
                 spellCheck={false}
-                className="w-full rounded-lg border border-white/10 bg-neutral-900 px-4 py-2.5 font-mono text-lg tracking-wide text-neutral-50 placeholder:text-neutral-600 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                className="input-field px-4 py-2.5 font-mono text-lg tracking-[.08em]"
               />
             </div>
 
@@ -403,8 +398,19 @@ export default function Home() {
               />
             </div>
 
-            <div className="sm:col-span-3">
-              <div className="flex items-center gap-3 rounded-lg border border-white/10 bg-neutral-900 px-4 py-3">
+            <button type="submit" disabled={isLoading} className="button-primary gap-2">
+              {isLoading ? (
+                <>
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-[rgba(4,16,15,.35)] border-t-[#04100f]" />
+                  Running…
+                </>
+              ) : (
+                "Run Valuation"
+              )}
+            </button>
+
+            <div className="lg:col-span-3">
+              <div className="flex items-center gap-3 border border-[var(--line)] bg-[rgba(7,21,33,.46)] px-4 py-3">
                 <button
                   type="button"
                   role="switch"
@@ -412,20 +418,20 @@ export default function Home() {
                   id="assumption-mode-toggle"
                   onClick={() => setUseCustomAssumptions((prev) => !prev)}
                   className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-                    useCustomAssumptions ? "bg-emerald-500" : "bg-neutral-700"
+                    useCustomAssumptions ? "bg-[var(--verdigris)]" : "bg-[var(--ledger)]"
                   }`}
                 >
                   <span
-                    className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                    className={`absolute top-0.5 h-5 w-5 rounded-full bg-[var(--paper)] transition-transform ${
                       useCustomAssumptions ? "translate-x-[22px]" : "translate-x-0.5"
                     }`}
                   />
                 </button>
                 <label htmlFor="assumption-mode-toggle" className="cursor-pointer text-sm">
-                  <span className="font-medium text-neutral-200">
+                  <span className="font-medium text-[var(--paper)]">
                     {useCustomAssumptions ? "Custom Assumptions" : "Company Historical Assumptions"}
                   </span>
-                  <span className="ml-2 text-neutral-500">
+                  <span className="ml-2 text-[var(--paper-dim)]">
                     {useCustomAssumptions
                       ? "Growth and margin sliders above are sent as explicit overrides."
                       : "Revenue growth & operating margin are derived from each company's own historical financials."}
@@ -433,38 +439,28 @@ export default function Home() {
                 </label>
               </div>
             </div>
-
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="flex h-[46px] items-center justify-center gap-2 rounded-lg bg-emerald-500 px-6 font-semibold text-neutral-950 transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400"
-            >
-              {isLoading ? (
-                <>
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-neutral-950/40 border-t-neutral-950" />
-                  Running…
-                </>
-              ) : (
-                "Run Valuation"
-              )}
-            </button>
           </div>
         </form>
 
         {error && (
-          <div className="mb-8 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+          <div className="status-error mb-5" role="alert">
             {error}
           </div>
         )}
 
         {!result && !isLoading && !error && (
-          <div className="rounded-2xl border border-dashed border-white/10 px-6 py-16 text-center text-sm text-neutral-500">
-            Enter a ticker and click &ldquo;Run Valuation&rdquo; to generate a DCF estimate.
+          <div className="empty-state px-6 py-12 text-center">
+            <strong className="block font-display text-xl font-normal text-[var(--paper-muted)]">
+              No valuation on the desk yet.
+            </strong>
+            <span className="mt-2 block">
+              Choose a ticker and run the model to compare market price with intrinsic value.
+            </span>
           </div>
         )}
 
         {isLoading && !result && (
-          <div className="rounded-2xl border border-white/10 bg-white/[.03] px-6 py-16 text-center text-sm text-neutral-500">
+          <div className="panel px-6 py-12 text-center text-sm text-[var(--paper-dim)]">
             Fetching financial statements and running the model…
           </div>
         )}
@@ -472,7 +468,7 @@ export default function Home() {
         {result && (
           <div className="space-y-8">
             <div className="flex flex-wrap items-center gap-3">
-              <h2 className="text-lg font-semibold tracking-tight text-neutral-50">
+              <h2 className="font-display text-3xl font-normal tracking-tight text-[var(--paper)]">
                 {result.ticker}
               </h2>
               <SectorBadge sector={result.sector} />
@@ -542,14 +538,15 @@ export default function Home() {
               sectorMedianUnavailableReason={result.sector_median_unavailable_reason}
             />
 
-            <div className="rounded-2xl border border-white/10 bg-white/[.03] p-6 sm:p-8">
-              <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-neutral-400">
-                Projected Free Cash Flows
-              </h2>
+            <div className="panel p-6 sm:p-8">
+              <div className="panel-header">
+                <h2 className="panel-title">Projected Free Cash Flows</h2>
+                <span className="panel-kicker">Forecast detail</span>
+              </div>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[640px] border-collapse text-sm">
+                <table className="data-table w-full min-w-[640px] border-collapse text-sm">
                   <thead>
-                    <tr className="border-b border-white/10 text-left text-xs uppercase tracking-wider text-neutral-500">
+                    <tr className="border-b border-[var(--line)] text-left">
                       <th className="py-2 pr-4 font-medium">Year</th>
                       <th className="py-2 pr-4 font-medium">Revenue</th>
                       <th className="py-2 pr-4 font-medium">EBIT</th>
@@ -557,7 +554,7 @@ export default function Home() {
                       <th className="py-2 pr-4 font-medium">D&amp;A</th>
                       <th className="py-2 pr-4 font-medium">CapEx</th>
                       <th className="py-2 pr-4 font-medium">Δ NWC</th>
-                      <th className="py-2 pl-4 text-right font-medium text-neutral-300">
+                      <th className="py-2 pl-4 text-right font-medium">
                         Free Cash Flow
                       </th>
                     </tr>
@@ -566,16 +563,18 @@ export default function Home() {
                     {result.projected_free_cash_flows.map((row) => (
                       <tr
                         key={row.year}
-                        className="border-b border-white/5 font-mono text-neutral-200 last:border-0"
+                        className="font-mono text-[var(--paper-muted)]"
                       >
-                        <td className="py-3 pr-4 font-sans text-neutral-400">Year {row.year}</td>
+                        <td className="py-3 pr-4 font-sans text-[var(--paper-dim)]">
+                          Year {row.year}
+                        </td>
                         <td className="py-3 pr-4">{formatCompactCurrency(row.revenue)}</td>
                         <td className="py-3 pr-4">{formatCompactCurrency(row.ebit)}</td>
                         <td className="py-3 pr-4">{formatCompactCurrency(row.nopat)}</td>
                         <td className="py-3 pr-4">{formatCompactCurrency(row.da)}</td>
                         <td className="py-3 pr-4">{formatCompactCurrency(row.capex)}</td>
                         <td className="py-3 pr-4">{formatCompactCurrency(row.change_in_nwc)}</td>
-                        <td className="py-3 pl-4 text-right font-semibold text-emerald-400">
+                        <td className="py-3 pl-4 text-right font-semibold text-[var(--verdigris)]">
                           {formatCompactCurrency(row.fcf)}
                         </td>
                       </tr>
@@ -586,6 +585,26 @@ export default function Home() {
             </div>
           </div>
         )}
+
+        <div className="section-intro">
+          <div>
+            <p className="eyebrow mb-2">Portfolio evidence</p>
+            <h2>What the paper account is carrying.</h2>
+          </div>
+          <p>
+            Exposure, historical performance, and risk remain separate from the valuation case
+            so unavailable data is never mistaken for zero.
+          </p>
+        </div>
+
+        <div className="grid gap-5 xl:grid-cols-2">
+          <PortfolioAllocation />
+          <RiskHistogram />
+        </div>
+
+        <div className="mt-5">
+          <BacktestChart />
+        </div>
       </div>
     </div>
   );

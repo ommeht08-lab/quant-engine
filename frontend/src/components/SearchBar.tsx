@@ -16,12 +16,12 @@ export default function SearchBar() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="relative w-full max-w-xs">
+    <form onSubmit={handleSubmit} className="relative w-[min(15rem,42vw)]">
       <svg
         aria-hidden="true"
         viewBox="0 0 20 20"
         fill="none"
-        className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-500"
+        className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--paper-dim)]"
       >
         <circle cx="8.5" cy="8.5" r="6" stroke="currentColor" strokeWidth="1.5" />
         <path d="M13 13L17.5 17.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
@@ -30,12 +30,12 @@ export default function SearchBar() {
         type="text"
         value={ticker}
         onChange={(event) => setTicker(event.target.value.toUpperCase())}
-        placeholder="Search ticker…"
+        placeholder="Open ticker"
         maxLength={10}
         autoComplete="off"
         spellCheck={false}
         aria-label="Search ticker symbol"
-        className="w-full rounded-lg border border-white/10 bg-neutral-900 py-2 pl-9 pr-3 font-mono text-sm tracking-wide text-neutral-50 placeholder:text-neutral-600 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+        className="input-field py-2 pl-9 pr-3 font-mono text-xs tracking-wide"
       />
     </form>
   );

@@ -53,9 +53,9 @@ function MetricStatCard({
   valueClassName?: string;
 }) {
   return (
-    <div className="rounded-xl border border-white/10 bg-white/[.02] p-4">
-      <p className="text-xs uppercase tracking-wider text-neutral-500">{label}</p>
-      <p className={`mt-1 font-mono text-xl font-semibold ${valueClassName ?? "text-neutral-50"}`}>
+    <div className="metric-panel p-4">
+      <p className="data-label text-[var(--paper-dim)]">{label}</p>
+      <p className={`mt-2 font-mono text-xl font-semibold ${valueClassName ?? "text-[var(--paper)]"}`}>
         {value}
       </p>
     </div>
@@ -70,7 +70,7 @@ function BacktestMetricsGrid({ data }: { data: BacktestPoint[] }) {
       <MetricStatCard
         label="Alpha (Annualized)"
         value={formatSignedPercent(metrics.alpha)}
-        valueClassName={metrics.alpha >= 0 ? "text-emerald-400" : "text-rose-400"}
+        valueClassName={metrics.alpha >= 0 ? "text-[var(--verdigris)]" : "text-[var(--signal)]"}
       />
       <MetricStatCard
         label="Sharpe Ratio (Risk-Adjusted Return)"
@@ -79,7 +79,7 @@ function BacktestMetricsGrid({ data }: { data: BacktestPoint[] }) {
       <MetricStatCard
         label="Max Drawdown"
         value={formatDrawdown(metrics.maxDrawdown)}
-        valueClassName="text-rose-400"
+        valueClassName="text-[var(--signal)]"
       />
       <MetricStatCard
         label="Annualized Volatility"
@@ -98,28 +98,28 @@ function CustomTooltip({ active, payload, label }: TooltipContentProps) {
   const benchmark = typeof benchmarkValue === "number" ? benchmarkValue : undefined;
 
   return (
-    <div className="rounded-lg border border-white/10 bg-neutral-900 px-4 py-3 text-sm shadow-xl">
-      <p className="mb-2 text-xs font-medium uppercase tracking-wider text-neutral-500">
+    <div className="border border-[var(--line-strong)] bg-[var(--ink-raised)] px-4 py-3 text-sm shadow-xl">
+      <p className="mb-2 font-mono text-[10px] uppercase tracking-wider text-[var(--paper-dim)]">
         {label}
       </p>
       {strategy !== undefined && (
         <div className="flex items-center justify-between gap-6">
-          <span className="flex items-center gap-1.5 text-neutral-300">
-            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+          <span className="flex items-center gap-1.5 text-[var(--paper-muted)]">
+            <span className="h-2 w-2 rounded-full bg-[var(--verdigris)]" />
             Strategy
           </span>
-          <span className="font-mono font-semibold text-emerald-400">
+          <span className="font-mono font-semibold text-[var(--verdigris)]">
             {formatCurrency(strategy)}
           </span>
         </div>
       )}
       {benchmark !== undefined && (
         <div className="mt-1 flex items-center justify-between gap-6">
-          <span className="flex items-center gap-1.5 text-neutral-300">
-            <span className="h-2 w-2 rounded-full bg-neutral-500" />
+          <span className="flex items-center gap-1.5 text-[var(--paper-muted)]">
+            <span className="h-2 w-2 rounded-full bg-[var(--paper-dim)]" />
             SPY
           </span>
-          <span className="font-mono font-semibold text-neutral-400">
+          <span className="font-mono font-semibold text-[var(--paper-muted)]">
             {formatCurrency(benchmark)}
           </span>
         </div>
@@ -167,19 +167,19 @@ export default function BacktestChart() {
   const last = data?.[data.length - 1];
 
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[.03] p-6 sm:p-8">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-400">
-          Backtested Performance vs. S&amp;P 500
+    <section className="panel p-6 sm:p-8">
+      <div className="panel-header">
+        <h2 className="panel-title">
+          Backtest against the S&amp;P 500
         </h2>
         {first && last && (
           <div className="flex items-center gap-4 font-mono text-xs">
-            <span className="flex items-center gap-1.5 text-emerald-400">
-              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            <span className="flex items-center gap-1.5 text-[var(--verdigris)]">
+              <span className="h-2 w-2 rounded-full bg-[var(--verdigris)]" />
               Strategy {returnSince(first.strategy, last.strategy)}
             </span>
-            <span className="flex items-center gap-1.5 text-neutral-400">
-              <span className="h-2 w-2 rounded-full bg-neutral-500" />
+            <span className="flex items-center gap-1.5 text-[var(--paper-muted)]">
+              <span className="h-2 w-2 rounded-full bg-[var(--paper-dim)]" />
               SPY {returnSince(first.benchmark, last.benchmark)}
             </span>
           </div>
@@ -187,21 +187,20 @@ export default function BacktestChart() {
       </div>
 
       {isLoading && (
-        <p className="py-16 text-center text-sm text-neutral-500">Loading backtest results…</p>
+        <p className="py-16 text-center text-sm text-[var(--paper-dim)]">Loading backtest results…</p>
       )}
 
       {error && !isLoading && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+        <div className="status-error">
           {error}
         </div>
       )}
 
       {!isLoading && !error && data && data.length === 0 && (
-        <p className="py-16 text-center text-sm text-neutral-500">
-          No backtest results yet. Run the Python backtester
-          (<code className="font-mono text-neutral-400">python -m src.backtesting.historical_tester</code>)
-          to populate this chart.
-        </p>
+        <div className="empty-state py-12 text-center">
+          <strong className="block text-[var(--paper-muted)]">No backtest result is stored.</strong>
+          <span className="mt-1 block">Run the isolated historical analysis workflow to publish a comparison here.</span>
+        </div>
       )}
 
       {!isLoading && !error && data && data.length > 0 && <BacktestMetricsGrid data={data} />}
@@ -214,13 +213,13 @@ export default function BacktestChart() {
               <XAxis
                 dataKey="date"
                 stroke="rgba(255,255,255,0.3)"
-                tick={{ fill: "#a3a3a3", fontSize: 12 }}
+                tick={{ fill: "#6f7d80", fontSize: 12 }}
                 tickLine={false}
                 axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
               />
               <YAxis
                 stroke="rgba(255,255,255,0.3)"
-                tick={{ fill: "#a3a3a3", fontSize: 12 }}
+                tick={{ fill: "#6f7d80", fontSize: 12 }}
                 tickLine={false}
                 axisLine={false}
                 tickFormatter={(value: number) => compactCurrencyFormatter.format(value)}
@@ -235,7 +234,7 @@ export default function BacktestChart() {
                 type="monotone"
                 dataKey="benchmark"
                 name="SPY"
-                stroke="#737373"
+                stroke="#6f7d80"
                 strokeWidth={2}
                 dot={false}
                 activeDot={{ r: 4 }}
@@ -244,7 +243,7 @@ export default function BacktestChart() {
                 type="monotone"
                 dataKey="strategy"
                 name="Strategy"
-                stroke="#10b981"
+                stroke="#55b8aa"
                 strokeWidth={2.5}
                 dot={false}
                 activeDot={{ r: 5 }}
@@ -255,12 +254,12 @@ export default function BacktestChart() {
       )}
 
       {!isLoading && !error && data && data.length > 0 && (
-        <p className="mt-5 text-xs text-neutral-500">
+        <p className="mt-5 text-xs leading-5 text-[var(--paper-dim)]">
           Equal-weighted, buy-and-hold equity curve for the backtest&rsquo;s Top-N Conviction
           Score picks vs. an equal-notional SPY position, both from the backtest&rsquo;s entry
           date.
         </p>
       )}
-    </div>
+    </section>
   );
 }

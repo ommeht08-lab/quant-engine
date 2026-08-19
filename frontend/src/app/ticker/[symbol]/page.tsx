@@ -124,11 +124,11 @@ function formatTimestamp(value: string): string {
 
 function altmanZoneLabel(zScore: number | null): { label: string; className: string } {
   if (zScore === null || !Number.isFinite(zScore)) {
-    return { label: "N/A", className: "text-neutral-500" };
+    return { label: "N/A", className: "text-[var(--paper-dim)]" };
   }
-  if (zScore < 1.8) return { label: "Distress Zone", className: "text-rose-400" };
-  if (zScore <= 2.99) return { label: "Grey Zone", className: "text-amber-400" };
-  return { label: "Safe Zone", className: "text-emerald-400" };
+  if (zScore < 1.8) return { label: "Distress Zone", className: "text-[var(--signal)]" };
+  if (zScore <= 2.99) return { label: "Grey Zone", className: "text-[var(--brass)]" };
+  return { label: "Safe Zone", className: "text-[var(--verdigris)]" };
 }
 
 function MetricCard({
@@ -143,11 +143,11 @@ function MetricCard({
   sublabelClassName?: string;
 }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[.03] p-6">
-      <p className="text-xs font-medium uppercase tracking-wider text-neutral-400">{label}</p>
-      <p className="mt-2 font-mono text-2xl tracking-tight text-neutral-50">{value}</p>
+    <div className="metric-panel p-5">
+      <p className="data-label text-[var(--paper-dim)]">{label}</p>
+      <p className="mt-3 font-mono text-2xl tracking-tight text-[var(--paper)]">{value}</p>
       {sublabel && (
-        <p className={`mt-1 text-xs ${sublabelClassName ?? "text-neutral-500"}`}>{sublabel}</p>
+        <p className={`mt-2 text-xs ${sublabelClassName ?? "text-[var(--paper-dim)]"}`}>{sublabel}</p>
       )}
     </div>
   );
@@ -155,7 +155,7 @@ function MetricCard({
 
 function HeadlineList({ headlines }: { headlines: Headline[] }) {
   if (headlines.length === 0) {
-    return <p className="text-sm text-neutral-500">No recent headlines found for this ticker.</p>;
+    return <p className="text-sm text-[var(--paper-dim)]">No recent headlines found for this ticker.</p>;
   }
 
   return (
@@ -165,21 +165,21 @@ function HeadlineList({ headlines }: { headlines: Headline[] }) {
         return (
         <li
           key={`${headline.link ?? headline.title}-${index}`}
-          className="border-b border-white/5 pb-3 last:border-0 last:pb-0"
+          className="border-b border-[var(--line)] pb-3 last:border-0 last:pb-0"
         >
           {href ? (
             <a
               href={href}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-sm font-medium text-neutral-200 transition-colors hover:text-emerald-400"
+              className="text-sm font-medium text-[var(--paper)] transition-colors hover:text-[var(--verdigris)]"
             >
               {headline.title}
             </a>
           ) : (
-            <span className="text-sm font-medium text-neutral-200">{headline.title}</span>
+            <span className="text-sm font-medium text-[var(--paper)]">{headline.title}</span>
           )}
-          <div className="mt-1 flex items-center gap-2 text-xs text-neutral-500">
+          <div className="mt-1 flex items-center gap-2 text-xs text-[var(--paper-dim)]">
             {headline.publisher && <span>{headline.publisher}</span>}
             {headline.publisher && headline.publishedAt && <span>·</span>}
             {headline.publishedAt && <span>{formatTimestamp(headline.publishedAt)}</span>}
@@ -193,27 +193,27 @@ function HeadlineList({ headlines }: { headlines: Headline[] }) {
 
 function MarketContextSection({ sentiment }: { sentiment: TickerSentiment }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/[.03] p-6 sm:p-8">
-      <h2 className="mb-5 text-sm font-semibold uppercase tracking-wider text-neutral-400">
+    <div className="panel p-6 sm:p-8">
+      <h2 className="panel-title mb-5">
         Market Context &amp; Qualitative Drivers
       </h2>
 
       <div className="mb-6 grid grid-cols-2 gap-4 sm:max-w-xs">
-        <div className="rounded-xl border border-white/10 bg-white/[.02] p-4">
-          <p className="text-xs uppercase tracking-wider text-neutral-500">10-Yr Treasury Yield</p>
-          <p className="mt-1 font-mono text-lg text-neutral-50">
+        <div className="metric-panel p-4">
+          <p className="data-label text-[var(--paper-dim)]">10-Yr Treasury Yield</p>
+          <p className="mt-2 font-mono text-lg text-[var(--paper)]">
             {formatPercent(sentiment.macro.treasury10y)}
           </p>
         </div>
-        <div className="rounded-xl border border-white/10 bg-white/[.02] p-4">
-          <p className="text-xs uppercase tracking-wider text-neutral-500">VIX</p>
-          <p className="mt-1 font-mono text-lg text-neutral-50">
+        <div className="metric-panel p-4">
+          <p className="data-label text-[var(--paper-dim)]">VIX</p>
+          <p className="mt-2 font-mono text-lg text-[var(--paper)]">
             {formatNumber(sentiment.macro.vix)}
           </p>
         </div>
       </div>
 
-      <h3 className="mb-3 text-xs font-medium uppercase tracking-wider text-neutral-500">
+      <h3 className="data-label mb-3 text-[var(--paper-dim)]">
         Recent Headlines
       </h3>
       <HeadlineList headlines={sentiment.headlines} />
@@ -225,14 +225,14 @@ function ActionBadge({ action }: { action: string }) {
   const normalized = action.toUpperCase();
   const colorClasses =
     normalized === "BUY"
-      ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+      ? "border-[rgba(85,184,170,.35)] bg-[var(--verdigris-soft)] text-[var(--verdigris)]"
       : normalized === "SELL"
-        ? "border-rose-500/30 bg-rose-500/10 text-rose-400"
-        : "border-white/10 bg-white/[.05] text-neutral-300";
+        ? "border-[rgba(228,113,104,.35)] bg-[rgba(228,113,104,.09)] text-[var(--signal)]"
+        : "border-[var(--line)] bg-[rgba(236,232,220,.04)] text-[var(--paper-muted)]";
 
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold uppercase tracking-wide ${colorClasses}`}
+      className={`inline-flex items-center border px-2.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[.08em] ${colorClasses}`}
     >
       {action}
     </span>
@@ -265,28 +265,29 @@ export default async function TickerTearSheetPage({
   const zZone = trade ? altmanZoneLabel(trade.altman_z_score) : null;
 
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-50">
-      <div className="mx-auto max-w-5xl px-6 py-12">
+    <div className="page-shell">
+      <div className="shell-container max-w-5xl pb-20">
         <Link
           href="/"
-          className="inline-flex items-center gap-1 text-sm text-neutral-400 transition-colors hover:text-emerald-400"
+          className="inline-flex items-center gap-1 pt-10 text-sm text-[var(--paper-muted)] transition-colors hover:text-[var(--verdigris)]"
         >
           ← Back to Dashboard
         </Link>
 
-        <header className="mt-6 mb-10">
-          <p className="text-xs font-semibold uppercase tracking-[0.2em] text-emerald-500">
-            Tear Sheet
-          </p>
-          <h1 className="mt-2 text-4xl font-semibold tracking-tight text-neutral-50 sm:text-5xl">
+        <header className="page-header mt-0">
+          <div>
+          <p className="eyebrow mb-5">Security tear sheet</p>
+          <h1 className="display-title">
             {ticker}
           </h1>
+          </div>
+          <p className="page-deck">The latest execution evidence, quality signals, and market context recorded for this security.</p>
         </header>
 
         {!trade ? (
-          <div className="rounded-2xl border border-dashed border-white/10 px-6 py-16 text-center text-sm text-neutral-500">
-            No trade telemetry found for {ticker}. Once the autonomous execution engine logs a
-            trade for this ticker, its metrics will show up here.
+          <div className="empty-state px-6 py-16 text-center">
+            <strong className="block text-[var(--paper-muted)]">No execution evidence is recorded for {ticker}.</strong>
+            <span className="mt-1 block">A tear sheet appears after a completed paper execution records this security.</span>
           </div>
         ) : (
           <div className="space-y-8">
@@ -304,30 +305,30 @@ export default async function TickerTearSheetPage({
 
             <MarketContextSection sentiment={sentiment} />
 
-            <div className="rounded-2xl border border-white/10 bg-white/[.03] p-6 sm:p-8">
-              <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-neutral-400">
+            <div className="panel p-6 sm:p-8">
+              <h2 className="panel-title mb-4">
                 Last Trade Details
               </h2>
               <div className="grid grid-cols-2 gap-6 sm:grid-cols-4">
                 <div>
-                  <p className="text-xs uppercase tracking-wider text-neutral-500">Action</p>
+                  <p className="data-label text-[var(--paper-dim)]">Action</p>
                   <div className="mt-1.5">
                     <ActionBadge action={trade.action} />
                   </div>
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-wider text-neutral-500">Price</p>
-                  <p className="mt-1.5 font-mono text-neutral-50">
+                  <p className="data-label text-[var(--paper-dim)]">Price</p>
+                  <p className="mt-1.5 font-mono text-[var(--paper)]">
                     {formatCurrency(trade.execution_price)}
                   </p>
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-wider text-neutral-500">Quantity</p>
-                  <p className="mt-1.5 font-mono text-neutral-50">{formatNumber(trade.quantity, 4)}</p>
+                  <p className="data-label text-[var(--paper-dim)]">Quantity</p>
+                  <p className="mt-1.5 font-mono text-[var(--paper)]">{formatNumber(trade.quantity, 4)}</p>
                 </div>
                 <div>
-                  <p className="text-xs uppercase tracking-wider text-neutral-500">Timestamp</p>
-                  <p className="mt-1.5 font-mono text-neutral-50">
+                  <p className="data-label text-[var(--paper-dim)]">Timestamp</p>
+                  <p className="mt-1.5 font-mono text-[var(--paper)]">
                     {formatTimestamp(trade.timestamp)}
                   </p>
                 </div>
