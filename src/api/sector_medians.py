@@ -63,10 +63,10 @@ from typing import Dict, List, Optional, Tuple
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from src.backtesting.historical_tester import DEFAULT_SP500_TOP_100_TICKERS
 from src.data_ingestion.fetch_financials import fetch_company_financials
 from src.dcf_model.dcf import DCFAssumptions, run_dcf_valuation
 from src.utils.macro import get_risk_free_rate
+from src.utils.ticker_universe import DEFAULT_SP500_TOP_100_TICKERS
 
 logger = logging.getLogger(__name__)
 

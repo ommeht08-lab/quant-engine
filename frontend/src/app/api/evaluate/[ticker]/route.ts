@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { requireSession } from "@/lib/auth";
+import { fetchWithTimeout } from "@/lib/backend-fetch";
 import { assertSecretMeetsRequirements, VALUATION_API_TOKEN_REQUIREMENT } from "@/lib/secret-validation";
 import { assertSafeValuationApiUrl } from "@/lib/valuation-api-url";
 
@@ -8,10 +9,27 @@ import { assertSafeValuationApiUrl } from "@/lib/valuation-api-url";
 // Python backend/`yfinance` layer does its own caching).
 export const dynamic = "force-dynamic";
 
+// Vercel Hobby's confirmed maximum for a Node.js/Next.js function is
+// 300s (default AND max — see
+// https://vercel.com/docs/functions/limitations#max-duration); 60s here
+// is a deliberately conservative choice well inside that ceiling, not
+// the platform maximum, since a single-ticker DCF valuation should never
+// legitimately need more than a small fraction of that. Must stay
+// strictly greater than VALUATION_BACKEND_REQUEST_TIMEOUT_MS below —
+// see tests/test_vercel_config.py's cross-file check on the Python side
+// for the enforced relationship (this function must always have time
+// left, after the backend fetch gives up, to build and return the
+// controlled 502 response below rather than being killed mid-response).
+export const maxDuration = 60;
+
 // Bounded so a hung/slow backend can't tie up this route's serverless
-// invocation indefinitely — aborted via `AbortController`, not just a
-// client-side "give up and hope the server request stops too" timeout.
-const VALUATION_BACKEND_REQUEST_TIMEOUT_MS = 10_000;
+// invocation indefinitely — aborted via `AbortController` (see
+// `fetchWithTimeout` in `@/lib/backend-fetch`), not just a client-side
+// "give up and hope the server request stops too" timeout. 45s leaves
+// 15s of headroom under `maxDuration` above for this function to catch
+// the resulting abort, log it, and return a controlled JSON error
+// response rather than being killed by the platform mid-response.
+const VALUATION_BACKEND_REQUEST_TIMEOUT_MS = 45_000;
 
 function isProductionEnvironment(): boolean {
   return process.env.NODE_ENV === "production";
@@ -104,15 +122,13 @@ export async function GET(
   const targetUrl = new URL(`/api/evaluate/${encodeURIComponent(ticker)}`, backendOrigin);
   targetUrl.search = search;
 
-  const timeoutController = new AbortController();
-  const timeoutHandle = setTimeout(() => timeoutController.abort(), VALUATION_BACKEND_REQUEST_TIMEOUT_MS);
-
   let response: Response;
   try {
-    response = await fetch(targetUrl, {
-      headers: { Authorization: `Bearer ${serviceToken}` },
-      signal: timeoutController.signal,
-    });
+    response = await fetchWithTimeout(
+      targetUrl,
+      { headers: { Authorization: `Bearer ${serviceToken}` } },
+      VALUATION_BACKEND_REQUEST_TIMEOUT_MS
+    );
   } catch (error) {
     const isTimeout = error instanceof Error && error.name === "AbortError";
     console.error(
@@ -126,8 +142,6 @@ export async function GET(
       },
       { status: 502 }
     );
-  } finally {
-    clearTimeout(timeoutHandle);
   }
 
   const body = await response.json().catch(() => null);

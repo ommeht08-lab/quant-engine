@@ -119,6 +119,7 @@ from src.dcf_model.dcf import (
 from src.utils.cache import cached
 from src.utils.db import log_backtest_curve
 from src.utils.macro import get_risk_free_rate
+from src.utils.ticker_universe import DEFAULT_SP500_TOP_100_TICKERS
 
 HISTORICAL_PRICE_CACHE_TTL_SECONDS = 86400  # 24 hours — a past close price never changes
 
@@ -140,26 +141,6 @@ HISTORICAL_PRICE_CACHE_TTL_SECONDS = 86400  # 24 hours — a past close price ne
 STATEMENT_FILING_LAG_DAYS = 90
 
 logger = logging.getLogger(__name__)
-
-# The 100 largest S&P 500 constituents by current market capitalization
-# (ranked live via yfinance; membership/ranking drifts over time — see the
-# module docstring's survivorship-bias limitation). Only one share class per
-# company is kept by default (e.g. GOOGL, not both GOOGL and GOOG) so a
-# dual-class company doesn't silently get double weight in an equal-weighted
-# Top-N portfolio; pass a different `tickers` list to `run_backtest` to
-# deliberately include multiple classes.
-DEFAULT_SP500_TOP_100_TICKERS = [
-    "NVDA", "GOOGL", "AAPL", "MSFT", "AMZN", "AVGO", "META", "TSLA", "BRK-B",
-    "LLY", "JPM", "MU", "WMT", "AMD", "V", "XOM", "JNJ", "MA", "INTC",
-    "CSCO", "BAC", "ABBV", "COST", "AMAT", "ORCL", "CVX", "GE", "CAT", "UNH",
-    "KO", "LRCX", "HD", "PG", "MS", "MRK", "NFLX", "GS", "PLTR", "PM",
-    "RTX", "PANW", "DELL", "GEV", "WFC", "TXN", "KLAC", "ANET", "AXP", "C",
-    "LIN", "TMO", "IBM", "CRWD", "AMGN", "APH", "VZ", "SNDK", "PEP", "TMUS",
-    "STX", "MCD", "ABT", "BA", "SCHW", "WDC", "NEE", "ADI", "BLK", "TJX",
-    "MRVL", "UNP", "DIS", "ETN", "WELL", "DE", "GILD", "T", "QCOM", "CRM",
-    "BKNG", "UBER", "COP", "PFE", "DHR", "APP", "LMT", "PLD", "ISRG", "CVS",
-    "CB", "BMY", "COF", "SYK", "GLW", "PH", "SPGI", "PGR", "FTNT", "VRTX",
-]
 
 DEFAULT_BENCHMARK_TICKER = "SPY"
 DEFAULT_TOP_N = 10
