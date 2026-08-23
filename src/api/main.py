@@ -4,7 +4,12 @@ FastAPI application exposing the DCF valuation engine over HTTP.
 Run locally with:
     uvicorn src.api.main:app --reload
 
-See the README for full setup and usage instructions.
+See the README for full setup and usage instructions. See the repository
+root's `pyproject.toml` (dependencies and Python runtime pin) and
+`vercel.json` (bundle exclusions, function duration) for how this
+service is deployed as a Vercel Python Function — it is intentionally
+the only part of `src/` that ships there (no `src.trading`, no Alpaca
+credentials).
 
 This service is called server-to-server only, by the Next.js app's
 `/api/evaluate/[ticker]` Route Handler (never directly by a browser) —
@@ -17,17 +22,35 @@ see that route's docstring for why. Accordingly:
     policy with no cooperation needed from this app.
   - `/api/evaluate/{ticker}` requires a `VALUATION_API_TOKEN` bearer
     token (see `require_service_token` below), known only to this
-    service and the Next.js server. `/` is the only endpoint left
-    public, as a minimal liveness/health check.
+    service and the Next.js server. `/`, `/healthz`, and `/readyz` are
+    the only endpoints left public — see their docstrings below for the
+    liveness/readiness distinction a deployment platform's health check
+    should rely on.
+
+Every request is tagged with a request ID (from an inbound `X-Request-ID`
+header if the caller supplied one, otherwise generated here) and logged
+as a single structured (JSON) line via `_request_id_and_access_log_middleware`
+below — `logger.info`/`.warning`/`.exception` calls anywhere in this
+module automatically carry that same request ID through `_RequestIdFilter`,
+without every call site having to thread it through by hand. No log line
+in this module ever includes a credential/token value — see
+`require_service_token`'s docstring for the specific token-handling
+guarantee.
 """
 
+import contextvars
 import hmac
+import json
 import logging
 import os
+import time
+import uuid
+from contextlib import asynccontextmanager
 from typing import List, Optional
 
 from dotenv import load_dotenv
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from src.api.sector_medians import get_sector_median_price_to_intrinsic
@@ -35,11 +58,184 @@ from src.data_ingestion.fetch_financials import fetch_company_financials
 from src.dcf_model.dcf import DCFAssumptions, run_dcf_valuation
 from src.utils.macro import get_risk_free_rate
 
+# --- Structured logging -----------------------------------------------
+#
+# A ContextVar (not a plain module global) so concurrent in-flight
+# requests each see only their own request ID — ASGI runs each request
+# in its own asyncio Task, and a ContextVar's value is copied per-Task,
+# never shared/overwritten across them the way a plain variable would be.
+_request_id_var: "contextvars.ContextVar[Optional[str]]" = contextvars.ContextVar(
+    "request_id", default=None
+)
+
+
+class _RequestIdFilter(logging.Filter):
+    """Attaches the current request's ID (if any) to every log record so
+    every `logger.info`/`.warning`/`.exception` call in this module is
+    automatically correlated to the request that triggered it, without
+    each call site passing it explicitly."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.request_id = _request_id_var.get()
+        return True
+
+
+class _JsonLogFormatter(logging.Formatter):
+    """Renders one JSON object per log line — deployed container logs are
+    typically scraped/indexed by field, not read as free text. Never
+    includes anything beyond the log message itself, so a log line can
+    only leak a credential if a call site's message text does (none in
+    this module do — see `require_service_token`'s docstring)."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload = {
+            "timestamp": self.formatTime(record, "%Y-%m-%dT%H:%M:%S%z"),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "request_id": getattr(record, "request_id", None),
+        }
+        if record.exc_info:
+            payload["exc_info"] = self.formatException(record.exc_info)
+        return json.dumps(payload)
+
+
+class _ValuationJsonHandler(logging.StreamHandler):
+    """The structured JSON handler `_configure_logging` attaches to THIS
+    module's own logger — a distinctly-named subclass purely for
+    readability in reprs/tracebacks. NOT used as an identity check
+    anymore (see `_VALUATION_JSON_HANDLER_MARKER` and
+    `_configure_logging`'s docstring for why an `isinstance` check
+    against this class is unreliable across a module reload)."""
+
+
+# A plain string sentinel set as an attribute directly on the handler
+# INSTANCE, rather than relying on `isinstance(handler,
+# _ValuationJsonHandler)`. The two are not equivalent: `importlib.
+# reload(src.api.main)` re-executes this module's top-level `class
+# _ValuationJsonHandler(...)` statement, which creates a NEW class
+# object distinct from the one used to construct any handler already
+# sitting on this module's own logger's `.handlers` from before the
+# reload — that old instance is `type(old_instance) is
+# _ValuationJsonHandler_from_before`,
+# which is no longer the same object as the freshly-rebound
+# `_ValuationJsonHandler` name after reload, so `isinstance(old_instance,
+# _ValuationJsonHandler)` evaluates to `False` even though the old
+# instance is exactly the handler this function is looking for. A
+# plain instance attribute has no such dependency on class identity: it
+# reads back the same way regardless of which class object happened to
+# construct the instance.
+_VALUATION_JSON_HANDLER_MARKER = "_is_valuation_json_handler"
+
+
+def _configure_logging() -> None:
+    """
+    Attaches the structured JSON handler to THIS module's own logger —
+    `logging.getLogger(__name__)`, i.e. `"src.api.main"` — not to the
+    shared `src` package logger that every other module under `src.*`
+    (`src.trading.alpaca_execution`, `src.backtesting.historical_tester`,
+    `src.dcf_model.dcf`, `src.data_ingestion.fetch_financials`, ...) also
+    sits underneath.
+
+    Four earlier versions of this function each had a real bug:
+
+    1. The first called `logging.getLogger().handlers = [handler]`,
+       unconditionally REPLACING whatever handlers were already attached
+       to the ROOT logger — silently discarding a hosting platform's own
+       logging setup (e.g. Vercel's) the moment this module was imported.
+    2. The fix for that attached to `src` instead but left `propagate`
+       at its default `True`, which solved the destructive-replacement
+       problem but introduced a quieter one: on any platform (or test)
+       that DOES have its own handler on the root logger, every `src.*`
+       record would be emitted TWICE — once by this handler (JSON, with
+       `request_id`) and once by whatever's on root, since the record
+       would reach both.
+    3. The fix for THAT added `propagate = False` and an idempotence
+       guard based on `isinstance(existing, _ValuationJsonHandler)` —
+       correct within a single process that never reloads this module,
+       but a genuine `importlib.reload(src.api.main)` (a dev-server hot
+       reload is the realistic trigger) redefines `_ValuationJsonHandler`
+       as a new class object, so the `isinstance` check against a
+       handler constructed by the PREVIOUS class object silently returns
+       `False` — the guard fails to recognize the existing handler and
+       adds a second one. Reproduced directly: a handler count of 1
+       before `importlib.reload`, then 2 immediately after.
+    4. The fix for THAT set `src_logger.propagate = False` on the SHARED
+       `src` logger — correct for stopping double-emission of THIS
+       module's own records, but far too broad a blast radius: it
+       silenced propagation for every module under `src.*`, not just
+       this one. Concretely, this broke `caplog`-based tests completely
+       unrelated to the valuation API (e.g. `tests/trading/
+       test_rebalance.py`, which asserts against `src.trading.
+       alpaca_execution`'s own log records via a plain root-attached
+       `caplog` capture) the moment ANYTHING in the same pytest process
+       imported `src.api.main` first — `_configure_logging`'s mutation
+       of `"src"`'s `propagate` flag has no per-test teardown, so it
+       persisted for the rest of that process regardless of which test
+       file happened to trigger it. Reproduced directly in CI: running
+       `tests/api/test_main.py` before
+       `tests/trading/test_rebalance.py::TestPostFillCapNotionalTolerance::
+       test_sector_total_uses_proven_remaining_weight_not_assumed_restored_weight`
+       in the same invocation made the latter fail; running it alone
+       passed.
+
+    This version fixes all four at once by narrowing scope to exactly
+    this module's own logger: root's handlers are never touched (added,
+    removed, reordered, or reconfigured) — satisfying (1); this
+    module's own `propagate = False` means a record logged here never
+    ALSO reaches root's handlers — satisfying (2); the idempotence check
+    scans for the `_VALUATION_JSON_HANDLER_MARKER` attribute (see its
+    own comment) instead of `isinstance` — satisfying (3); and because
+    both the handler attachment AND `propagate = False` are scoped to
+    `logging.getLogger(__name__)` specifically rather than the shared
+    `src` logger, every sibling module's logger (`src.trading.*`,
+    `src.backtesting.*`, `src.dcf_model.*`, ...) is completely untouched
+    and continues propagating to root exactly as it always did —
+    satisfying (4). The shared `src` logger's own level, handlers, and
+    `propagate` state, and the ROOT logger's, are never read or written
+    by this function at all.
+
+    One consequence worth being explicit about: structured JSON/
+    request-ID logging now applies only to `src.api.main`'s OWN log
+    calls (the access-log middleware, the startup lifespan check, and
+    `evaluate_ticker`'s own `logger.warning`/`.exception` calls) — not
+    to every logger under `src.*`. A sibling module's own log calls
+    (e.g. `src.dcf_model.dcf`'s historical-CAGR-derivation messages)
+    still happen and still propagate to root exactly as before; they
+    are simply no longer JSON-formatted or request-ID-tagged by this
+    module, since they were never actually routed through
+    `src.api.main`'s logger in the first place (Python's logger
+    hierarchy is a strict dotted-name tree — `src.dcf_model.dcf` is a
+    sibling of `src.api.main`, not a descendant of it).
+
+    `logging.getLogger(__name__).setLevel(...)`/`.propagate = False` are
+    enforced unconditionally on every call, including when an existing
+    handler is reused, so neither setting can ever be left stale by
+    whatever state a reload's intervening code happened to leave them
+    in.
+    """
+    module_logger = logging.getLogger(__name__)
+
+    handler = next(
+        (h for h in module_logger.handlers if getattr(h, _VALUATION_JSON_HANDLER_MARKER, False)),
+        None,
+    )
+    if handler is None:
+        handler = _ValuationJsonHandler()
+        setattr(handler, _VALUATION_JSON_HANDLER_MARKER, True)
+        handler.setFormatter(_JsonLogFormatter())
+        handler.addFilter(_RequestIdFilter())
+        module_logger.addHandler(handler)
+
+    module_logger.setLevel(logging.INFO)
+    module_logger.propagate = False
+
+
 logger = logging.getLogger(__name__)
 # This module IS the application entry point (run via `uvicorn
 # src.api.main:app`, which imports it directly — there's no `__main__`
 # block to gate this behind the way the other two entry-point scripts do).
-logging.basicConfig(level=logging.INFO)
+_configure_logging()
 
 load_dotenv()
 
@@ -55,11 +251,114 @@ VALUATION_API_TOKEN_ENV_VAR = "VALUATION_API_TOKEN"
 VALUATION_API_TOKEN_MIN_LENGTH = 32
 _KNOWN_PLACEHOLDER_TOKEN_VALUES = frozenset({"replace-with-a-long-random-value"})
 
+
+def _configured_service_token_state() -> bool:
+    """`True` iff `VALUATION_API_TOKEN` currently passes every check in
+    `_configured_service_token_or_none` — the single source of truth
+    `/readyz` and the startup log line below both read, so they can never
+    disagree about whether this deployment is usable."""
+    return _configured_service_token_or_none() is not None
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):  # noqa: ARG001 - FastAPI's lifespan signature requires this parameter
+    """Runs once at process startup (before the first request is
+    accepted) and once at shutdown. The startup half is this service's
+    explicit configuration validation: it logs whether
+    `VALUATION_API_TOKEN` is usable so a misconfigured deployment is
+    obvious in the very first log lines after boot, not just on the
+    first rejected request — and never logs the token's value either way."""
+    if _configured_service_token_state():
+        logger.info("Startup configuration check passed: VALUATION_API_TOKEN is configured.")
+    else:
+        logger.warning(
+            "Startup configuration check FAILED: VALUATION_API_TOKEN is not usable (unset, "
+            "placeholder, too short, whitespace-padded, or a single repeated character). Every "
+            "request to a protected route will be rejected with 503 until this is fixed. See "
+            "/readyz."
+        )
+    yield
+
+
 app = FastAPI(
     title="Automated Corporate Finance Valuation Engine",
     description="DCF-based intrinsic valuation API.",
     version="0.1.0",
+    lifespan=_lifespan,
 )
+
+REQUEST_ID_HEADER = "X-Request-ID"
+# Bounds how much of a caller-supplied X-Request-ID this service will
+# echo back/log verbatim — generous enough for any real correlation ID
+# scheme, small enough that a request can't use this header to smuggle
+# an unbounded string into structured logs.
+_MAX_INCOMING_REQUEST_ID_LENGTH = 128
+
+
+@app.middleware("http")
+async def _request_id_and_access_log_middleware(request: Request, call_next):
+    """Assigns/propagates a request ID (via `_request_id_var`, so every
+    log line emitted while handling this request — including from deep
+    inside `evaluate_ticker` — is tagged with it automatically), logs
+    exactly one structured access-log line per request (method, path,
+    status code, duration), and echoes the request ID back as a response
+    header so the Next.js proxy or an operator reading its own logs could
+    correlate the two sides of a call, though neither side depends on
+    that today.
+
+    Also this service's ONLY backstop for an exception that reaches
+    neither `evaluate_ticker`'s own try/except (which already converts
+    its failure modes into 400/422/500 `HTTPException`s) nor any other
+    route's handling: this middleware sits OUTSIDE FastAPI's routing/
+    exception-handling layer (Starlette's `ExceptionMiddleware`) but
+    INSIDE the outermost `ServerErrorMiddleware` that a plain
+    `@app.exception_handler(Exception)` registration would be wired into
+    — building the fallback response here, in the same scope that still
+    has `_request_id_var` set, is what lets that response actually carry
+    the request ID; a handler registered on `ServerErrorMiddleware` runs
+    only after this middleware's own `finally` has already reset it.
+    Never returns a stack trace or exception message to the caller —
+    only a generic message and the request ID, so an operator can find
+    the matching structured log line without the response body leaking
+    internals."""
+    incoming = request.headers.get(REQUEST_ID_HEADER)
+    request_id = incoming[:_MAX_INCOMING_REQUEST_ID_LENGTH] if incoming else uuid.uuid4().hex
+    token = _request_id_var.set(request_id)
+    start = time.monotonic()
+    try:
+        # Both the success and failure responses are built inside this
+        # try (rather than after it) so the `finally` below — which
+        # resets `_request_id_var` — always runs last, after the
+        # response (and its request_id-tagged log line) already exist.
+        try:
+            response = await call_next(request)
+        except Exception:
+            duration_ms = (time.monotonic() - start) * 1000
+            logger.exception(
+                "Unhandled exception. method=%s path=%s duration_ms=%.1f",
+                request.method,
+                request.url.path,
+                duration_ms,
+            )
+            response = JSONResponse(
+                status_code=500,
+                content={"error": "Internal server error.", "request_id": request_id},
+            )
+            response.headers[REQUEST_ID_HEADER] = request_id
+            return response
+
+        duration_ms = (time.monotonic() - start) * 1000
+        logger.info(
+            "Request handled. method=%s path=%s status_code=%s duration_ms=%.1f",
+            request.method,
+            request.url.path,
+            response.status_code,
+            duration_ms,
+        )
+        response.headers[REQUEST_ID_HEADER] = request_id
+        return response
+    finally:
+        _request_id_var.reset(token)
 
 
 def _configured_service_token_or_none() -> Optional[str]:
@@ -156,8 +455,67 @@ class EvaluationResponse(BaseModel):
 
 @app.get("/")
 def read_root() -> dict:
-    """Basic health check / landing endpoint."""
+    """Basic health check / landing endpoint. Equivalent to `/healthz`,
+    kept for backward compatibility with any existing external health
+    check already pointed at `/`."""
     return {"status": "ok", "service": "valuation-engine-api"}
+
+
+@app.get("/healthz")
+def liveness() -> dict:
+    """
+    Liveness probe: confirms only that this process is up and able to
+    handle an HTTP request, nothing about configuration or external data
+    providers — a deployment platform should restart the container if
+    this ever fails to respond, but should NOT use it to decide whether
+    to route real traffic here (see `/readyz` for that). No auth, no
+    dependency checks, no outbound calls.
+    """
+    return {"status": "ok", "service": "valuation-engine-api"}
+
+
+class ReadinessChecks(BaseModel):
+    """Individual readiness checks. Booleans only — never a value that
+    could leak a credential or its shape."""
+
+    service_token_configured: bool
+
+
+class ReadinessResponse(BaseModel):
+    """Response payload for `GET /readyz`."""
+
+    status: str
+    checks: ReadinessChecks
+
+
+@app.get("/readyz", response_model=ReadinessResponse)
+def readiness(response: Response) -> ReadinessResponse:
+    """
+    Readiness probe: distinct from `/healthz` above — this reports
+    whether the service is actually USABLE, not just alive. Today that
+    means exactly one thing: whether `VALUATION_API_TOKEN` passes
+    `_configured_service_token_or_none`'s checks, using the same
+    single source of truth the startup log line and `require_service_token`
+    itself both read, so this can never disagree with what a real request
+    would experience.
+
+    Deliberately does NOT make a live call to yfinance, the Treasury
+    data source, or anything else external on every readiness check —
+    this endpoint may be polled every few seconds by the hosting
+    platform, and doing so would mean silently hammering a third-party
+    provider from an infrastructure health check no operator asked for.
+    Data-provider reachability is instead observed indirectly, through
+    real `/api/evaluate/{ticker}` responses and their own logged outcomes.
+
+    Returns HTTP 503 (not 200) when not ready, so a platform's own
+    readiness-gate tooling can rely on the status code alone without
+    parsing the body.
+    """
+    checks = ReadinessChecks(service_token_configured=_configured_service_token_state())
+    is_ready = checks.service_token_configured
+    if not is_ready:
+        response.status_code = 503
+    return ReadinessResponse(status="ready" if is_ready else "not_ready", checks=checks)
 
 
 @app.get("/api/evaluate/{ticker}", response_model=EvaluationResponse, dependencies=[Depends(require_service_token)])

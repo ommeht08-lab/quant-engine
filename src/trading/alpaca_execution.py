@@ -218,7 +218,6 @@ from alpaca.trading.requests import GetOptionContractsRequest, GetOrdersRequest,
 
 from src.api.sector_medians import save_sector_medians
 from src.backtesting.historical_tester import (
-    DEFAULT_SP500_TOP_100_TICKERS,
     DEFAULT_TOP_N,
     TickerAnalysis,
     ValuationResult,
@@ -233,6 +232,7 @@ from src.risk.hedging import calculate_spy_hedge
 from src.risk.monte_carlo import calculate_portfolio_var
 from src.utils.db import ensure_schema, log_trade
 from src.utils.macro import get_risk_free_rate
+from src.utils.ticker_universe import DEFAULT_SP500_TOP_100_TICKERS
 from src.valuation.altman_z import calculate_altman_z
 from src.valuation.piotroski import calculate_f_score
 from src.valuation.technical import calculate_rsi

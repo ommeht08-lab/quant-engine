@@ -1,0 +1,77 @@
+# Vercel Python Function deployment target ONLY for src/api/main.py: the
+# valuation backend's dependency list and Python runtime declaration for
+# its Vercel deployment (see vercel.json, in this same directory, for
+# the accompanying bundle/function configuration).
+#
+# This file has no effect on local development, which continues to
+# resolve dependencies from the repository root's requirements.txt as
+# before. This file exists solely so a SEPARATE Vercel project (Root
+# Directory = repository root, so src/ resolves without duplicating any
+# application code) can find the FastAPI entrypoint and its own pinned,
+# trimmed dependency set via Vercel's documented pyproject.toml/
+# tool.vercel.entrypoint mechanism — see
+# https://vercel.com/docs/functions/runtimes/python.
+#
+# Vercel prioritizes pyproject.toml over requirements.txt when both exist
+# at the same Root Directory (confirmed platform behavior as of the
+# uv-based Python builder) — this is intentional here: the repository
+# ROOT requirements.txt is the full local-dev/trading-engine dependency
+# set (includes alpaca-py) and must never be what a deployed valuation-
+# only service installs. The [project.dependencies] list below is a
+# strictly smaller, Alpaca-free set.
+#
+# Versions are pinned to exactly what this repository's own venv/tests
+# were built and verified against (see `pip show` in the deployment prep
+# report), not "latest" — pandas 3.0/numpy 2.5/scipy 1.18 are newer
+# majors than what this codebase has ever run against and were
+# deliberately NOT used here. Every pinned version below has a confirmed
+# Python 3.12 wheel (checked against PyPI's published file metadata).
+#
+# requires-python is pinned to the 3.12.x line specifically (not merely
+# ">=3.12", which would also accept 3.13/3.14) — matches "Vercel's
+# current Python runtime starts at 3.12" exactly, with no drift onto a
+# newer minor this codebase has never been run against.
+[project]
+name = "valuation-engine-api"
+version = "0.1.0"
+description = "DCF/WACC valuation API — Vercel Python Function deployment target"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi==0.128.8",
+    "pandas==2.3.3",
+    "numpy==2.0.2",
+    "requests==2.32.5",
+    "yfinance==1.2.0",
+    "python-dotenv==1.2.1",
+]
+# Deliberately NOT here:
+#   - scipy: only used by src/risk/hedging.py, which src.api.main's
+#     import graph never reaches (confirmed by walking the import
+#     graph) — excluded from the Vercel bundle via vercel.json's
+#     excludeFiles regardless.
+#   - psycopg2-binary: was only a transitive import (src.api.sector_medians
+#     -> src.backtesting.historical_tester -> src.utils.db) caused by
+#     DEFAULT_SP500_TOP_100_TICKERS living inside historical_tester.py.
+#     That constant now lives in src/utils/ticker_universe.py, a
+#     zero-src-dependency module — sector_medians.py imports it from
+#     there directly and no longer reaches historical_tester.py (or
+#     therefore src.utils.db/psycopg2) at all. Re-verified by re-running
+#     the import-graph trace after the change.
+#   - upstash-redis: src.utils.cache's `from upstash_redis import Redis`
+#     already lives inside a lazy, per-call try/except Exception in
+#     _get_redis_client() (only reached if UPSTASH_REDIS_REST_URL/TOKEN
+#     are BOTH set, which they never are on this deployment) — a
+#     ModuleNotFoundError there is already caught the same as any other
+#     Redis failure, degrading to the existing uncached passthrough. No
+#     code change was needed for this removal to be safe; see
+#     tests/api/test_deployment.py's optional-dependency-absence tests.
+#   - alpaca-py: this service never imports src.trading.
+#   - uvicorn: Vercel's Python runtime invokes the ASGI `app` callable
+#     directly; it does not run `uvicorn.run()` the way the Docker image
+#     does — see Vercel's own FastAPI example, which lists no uvicorn
+#     dependency either.
+
+[tool.vercel]
+# Points Vercel at the EXISTING src/api/main.py without moving, copying,
+# or duplicating it — the `app` FastAPI instance already defined there.
+entrypoint = "src.api.main:app"
