@@ -101,12 +101,12 @@ class _JsonLogFormatter(logging.Formatter):
 
 
 class _ValuationJsonHandler(logging.StreamHandler):
-    """The structured JSON handler `_configure_logging` attaches to the
-    `src` logger — a distinctly-named subclass purely for readability in
-    reprs/tracebacks. NOT used as an identity check anymore (see
-    `_VALUATION_JSON_HANDLER_MARKER` and `_configure_logging`'s
-    docstring for why an `isinstance` check against this class is
-    unreliable across a module reload)."""
+    """The structured JSON handler `_configure_logging` attaches to THIS
+    module's own logger — a distinctly-named subclass purely for
+    readability in reprs/tracebacks. NOT used as an identity check
+    anymore (see `_VALUATION_JSON_HANDLER_MARKER` and
+    `_configure_logging`'s docstring for why an `isinstance` check
+    against this class is unreliable across a module reload)."""
 
 
 # A plain string sentinel set as an attribute directly on the handler
@@ -115,8 +115,9 @@ class _ValuationJsonHandler(logging.StreamHandler):
 # reload(src.api.main)` re-executes this module's top-level `class
 # _ValuationJsonHandler(...)` statement, which creates a NEW class
 # object distinct from the one used to construct any handler already
-# sitting on `src_logger.handlers` from before the reload — that old
-# instance is `type(old_instance) is _ValuationJsonHandler_from_before`,
+# sitting on this module's own logger's `.handlers` from before the
+# reload — that old instance is `type(old_instance) is
+# _ValuationJsonHandler_from_before`,
 # which is no longer the same object as the freshly-rebound
 # `_ValuationJsonHandler` name after reload, so `isinstance(old_instance,
 # _ValuationJsonHandler)` evaluates to `False` even though the old
@@ -129,14 +130,14 @@ _VALUATION_JSON_HANDLER_MARKER = "_is_valuation_json_handler"
 
 def _configure_logging() -> None:
     """
-    Attaches the structured JSON handler to the `src` package logger —
-    the common ancestor of every logger this codebase's own modules use
-    (`src.api.main`, `src.dcf_model.dcf`, `src.data_ingestion.
-    fetch_financials`, `src.utils.macro`, `src.api.sector_medians`, ...)
-    — rather than to the ROOT logger, and stops `src.*` records from
-    additionally propagating up to root once handled here.
+    Attaches the structured JSON handler to THIS module's own logger —
+    `logging.getLogger(__name__)`, i.e. `"src.api.main"` — not to the
+    shared `src` package logger that every other module under `src.*`
+    (`src.trading.alpaca_execution`, `src.backtesting.historical_tester`,
+    `src.dcf_model.dcf`, `src.data_ingestion.fetch_financials`, ...) also
+    sits underneath.
 
-    Three earlier versions of this function each had a real bug:
+    Four earlier versions of this function each had a real bug:
 
     1. The first called `logging.getLogger().handlers = [handler]`,
        unconditionally REPLACING whatever handlers were already attached
@@ -159,24 +160,64 @@ def _configure_logging() -> None:
        `False` — the guard fails to recognize the existing handler and
        adds a second one. Reproduced directly: a handler count of 1
        before `importlib.reload`, then 2 immediately after.
+    4. The fix for THAT set `src_logger.propagate = False` on the SHARED
+       `src` logger — correct for stopping double-emission of THIS
+       module's own records, but far too broad a blast radius: it
+       silenced propagation for every module under `src.*`, not just
+       this one. Concretely, this broke `caplog`-based tests completely
+       unrelated to the valuation API (e.g. `tests/trading/
+       test_rebalance.py`, which asserts against `src.trading.
+       alpaca_execution`'s own log records via a plain root-attached
+       `caplog` capture) the moment ANYTHING in the same pytest process
+       imported `src.api.main` first — `_configure_logging`'s mutation
+       of `"src"`'s `propagate` flag has no per-test teardown, so it
+       persisted for the rest of that process regardless of which test
+       file happened to trigger it. Reproduced directly in CI: running
+       `tests/api/test_main.py` before
+       `tests/trading/test_rebalance.py::TestPostFillCapNotionalTolerance::
+       test_sector_total_uses_proven_remaining_weight_not_assumed_restored_weight`
+       in the same invocation made the latter fail; running it alone
+       passed.
 
-    This version fixes all three at once: root's handlers are never
-    touched (added, removed, reordered, or reconfigured) — satisfying
-    (1); `src_logger.propagate = False` means a record handled here
-    never ALSO reaches root's handlers — satisfying (2); and the
-    idempotence check now scans for the `_VALUATION_JSON_HANDLER_MARKER`
-    attribute (see its own comment) instead of `isinstance` — an
-    existing handler from before a reload is found and REUSED rather
-    than being invisible to a freshly-rebound class object — satisfying
-    (3). `src_logger.setLevel(...)`/`.propagate = False` are enforced
-    unconditionally on every call, including when an existing handler is
-    reused, so neither setting can ever be left stale by whatever state
-    a reload's intervening code happened to leave them in.
+    This version fixes all four at once by narrowing scope to exactly
+    this module's own logger: root's handlers are never touched (added,
+    removed, reordered, or reconfigured) — satisfying (1); this
+    module's own `propagate = False` means a record logged here never
+    ALSO reaches root's handlers — satisfying (2); the idempotence check
+    scans for the `_VALUATION_JSON_HANDLER_MARKER` attribute (see its
+    own comment) instead of `isinstance` — satisfying (3); and because
+    both the handler attachment AND `propagate = False` are scoped to
+    `logging.getLogger(__name__)` specifically rather than the shared
+    `src` logger, every sibling module's logger (`src.trading.*`,
+    `src.backtesting.*`, `src.dcf_model.*`, ...) is completely untouched
+    and continues propagating to root exactly as it always did —
+    satisfying (4). The shared `src` logger's own level, handlers, and
+    `propagate` state, and the ROOT logger's, are never read or written
+    by this function at all.
+
+    One consequence worth being explicit about: structured JSON/
+    request-ID logging now applies only to `src.api.main`'s OWN log
+    calls (the access-log middleware, the startup lifespan check, and
+    `evaluate_ticker`'s own `logger.warning`/`.exception` calls) — not
+    to every logger under `src.*`. A sibling module's own log calls
+    (e.g. `src.dcf_model.dcf`'s historical-CAGR-derivation messages)
+    still happen and still propagate to root exactly as before; they
+    are simply no longer JSON-formatted or request-ID-tagged by this
+    module, since they were never actually routed through
+    `src.api.main`'s logger in the first place (Python's logger
+    hierarchy is a strict dotted-name tree — `src.dcf_model.dcf` is a
+    sibling of `src.api.main`, not a descendant of it).
+
+    `logging.getLogger(__name__).setLevel(...)`/`.propagate = False` are
+    enforced unconditionally on every call, including when an existing
+    handler is reused, so neither setting can ever be left stale by
+    whatever state a reload's intervening code happened to leave them
+    in.
     """
-    src_logger = logging.getLogger("src")
+    module_logger = logging.getLogger(__name__)
 
     handler = next(
-        (h for h in src_logger.handlers if getattr(h, _VALUATION_JSON_HANDLER_MARKER, False)),
+        (h for h in module_logger.handlers if getattr(h, _VALUATION_JSON_HANDLER_MARKER, False)),
         None,
     )
     if handler is None:
@@ -184,10 +225,10 @@ def _configure_logging() -> None:
         setattr(handler, _VALUATION_JSON_HANDLER_MARKER, True)
         handler.setFormatter(_JsonLogFormatter())
         handler.addFilter(_RequestIdFilter())
-        src_logger.addHandler(handler)
+        module_logger.addHandler(handler)
 
-    src_logger.setLevel(logging.INFO)
-    src_logger.propagate = False
+    module_logger.setLevel(logging.INFO)
+    module_logger.propagate = False
 
 
 logger = logging.getLogger(__name__)

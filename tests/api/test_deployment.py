@@ -44,30 +44,39 @@ def _capture_src_logs(caplog, level=logging.INFO):
     logger=name)` merely adjusts THAT logger's own effective level, it
     never relocates where the capturing handler lives.
 
-    `_configure_logging` (src/api/main.py) deliberately sets
-    `src_logger.propagate = False` on the `src` logger — see its
-    docstring for why: it's what stops every `src.*` record from being
-    emitted twice on a platform (or test) that has its own handler on
-    root. A side effect is that a plain `caplog.at_level(...)` can no
-    longer see anything logged under `src.*` at all, since propagation
-    from `src` to root is exactly what it just turned off.
+    `_configure_logging` (src/api/main.py) sets `propagate = False` on
+    THIS MODULE's own logger (`logging.getLogger(__name__)`, i.e.
+    `api_main.logger`) — see its docstring for why: it's what stops this
+    module's own records from being emitted twice on a platform (or
+    test) that has its own handler on root. Deliberately scoped that
+    narrowly (not to the shared `src` logger, which an earlier version
+    used and which broke unrelated tests elsewhere in the suite — see
+    that docstring's bug #4) so every sibling module's logger
+    (`src.trading.*`, `src.backtesting.*`, `src.dcf_model.*`, ...)
+    keeps propagating to root completely unaffected. A side effect
+    local to THIS module only: a plain `caplog.at_level(...)` (which
+    relies on root-level capture) can no longer see `src.api.main`'s own
+    records, since propagation from `api_main.logger` to root is exactly
+    what got turned off for it specifically.
 
-    This attaches `caplog`'s own handler directly to the `src` logger
-    for the duration of the `with` block instead — records from
-    `src.api.main`/`src.dcf_model.dcf`/etc. still propagate UP TO `src`
-    (propagate=False only stops propagation FROM `src` onward), where
-    this handler now also sits alongside the module's own
-    `_ValuationJsonHandler`, so `caplog.records` is populated correctly
-    without weakening `propagate = False` in the application code
-    itself.
+    This attaches `caplog`'s own handler directly to `api_main.logger`
+    for the duration of the `with` block instead — records logged
+    through `api_main.logger` (the access-log middleware, the lifespan
+    startup check, `evaluate_ticker`'s own warnings/exceptions) are
+    still generated on that exact logger object (propagate=False only
+    stops propagation FROM it onward), where this handler now also sits
+    alongside the module's own `_ValuationJsonHandler`, so
+    `caplog.records` is populated correctly without weakening
+    `propagate = False` in the application code itself. Restores
+    `api_main.logger`'s handler list to exactly what it was before, in
+    a `finally`, regardless of how the `with` block exits.
     """
-    src_logger = logging.getLogger("src")
-    with caplog.at_level(level, logger="src"):
-        src_logger.addHandler(caplog.handler)
+    with caplog.at_level(level, logger=api_main.logger.name):
+        api_main.logger.addHandler(caplog.handler)
         try:
             yield
         finally:
-            src_logger.removeHandler(caplog.handler)
+            api_main.logger.removeHandler(caplog.handler)
 
 
 def _synthetic_financial_data() -> dict:
@@ -480,11 +489,11 @@ import logging
 
 import src.api.main as m
 
-src_logger = logging.getLogger("src")
+module_logger = logging.getLogger("src.api.main")
 
-before = len(src_logger.handlers)
+before = len(module_logger.handlers)
 importlib.reload(m)
-after = len(src_logger.handlers)
+after = len(module_logger.handlers)
 
 print(f"HANDLERS_BEFORE_RELOAD={before}")
 print(f"HANDLERS_AFTER_RELOAD={after}")
@@ -598,13 +607,16 @@ print("SENTINEL_PRESENT" if os.environ.get({sentinel_var!r}) else "SENTINEL_ABSE
 
 class TestLoggingIsSingleOutputAndIdempotent:
     """
-    Direct proof for `_configure_logging`'s two correctness properties
-    (see its docstring): it never touches the ROOT logger's own
-    handlers, and a single `src.*` log call is captured exactly once —
-    never twice (once by `_ValuationJsonHandler`, once more by whatever
-    a hosting platform has already attached to root), and never
-    accumulating a duplicate `_ValuationJsonHandler` if this function
-    runs more than once in the same process.
+    Direct proof for `_configure_logging`'s correctness properties (see
+    its docstring): it never touches the ROOT logger's own handlers, a
+    single `src.api.main` log call is captured exactly once — never
+    twice (once by `_ValuationJsonHandler`, once more by whatever a
+    hosting platform has already attached to root) — never accumulating
+    a duplicate `_ValuationJsonHandler` if this function runs more than
+    once in the same process, and — critically, since an earlier version
+    got this wrong (see the docstring's bug #4) — every SIBLING `src.*`
+    logger (`src.trading.*`, `src.backtesting.*`, ...) is left completely
+    unaffected; see `TestSiblingLoggersUnaffected` below for that half.
     """
 
     def test_preexisting_root_handlers_are_left_completely_unchanged(self):
@@ -628,9 +640,10 @@ class TestLoggingIsSingleOutputAndIdempotent:
     def test_src_records_never_reach_a_handler_attached_to_root(self):
         """The other half of "emitted only once": a handler on ROOT
         (simulating a platform's own root-level logging setup) must
-        receive ZERO src.* records — proving `src_logger.propagate =
-        False` is actually in effect at runtime, not merely documented
-        in a comment."""
+        receive ZERO records logged through `src.api.main`'s own
+        logger — proving `api_main.logger.propagate = False` is
+        actually in effect at runtime, not merely documented in a
+        comment."""
         root_logger = logging.getLogger()
         received = []
         probe = logging.Handler()
@@ -654,21 +667,20 @@ class TestLoggingIsSingleOutputAndIdempotent:
 
     def test_calling_configure_logging_twice_does_not_add_a_duplicate_handler(self):
         """Direct idempotency proof: two calls must still leave exactly
-        one valuation JSON handler on the `src` logger, not two (which
-        would silently double-print every subsequent record — a dev-
-        server hot-reload re-executing this module is the realistic
-        trigger for a second call). Counted via the same
-        `_VALUATION_JSON_HANDLER_MARKER` attribute `_configure_logging`
-        itself checks — not `isinstance`, which
+        one valuation JSON handler on `api_main.logger`
+        (`"src.api.main"`), not two (which would silently double-print
+        every subsequent record — a dev-server hot-reload re-executing
+        this module is the realistic trigger for a second call).
+        Counted via the same `_VALUATION_JSON_HANDLER_MARKER` attribute
+        `_configure_logging` itself checks — not `isinstance`, which
         `test_handler_count_stays_one_across_a_real_module_reload`
         (a separate, subprocess-based test) demonstrates is unreliable
         across a genuine `importlib.reload`."""
-        src_logger = logging.getLogger("src")
 
         def _count() -> int:
             return sum(
                 1
-                for h in src_logger.handlers
+                for h in api_main.logger.handlers
                 if getattr(h, api_main._VALUATION_JSON_HANDLER_MARKER, False)
             )
 
@@ -676,3 +688,77 @@ class TestLoggingIsSingleOutputAndIdempotent:
         api_main._configure_logging()
         api_main._configure_logging()
         assert _count() == 1
+
+
+class TestSiblingLoggersUnaffected:
+    """
+    Regression tests for the exact bug `_configure_logging`'s docstring
+    documents as bug #4: an earlier version scoped `propagate = False`
+    to the shared `src` logger, which silenced propagation for every
+    module under `src.*` — not just `src.api.main` — breaking
+    `caplog`-based tests completely unrelated to the valuation API
+    (`tests/trading/test_rebalance.py::TestPostFillCapNotionalTolerance::
+    test_sector_total_uses_proven_remaining_weight_not_assumed_restored_weight`
+    in particular) the moment anything in the same pytest process
+    imported `src.api.main` first. Both tests here restore every piece
+    of logger state they touch, in a `finally`, regardless of outcome.
+    """
+
+    def test_shared_src_logger_propagate_is_left_untouched(self):
+        """`_configure_logging` must never read or write
+        `logging.getLogger("src").propagate` (or its level/handlers) at
+        all — confirms the fix is scoped to `src.api.main`'s own
+        logger, not merely that the shared logger's CURRENT value
+        happens to still be `True` (a weaker check that wouldn't catch
+        a version that explicitly sets it to `True`, which would be
+        just as much an overreach as setting it to `False`)."""
+        src_logger = logging.getLogger("src")
+        original_propagate = src_logger.propagate
+        original_level = src_logger.level
+        original_handlers = list(src_logger.handlers)
+        try:
+            api_main._configure_logging()
+            assert src_logger.propagate == original_propagate
+            assert src_logger.propagate is True  # Python's own default, never touched
+            assert src_logger.level == original_level
+            assert src_logger.handlers == original_handlers
+        finally:
+            src_logger.propagate = original_propagate
+            src_logger.setLevel(original_level)
+            src_logger.handlers = original_handlers
+
+    def test_sibling_logger_still_reaches_a_root_attached_capture_handler(self):
+        """The other half: a SIBLING module's logger
+        (`src.trading.alpaca_execution`, chosen because it's exactly
+        the module whose own test file broke under the old bug) must
+        still propagate all the way to a handler attached to ROOT,
+        completely unaffected by `src.api.main` having been imported
+        and configured earlier in this same process — this is the
+        actual property `tests/trading/test_rebalance.py`'s own
+        `caplog`-based assertions depend on."""
+        import src.trading.alpaca_execution as trading_module
+
+        # WARNING, not INFO: neither this logger nor any of its
+        # ancestors (src.trading, src, root) has its level explicitly
+        # set to INFO by anything in this test file, so an INFO record
+        # would be filtered by the default WARNING level before ever
+        # reaching a handler regardless of propagation — WARNING is
+        # also the actual severity `src.trading.alpaca_execution` uses
+        # for the exact cap-breach messages
+        # `tests/trading/test_rebalance.py`'s own `caplog` assertions
+        # depend on, so this exercises the real scenario, not a level
+        # this logger wouldn't normally emit at.
+        root_logger = logging.getLogger()
+        received = []
+        probe = logging.Handler()
+        probe.emit = received.append
+        root_logger.addHandler(probe)
+        try:
+            trading_module.logger.warning("sibling-logger reachability probe message")
+        finally:
+            root_logger.removeHandler(probe)
+
+        matching = [
+            r for r in received if r.getMessage() == "sibling-logger reachability probe message"
+        ]
+        assert len(matching) == 1
