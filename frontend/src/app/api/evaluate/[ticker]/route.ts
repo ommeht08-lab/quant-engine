@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { requireSession } from "@/lib/auth";
 import { fetchWithTimeout } from "@/lib/backend-fetch";
+import { classifyFetchError, normalizeBackendResponse, type NormalizedBackendResult } from "@/lib/backend-response";
 import { assertSecretMeetsRequirements, VALUATION_API_TOKEN_REQUIREMENT } from "@/lib/secret-validation";
 import { assertSafeValuationApiUrl } from "@/lib/valuation-api-url";
 
@@ -9,26 +10,30 @@ import { assertSafeValuationApiUrl } from "@/lib/valuation-api-url";
 // Python backend/`yfinance` layer does its own caching).
 export const dynamic = "force-dynamic";
 
-// Vercel Hobby's confirmed maximum for a Node.js/Next.js function is
-// 300s (default AND max — see
-// https://vercel.com/docs/functions/limitations#max-duration); 60s here
-// is a deliberately conservative choice well inside that ceiling, not
-// the platform maximum, since a single-ticker DCF valuation should never
-// legitimately need more than a small fraction of that. Must stay
-// strictly greater than VALUATION_BACKEND_REQUEST_TIMEOUT_MS below —
-// see tests/test_vercel_config.py's cross-file check on the Python side
-// for the enforced relationship (this function must always have time
-// left, after the backend fetch gives up, to build and return the
-// controlled 502 response below rather than being killed mid-response).
+// The three-layer hard-duration contract (see
+// tests/test_vercel_config.py's TestLayeredTimeoutOrdering for the
+// enforced cross-file proof of all three values together):
+//
+//   backend platform hard stop (vercel.json maxDuration):      40s
+// < frontend upstream wait (VALUATION_BACKEND_REQUEST_TIMEOUT_MS below): 45s
+// < this route's own function limit (maxDuration below):       60s
+//
+// Vercel terminates the Python backend invocation once it exceeds ITS
+// 40s maxDuration and returns a platform 504 to whoever's waiting. This
+// ordering (40s < 45s) is DESIGNED so that platform 504 normally arrives
+// while this route is still within its own 45s wait, so it observes and
+// normalizes it itself (see `@/lib/backend-response`) instead of having
+// already given up — but the configured inequality only guarantees the
+// declared limits' ordering, not real-world timing: runtime scheduling,
+// process teardown, and network propagation can all consume part of the
+// 5s margin. If propagation ever does exceed it, this route's own fetch
+// simply hits its AbortError path first and returns the same controlled
+// 504 VALUATION_BACKEND_TIMEOUT — so the observable outcome is identical
+// either way. 60s here keeps 15s of headroom after the 45s wait gives up,
+// for this function to build and return a controlled response before
+// Vercel would kill THIS function too.
 export const maxDuration = 60;
 
-// Bounded so a hung/slow backend can't tie up this route's serverless
-// invocation indefinitely — aborted via `AbortController` (see
-// `fetchWithTimeout` in `@/lib/backend-fetch`), not just a client-side
-// "give up and hope the server request stops too" timeout. 45s leaves
-// 15s of headroom under `maxDuration` above for this function to catch
-// the resulting abort, log it, and return a controlled JSON error
-// response rather than being killed by the platform mid-response.
 const VALUATION_BACKEND_REQUEST_TIMEOUT_MS = 45_000;
 
 function isProductionEnvironment(): boolean {
@@ -131,19 +136,24 @@ export async function GET(
     );
   } catch (error) {
     const isTimeout = error instanceof Error && error.name === "AbortError";
+    // Fixed classification labels only — never the raw Error, its
+    // message, the target URL, or the raw ticker route parameter. Any
+    // of those could carry attacker-controlled input or leak into logs
+    // in a way backend-response.ts's own sanitization can't protect
+    // against, since this log line is separate from its returned body.
     console.error(
-      `Failed to reach the valuation backend for ${ticker}:`,
-      isTimeout ? "request timed out" : error instanceof Error ? error.message : "unknown error"
+      isTimeout ? "valuation backend request timed out" : "valuation backend request failed"
     );
-    return NextResponse.json(
-      {
-        code: "VALUATION_BACKEND_UNREACHABLE",
-        error: "The live valuation service did not respond. Portfolio data remains available below.",
-      },
-      { status: 502 }
-    );
+    return toNextResponse(classifyFetchError(error));
   }
 
-  const body = await response.json().catch(() => null);
-  return NextResponse.json(body, { status: response.status });
+  return toNextResponse(await normalizeBackendResponse(response));
+}
+
+function toNextResponse(result: NormalizedBackendResult): NextResponse {
+  const nextResponse = NextResponse.json(result.body, { status: result.status });
+  for (const [key, value] of Object.entries(result.headers)) {
+    nextResponse.headers.set(key, value);
+  }
+  return nextResponse;
 }

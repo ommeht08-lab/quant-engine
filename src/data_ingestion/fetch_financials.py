@@ -17,7 +17,13 @@ import yfinance as yf
 from src.utils.cache import cached
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+# No logging.basicConfig() here: this is a library module, imported by
+# the deployed API (src.api.main, which configures its own logging) and
+# by tests — it must never mutate the ROOT logger's handlers/level as a
+# side effect of being imported. Standalone execution (`python -m
+# src.data_ingestion.fetch_financials`) configures logging itself, in
+# the `if __name__ == "__main__":` block below, so `logger.warning(...)`
+# calls above are still visible when this module is run directly.
 
 STATEMENT_CACHE_TTL_SECONDS = 86400  # 24 hours — annual financial statements change rarely
 
@@ -156,7 +162,15 @@ def get_shares_outstanding(ticker_obj: yf.Ticker) -> Optional[float]:
         Shares outstanding as a float, or None if unavailable.
     """
     try:
-        shares = ticker_obj.fast_info.get("shares_outstanding")
+        # The installed yfinance version's FastInfo exposes this figure
+        # under the key "shares", not "shares_outstanding" -- the latter
+        # is absent from FastInfo.keys() entirely, so
+        # `.get("shares_outstanding")` was a silent, permanent no-op
+        # (always returned the `default=None` fallback, never touching
+        # the network) that made every call fall straight through to the
+        # `.info` lookup below. "shares" is the correct, currently-valid
+        # key.
+        shares = ticker_obj.fast_info.get("shares")
         if shares:
             return float(shares)
     except Exception as exc:
@@ -246,6 +260,7 @@ def fetch_company_financials(ticker: str) -> dict:
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     data = fetch_company_financials("AAPL")
 
     print(f"Ticker: {data['ticker']}")

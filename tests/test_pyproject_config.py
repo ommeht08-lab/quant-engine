@@ -24,8 +24,15 @@ PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 # The minimal set genuinely required by src.api.main's import graph, as
 # re-verified after extracting DEFAULT_SP500_TOP_100_TICKERS out of
 # src.backtesting.historical_tester (see src/utils/ticker_universe.py).
-EXPECTED_DEPENDENCY_NAMES = {"fastapi", "pandas", "numpy", "requests", "yfinance", "python-dotenv"}
-FORBIDDEN_DEPENDENCY_NAMES = {"scipy", "psycopg2-binary", "psycopg2", "upstash-redis", "alpaca-py", "alpaca", "uvicorn"}
+# upstash-redis is included deliberately: it activates src.utils.cache's
+# existing @cached statement/risk-free-rate caching against the same
+# Upstash database the frontend already uses (see pyproject.toml's own
+# comment on that dependency) -- it is not forbidden the way psycopg2/
+# alpaca/scipy/uvicorn are, none of which this service ever needs.
+EXPECTED_DEPENDENCY_NAMES = {
+    "fastapi", "pandas", "numpy", "requests", "yfinance", "python-dotenv", "upstash-redis",
+}
+FORBIDDEN_DEPENDENCY_NAMES = {"scipy", "psycopg2-binary", "psycopg2", "alpaca-py", "alpaca", "uvicorn"}
 
 
 def _load_pyproject() -> dict:
@@ -75,9 +82,9 @@ class TestMinimalDependencySet:
 
     def test_dependency_names_match_exactly(self):
         """Not just "contains the required ones" -- an EXACT match, so an
-        accidentally reintroduced scipy/psycopg2/upstash-redis/alpaca-py/
-        uvicorn entry (or any other unreviewed addition) fails this test
-        immediately rather than silently bloating the deployed bundle."""
+        accidentally reintroduced scipy/psycopg2/alpaca-py/uvicorn entry
+        (or any other unreviewed addition) fails this test immediately
+        rather than silently bloating the deployed bundle."""
         config = _load_pyproject()
         names = {_dependency_name(dep) for dep in config["project"]["dependencies"]}
         assert names == EXPECTED_DEPENDENCY_NAMES

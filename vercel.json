@@ -2,7 +2,7 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
     "src/api/main.py": {
-      "maxDuration": 300,
+      "maxDuration": 40,
       "excludeFiles": "{frontend/**,tests/**,validation/**,docs/**,venv/**,.git/**,.github/**,.agents/**,.claude/**,src/trading/**,src/risk/**,src/backtesting/**,src/utils/db.py,src/utils/database_heartbeat.py,README.md,requirements.txt,requirements-dev.txt,requirements-api.txt,Dockerfile,.dockerignore,pytest.ini,.pytest_cache/**,**/__pycache__/**,.DS_Store,.env*}"
     }
   }
