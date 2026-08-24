@@ -43,6 +43,18 @@ dependencies = [
     "requests==2.32.5",
     "yfinance==1.2.0",
     "python-dotenv==1.2.1",
+    # Activates src.utils.cache's existing @cached statement/risk-free-
+    # rate caching against the same Upstash database documented in
+    # frontend/.env.local.example — this is the already-tested version,
+    # installed and verified locally (`pip show`); its metadata declares
+    # requires-python >=3.8,<4.0, which covers this deployment's 3.12
+    # pin. _get_redis_client() (src/utils/cache.py) still constructs the
+    # client lazily and still degrades to the existing uncached
+    # passthrough if UPSTASH_REDIS_REST_URL/TOKEN are unset. Installing
+    # this package only makes that caching REACHABLE once
+    # UPSTASH_REDIS_REST_URL/TOKEN are configured on the future backend
+    # Vercel project — those backend credentials are not configured yet.
+    "upstash-redis==1.7.0",
 ]
 # Deliberately NOT here:
 #   - scipy: only used by src/risk/hedging.py, which src.api.main's
@@ -57,14 +69,6 @@ dependencies = [
 #     there directly and no longer reaches historical_tester.py (or
 #     therefore src.utils.db/psycopg2) at all. Re-verified by re-running
 #     the import-graph trace after the change.
-#   - upstash-redis: src.utils.cache's `from upstash_redis import Redis`
-#     already lives inside a lazy, per-call try/except Exception in
-#     _get_redis_client() (only reached if UPSTASH_REDIS_REST_URL/TOKEN
-#     are BOTH set, which they never are on this deployment) — a
-#     ModuleNotFoundError there is already caught the same as any other
-#     Redis failure, degrading to the existing uncached passthrough. No
-#     code change was needed for this removal to be safe; see
-#     tests/api/test_deployment.py's optional-dependency-absence tests.
 #   - alpaca-py: this service never imports src.trading.
 #   - uvicorn: Vercel's Python runtime invokes the ASGI `app` callable
 #     directly; it does not run `uvicorn.run()` the way the Docker image

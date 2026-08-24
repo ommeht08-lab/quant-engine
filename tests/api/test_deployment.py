@@ -450,6 +450,91 @@ print("IMPORT_OK")
         )
         assert "IMPORT_OK" in result.stdout
 
+    def test_importing_src_api_main_does_not_touch_the_root_logger(self):
+        """
+        `_configure_logging` (src/api/main.py) only ever touches THIS
+        module's own logger — see its docstring's bug #4 — but that
+        guarantee is only as good as the rest of the import graph.
+        `src/data_ingestion/fetch_financials.py` and `src/utils/cache.py`
+        both used to call `logging.basicConfig(level=logging.INFO)` at
+        IMPORT time, which configures the ROOT logger as a side effect
+        (adds a handler if none exists, sets its level) — invisible from
+        `src.api.main`'s own code, but reachable transitively through
+        its import graph (`src.api.main` -> `src.api.sector_medians` ->
+        `src.data_ingestion.fetch_financials` -> `src.utils.cache`).
+        This test captures the ROOT logger's handler list and level in a
+        genuinely fresh subprocess, before and after `import
+        src.api.main`, and proves neither changed — a regression test
+        for the whole import graph, not just `src.api.main` itself.
+
+        Same isolation discipline as every other subprocess test in this
+        class: `dotenv.load_dotenv` neutralized before application
+        import, `cwd` a fresh directory outside the repository, no real
+        `.env` file reachable.
+        """
+        script = """
+import logging
+
+root_logger = logging.getLogger()
+handlers_before = list(root_logger.handlers)
+level_before = root_logger.level
+
+import dotenv
+
+dotenv.load_dotenv = lambda *args, **kwargs: False
+
+import src.api.main as m
+
+handlers_after = list(root_logger.handlers)
+level_after = root_logger.level
+
+print(f"HANDLERS_BEFORE_COUNT={len(handlers_before)}")
+print(f"HANDLERS_AFTER_COUNT={len(handlers_after)}")
+print(f"HANDLERS_UNCHANGED={handlers_before == handlers_after}")
+print(f"LEVEL_BEFORE={level_before}")
+print(f"LEVEL_AFTER={level_after}")
+print(f"LEVEL_UNCHANGED={level_before == level_after}")
+
+assert hasattr(m, "app")
+print("IMPORT_OK")
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            result = self._run_script(script, cwd=tmp_dir, env=self._isolated_env())
+
+        assert result.returncode == 0, f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        assert "IMPORT_OK" in result.stdout
+        assert "HANDLERS_UNCHANGED=True" in result.stdout, result.stdout
+        assert "LEVEL_UNCHANGED=True" in result.stdout, result.stdout
+
+    def test_importing_src_api_main_does_not_add_a_handler_to_a_clean_root_logger(self):
+        """The other half of the same guarantee, stated as a direct
+        count rather than an equality check: a genuinely fresh process
+        (root logger's default, empty state) must still have ZERO
+        handlers on root after importing `src.api.main` — proving the
+        import graph doesn't add one where none existed, not merely
+        that it leaves an already-populated list alone."""
+        script = """
+import logging
+
+import dotenv
+
+dotenv.load_dotenv = lambda *args, **kwargs: False
+
+import src.api.main as m
+
+root_logger = logging.getLogger()
+print(f"ROOT_HANDLER_COUNT={len(root_logger.handlers)}")
+
+assert hasattr(m, "app")
+print("IMPORT_OK")
+"""
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            result = self._run_script(script, cwd=tmp_dir, env=self._isolated_env())
+
+        assert result.returncode == 0, f"stdout: {result.stdout}\nstderr: {result.stderr}"
+        assert "IMPORT_OK" in result.stdout
+        assert "ROOT_HANDLER_COUNT=0" in result.stdout, result.stdout
+
     def test_handler_count_stays_one_across_a_real_module_reload(self):
         """
         Reproduces, and proves fixed, the exact defect an isinstance-

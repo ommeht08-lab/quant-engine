@@ -84,7 +84,11 @@ import pandas as pd
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+# No logging.basicConfig() here: this is a pure library module (no
+# standalone entry point) imported by the deployed API and by tests —
+# it must never mutate the ROOT logger's handlers/level as a side
+# effect of being imported. The application entrypoint (src.api.main)
+# owns logging configuration.
 
 _redis_client = None
 _client_initialized = False

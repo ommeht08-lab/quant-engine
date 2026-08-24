@@ -136,14 +136,25 @@ class TestRepoRootVercelConfig:
         ):
             assert must_stay_reachable not in exclude
 
-    def test_declares_the_verified_hobby_maximum_duration(self):
-        """Vercel Hobby's Node.js/Python function duration is 300s, both
-        default AND maximum (non-configurable higher) -- confirmed
-        against https://vercel.com/docs/functions/limitations#max-duration.
-        Declaring it explicitly documents the verified value rather than
-        silently relying on the platform default."""
+    def test_declares_the_layered_backend_hard_stop_duration(self):
+        """40s -- deliberately well below Vercel Hobby's own ceiling of
+        300s (confirmed against
+        https://vercel.com/docs/functions/limitations#max-duration) so
+        THIS value, not the platform default, is what actually bounds
+        the backend. It is the innermost layer of the three-layer
+        timeout contract: backend hard stop (40s) < frontend upstream
+        wait (45s) < frontend function limit (60s) -- see
+        TestLayeredTimeoutOrdering below for the full cross-file proof.
+        Choosing 40s (not 300s) means Vercel itself terminates a runaway
+        backend invocation and returns a platform 504 that is DESIGNED
+        to normally arrive while the frontend is still within its own
+        45s wait window, so the frontend observes and normalizes that
+        failure instead of giving up first while the backend keeps
+        running, wastefully, up to the old 300s ceiling. (This ordering
+        does not itself guarantee real-world arrival timing -- see
+        TestLayeredTimeoutOrdering's docstring below.)"""
         config = _load(ROOT_VERCEL_JSON)
-        assert config["functions"]["src/api/main.py"]["maxDuration"] == 300
+        assert config["functions"]["src/api/main.py"]["maxDuration"] == 40
 
     def test_declares_no_memory_key(self):
         """Vercel does NOT support a `memory` key in vercel.json at all --
@@ -191,52 +202,107 @@ class TestConfigurationsCannotAccidentallyMix:
         assert "excludeFiles" not in frontend_text
 
 
-class TestFrontendTimeoutStaysBelowFunctionDurationLimit:
+class TestLayeredTimeoutOrdering:
     """
-    Cross-file check spanning the Next.js route itself (not a vercel.json
-    file, but the other half of the timeout relationship the deployment
-    prep established): `VALUATION_BACKEND_REQUEST_TIMEOUT_MS` (how long
-    the route waits for the Python backend before giving up) must stay
-    strictly below `maxDuration` (how long Vercel lets the route's own
-    function run before killing it) -- otherwise the platform could kill
-    the function mid-flight before the route ever gets a chance to catch
-    the backend timeout and return its own controlled 502 response.
+    The three-layer hard-duration contract, read from the two REAL files
+    that each own one layer, not copied constants:
 
-    Parses the actual route.ts source text (plain regex, no TypeScript
-    parser dependency) so this fails the moment either constant drifts
-    without the other being reconsidered.
+        backend platform hard limit (vercel.json maxDuration):        40s
+      < frontend upstream wait (route.ts's VALUATION_BACKEND_REQUEST_
+        TIMEOUT_MS, i.e. how long the frontend's own fetch waits for
+        the Python backend before giving up):                         45s
+      < frontend route's own function limit (route.ts's exported
+        maxDuration -- how long Vercel lets the ROUTE's function run
+        before killing it):                                           60s
+
+    Why this exact ordering, not just "all three configured": Vercel
+    terminates a backend invocation that exceeds ITS maxDuration and
+    returns a platform 504 to whoever's waiting on it. This ordering is
+    DESIGNED so that, because 40s is strictly less than the frontend's
+    45s wait, the platform 504 normally arrives while the frontend is
+    still waiting -- it observes and normalizes that platform 504 itself
+    (see backend-response.ts) instead of already having given up. This
+    configuration only guarantees the ORDERING of the declared limits,
+    not real-world response timing -- runtime scheduling, process
+    teardown, and network propagation can consume part of the 5s margin.
+    If propagation ever exceeds it, the frontend's own AbortError path
+    still returns the same controlled 504 VALUATION_BACKEND_TIMEOUT, so
+    the observable outcome is identical either way. Separately, because
+    the frontend's 45s wait is strictly less than the route's own 60s
+    function limit, the route keeps 15s of headroom after its own fetch
+    gives up to build and return a controlled response before Vercel
+    would kill the ROUTE function too.
+
+    Parses the actual vercel.json and route.ts source text (plain JSON
+    load + regex, no TypeScript parser dependency) so this fails the
+    moment any of the three drifts without the others being
+    reconsidered -- deliberately NOT three independent constant checks:
+    the ordering tests below read all three real values together in one
+    assertion chain.
     """
 
     def _route_text(self) -> str:
         assert EVALUATE_ROUTE_TS.is_file(), f"Route file not found: {EVALUATE_ROUTE_TS}"
         return EVALUATE_ROUTE_TS.read_text()
 
-    def _max_duration_seconds(self) -> int:
+    def _backend_max_duration_seconds(self) -> int:
+        config = _load(ROOT_VERCEL_JSON)
+        return config["functions"]["src/api/main.py"]["maxDuration"]
+
+    def _frontend_route_max_duration_seconds(self) -> int:
         match = re.search(r"export const maxDuration = (\d+);", self._route_text())
         assert match, "export const maxDuration = <N>; not found in route.ts"
         return int(match.group(1))
 
-    def _backend_timeout_ms(self) -> int:
+    def _frontend_backend_timeout_ms(self) -> int:
         match = re.search(
             r"VALUATION_BACKEND_REQUEST_TIMEOUT_MS = ([\d_]+);", self._route_text()
         )
         assert match, "VALUATION_BACKEND_REQUEST_TIMEOUT_MS = <N>; not found in route.ts"
         return int(match.group(1).replace("_", ""))
 
-    def test_max_duration_is_declared_and_within_the_verified_hobby_ceiling(self):
-        """60s, well inside the verified Hobby default/maximum of 300s --
-        see https://vercel.com/docs/functions/limitations#max-duration."""
-        max_duration = self._max_duration_seconds()
-        assert max_duration == 60
-        assert max_duration <= 300
+    def test_each_exact_value(self):
+        """The three raw values, individually -- a precise starting
+        point before the combined-ordering tests below, so a failure
+        there immediately shows WHICH layer drifted."""
+        assert self._backend_max_duration_seconds() == 40
+        assert self._frontend_backend_timeout_ms() == 45_000
+        assert self._frontend_route_max_duration_seconds() == 60
 
-    def test_backend_timeout_is_the_expected_45_seconds(self):
-        assert self._backend_timeout_ms() == 45_000
+    def test_backend_max_duration_stays_within_the_verified_hobby_ceiling(self):
+        """40s is a deliberate choice well inside Vercel Hobby's own
+        default/maximum of 300s -- see
+        https://vercel.com/docs/functions/limitations#max-duration --
+        not a value Hobby forces on us."""
+        assert self._backend_max_duration_seconds() <= 300
 
-    def test_backend_timeout_stays_strictly_below_max_duration(self):
-        backend_timeout_ms = self._backend_timeout_ms()
-        max_duration_ms = self._max_duration_seconds() * 1000
-        assert backend_timeout_ms < max_duration_ms
-        # The specific headroom this deployment prep chose (15s) --
-        # documents the margin, not just that some margin exists.
-        assert max_duration_ms - backend_timeout_ms == 15_000
+    def test_full_three_layer_ordering(self):
+        """The actual contract, as one combined chain over all three
+        REAL values -- not three constants tested in isolation. This is
+        what would have caught the original failure mode: a browser-
+        facing proxy giving up after 45s while the backend was left
+        free to run for 300s, with no ordering relationship enforced
+        between the two at all."""
+        backend_ms = self._backend_max_duration_seconds() * 1000
+        frontend_wait_ms = self._frontend_backend_timeout_ms()
+        route_limit_ms = self._frontend_route_max_duration_seconds() * 1000
+
+        assert backend_ms < frontend_wait_ms < route_limit_ms
+
+    def test_exact_headroom_at_each_layer_boundary(self):
+        """Documents the specific margins this deployment chose, not
+        merely that SOME margin exists at each boundary."""
+        backend_ms = self._backend_max_duration_seconds() * 1000
+        frontend_wait_ms = self._frontend_backend_timeout_ms()
+        route_limit_ms = self._frontend_route_max_duration_seconds() * 1000
+
+        # Backend's hard stop (40s) is 5s inside the frontend's wait
+        # (45s) -- this margin is DESIGNED to let the backend platform
+        # response arrive while the frontend is still waiting, but it
+        # does not guarantee real-world propagation timing (see
+        # TestLayeredTimeoutOrdering's class docstring above).
+        assert frontend_wait_ms - backend_ms == 5_000
+        # The route keeps 15s after its own fetch gives up (45s) to
+        # build and return a controlled response before ITS OWN 60s
+        # function limit would kill it too.
+        assert route_limit_ms - frontend_wait_ms == 15_000
