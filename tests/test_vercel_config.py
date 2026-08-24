@@ -79,6 +79,13 @@ class TestRepoRootVercelConfig:
         config = _load(ROOT_VERCEL_JSON)
         assert "src/api/main.py" in config.get("functions", {})
 
+    def test_exclude_files_fits_vercel_configuration_limit(self):
+        """Vercel rejects a function ``excludeFiles`` glob longer than
+        256 characters before it creates the project or starts a build."""
+        config = _load(ROOT_VERCEL_JSON)
+        exclude = config["functions"]["src/api/main.py"]["excludeFiles"]
+        assert len(exclude) <= 256
+
     def test_excludes_frontend_tests_validation_and_trading_code(self):
         config = _load(ROOT_VERCEL_JSON)
         exclude = config["functions"]["src/api/main.py"]["excludeFiles"]
