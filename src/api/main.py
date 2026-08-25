@@ -56,6 +56,7 @@ from pydantic import BaseModel
 from src.api.sector_medians import get_sector_median_price_to_intrinsic
 from src.data_ingestion.fetch_financials import fetch_company_financials
 from src.dcf_model.dcf import DCFAssumptions, run_dcf_valuation
+from src.dcf_model.sensitivity import compute_dcf_sensitivity
 from src.utils.macro import get_risk_free_rate
 
 # --- Structured logging -----------------------------------------------
@@ -434,6 +435,35 @@ class FreeCashFlowYear(BaseModel):
     fcf: float
 
 
+class SensitivityAxis(BaseModel):
+    """One axis (rows or columns) of the DCF sensitivity grid."""
+
+    label: str
+    values: List[float]
+    baseline_index: int
+
+
+class DCFSensitivityMatrix(BaseModel):
+    """
+    5x5 WACC x terminal-growth-rate sensitivity grid around the
+    valuation's own baseline assumptions — see
+    `src.dcf_model.sensitivity` for how it's computed. `cells[i][j]` is
+    the intrinsic value per share for `wacc_axis.values[i]` combined with
+    `terminal_growth_axis.values[j]`; `null` marks a combination the
+    model refuses to value (e.g. WACC not strictly greater than terminal
+    growth), never NaN/infinity.
+    """
+
+    wacc_axis: SensitivityAxis
+    terminal_growth_axis: SensitivityAxis
+    cells: List[List[Optional[float]]]
+    baseline_row: int
+    baseline_col: int
+    baseline_wacc: float
+    baseline_terminal_growth_rate: float
+    baseline_intrinsic_value_per_share: Optional[float]
+
+
 class EvaluationResponse(BaseModel):
     """Response payload for GET /api/evaluate/{ticker}."""
 
@@ -451,6 +481,7 @@ class EvaluationResponse(BaseModel):
     sector_median_unavailable_reason: Optional[str] = None
     revenue_growth_rate_source: str
     operating_margin_source: str
+    sensitivity: DCFSensitivityMatrix
 
 
 @app.get("/")
@@ -590,6 +621,13 @@ def evaluate_ticker(
         explaining why, rather than silently comparing against a
         cache that isn't actually comparable to this valuation.
 
+        `sensitivity` is a 5x5 WACC x terminal-growth-rate grid of
+        intrinsic-value-per-share outcomes around this valuation's own
+        baseline WACC/terminal growth (see `src.dcf_model.sensitivity`),
+        holding the projected FCF and equity bridge fixed — a `null` cell
+        marks a WACC/terminal-growth combination this model refuses to
+        value, never NaN/infinity.
+
     Raises:
         HTTPException(400): If the ticker symbol itself is invalid.
         HTTPException(422): If required financial data (e.g. revenue,
@@ -647,6 +685,18 @@ def evaluate_ticker(
         sector, assumptions=assumptions
     )
 
+    # Reuses the baseline `fcf_projection` and equity-bridge inputs
+    # `run_dcf_valuation` already computed above — no additional
+    # data-provider call, no re-projection of FCF.
+    sensitivity = compute_dcf_sensitivity(
+        fcf_projection=result["fcf_projection"],
+        baseline_wacc=result["wacc"],
+        baseline_terminal_growth_rate=assumptions.terminal_growth_rate,
+        total_debt=result["total_debt"],
+        cash_and_equivalents=result["cash_and_equivalents"],
+        shares_outstanding=result["shares_outstanding"],
+    )
+
     return EvaluationResponse(
         ticker=financial_data["ticker"],
         current_price=current_price,
@@ -673,4 +723,22 @@ def evaluate_ticker(
         sector_median_unavailable_reason=sector_median_unavailable_reason,
         revenue_growth_rate_source=revenue_growth_rate_source,
         operating_margin_source=operating_margin_source,
+        sensitivity=DCFSensitivityMatrix(
+            wacc_axis=SensitivityAxis(
+                label=sensitivity.wacc_axis.label,
+                values=sensitivity.wacc_axis.values,
+                baseline_index=sensitivity.wacc_axis.baseline_index,
+            ),
+            terminal_growth_axis=SensitivityAxis(
+                label=sensitivity.terminal_growth_axis.label,
+                values=sensitivity.terminal_growth_axis.values,
+                baseline_index=sensitivity.terminal_growth_axis.baseline_index,
+            ),
+            cells=sensitivity.cells,
+            baseline_row=sensitivity.baseline_row,
+            baseline_col=sensitivity.baseline_col,
+            baseline_wacc=sensitivity.baseline_wacc,
+            baseline_terminal_growth_rate=sensitivity.baseline_terminal_growth_rate,
+            baseline_intrinsic_value_per_share=sensitivity.baseline_intrinsic_value_per_share,
+        ),
     )
