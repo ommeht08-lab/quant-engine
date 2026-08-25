@@ -191,36 +191,36 @@ export default function RiskHistogram() {
                 barCategoryGap={0}
                 margin={{ top: 24, right: 16, bottom: 0, left: 0 }}
               >
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" vertical={false} />
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(20,26,34,0.08)" vertical={false} />
                 <XAxis
                   dataKey="x"
                   type="number"
                   domain={["dataMin", "dataMax"]}
                   tickFormatter={(value: number) => formatPercent(value)}
-                  stroke="rgba(255,255,255,0.3)"
-                  tick={{ fill: "#6f7d80", fontSize: 11 }}
+                  stroke="rgba(20,26,34,0.35)"
+                  tick={{ fill: "#5b6472", fontSize: 11 }}
                   tickLine={false}
-                  axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+                  axisLine={{ stroke: "rgba(20,26,34,0.15)" }}
                 />
                 <YAxis hide />
                 <Tooltip
                   content={(props) => <CustomTooltip {...props} />}
-                  cursor={{ fill: "rgba(255,255,255,0.05)" }}
+                  cursor={{ fill: "rgba(20,26,34,0.05)" }}
                 />
-                <Bar dataKey="density" fill="#24404d" isAnimationActive={false} />
+                <Bar dataKey="density" fill="#b7c2d6" isAnimationActive={false} />
                 <ReferenceLine
                   x={risk.var95}
-                  stroke="#e47168"
+                  stroke="#b3261e"
                   strokeWidth={2}
                   strokeDasharray="4 4"
-                  label={{ value: "VaR 95%", position: "top", fill: "#e47168", fontSize: 11 }}
+                  label={{ value: "VaR 95%", position: "top", fill: "#b3261e", fontSize: 11 }}
                 />
                 <ReferenceLine
                   x={risk.cvar95}
-                  stroke="#d2a55f"
+                  stroke="#92400e"
                   strokeWidth={2}
                   strokeDasharray="4 4"
-                  label={{ value: "CVaR", position: "top", fill: "#d2a55f", fontSize: 11 }}
+                  label={{ value: "CVaR", position: "top", fill: "#92400e", fontSize: 11 }}
                 />
               </BarChart>
             </ResponsiveContainer>

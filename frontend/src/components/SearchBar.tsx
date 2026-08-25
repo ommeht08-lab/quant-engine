@@ -3,7 +3,15 @@
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
-export default function SearchBar() {
+interface SearchBarProps {
+  /** Overrides the default fixed-width layout, e.g. for a full-width mobile row. */
+  className?: string;
+}
+
+// Opens a security's tear sheet (`/ticker/[symbol]`) — a separate workflow
+// from the valuation workspace's own ticker field. "Open tear sheet" spells
+// that out until the two flows are unified.
+export default function SearchBar({ className }: SearchBarProps) {
   const router = useRouter();
   const [ticker, setTicker] = useState("");
 
@@ -16,7 +24,7 @@ export default function SearchBar() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="relative w-[min(15rem,42vw)]">
+    <form onSubmit={handleSubmit} className={className ?? "relative w-[min(15rem,42vw)]"}>
       <svg
         aria-hidden="true"
         viewBox="0 0 20 20"
@@ -30,12 +38,12 @@ export default function SearchBar() {
         type="text"
         value={ticker}
         onChange={(event) => setTicker(event.target.value.toUpperCase())}
-        placeholder="Open ticker"
+        placeholder="Open tear sheet"
         maxLength={10}
         autoComplete="off"
         spellCheck={false}
-        aria-label="Search ticker symbol"
-        className="input-field py-2 pl-9 pr-3 font-mono text-xs tracking-wide"
+        aria-label="Ticker symbol — opens tear sheet"
+        className="input-field w-full py-2 pl-9 pr-3 font-mono text-xs tracking-wide"
       />
     </form>
   );

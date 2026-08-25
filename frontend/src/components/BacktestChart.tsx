@@ -209,17 +209,17 @@ export default function BacktestChart() {
         <div className="h-80 w-full">
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={data} margin={{ top: 4, right: 12, bottom: 0, left: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" vertical={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(20,26,34,0.08)" vertical={false} />
               <XAxis
                 dataKey="date"
-                stroke="rgba(255,255,255,0.3)"
-                tick={{ fill: "#6f7d80", fontSize: 12 }}
+                stroke="rgba(20,26,34,0.35)"
+                tick={{ fill: "#5b6472", fontSize: 12 }}
                 tickLine={false}
-                axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+                axisLine={{ stroke: "rgba(20,26,34,0.15)" }}
               />
               <YAxis
-                stroke="rgba(255,255,255,0.3)"
-                tick={{ fill: "#6f7d80", fontSize: 12 }}
+                stroke="rgba(20,26,34,0.35)"
+                tick={{ fill: "#5b6472", fontSize: 12 }}
                 tickLine={false}
                 axisLine={false}
                 tickFormatter={(value: number) => compactCurrencyFormatter.format(value)}
@@ -228,13 +228,13 @@ export default function BacktestChart() {
               />
               <Tooltip
                 content={(props) => <CustomTooltip {...props} />}
-                cursor={{ stroke: "rgba(255,255,255,0.15)" }}
+                cursor={{ stroke: "rgba(20,26,34,0.15)" }}
               />
               <Line
                 type="monotone"
                 dataKey="benchmark"
                 name="SPY"
-                stroke="#6f7d80"
+                stroke="#8b95a3"
                 strokeWidth={2}
                 dot={false}
                 activeDot={{ r: 4 }}
@@ -243,7 +243,7 @@ export default function BacktestChart() {
                 type="monotone"
                 dataKey="strategy"
                 name="Strategy"
-                stroke="#55b8aa"
+                stroke="#0f766e"
                 strokeWidth={2.5}
                 dot={false}
                 activeDot={{ r: 5 }}
