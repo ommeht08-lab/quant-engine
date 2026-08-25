@@ -1232,12 +1232,21 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
         dict with: wacc, revenue_growth_rate, operating_margin,
         fcf_projection (DataFrame), terminal_value, pv_fcf,
         pv_terminal_value, enterprise_value, equity_value,
-        intrinsic_value_per_share, current_market_price.
+        intrinsic_value_per_share, current_market_price, total_debt,
+        cash_and_equivalents, shares_outstanding.
 
         `revenue_growth_rate` and `operating_margin` reflect whatever was
         actually used for the projection: the explicit value from
         `assumptions` if provided, otherwise the historically-derived
         figure, otherwise the conservative fallback (see DCFAssumptions).
+
+        `total_debt`, `cash_and_equivalents`, and `shares_outstanding` are
+        exactly the values already extracted from `financial_data` and
+        used above for WACC/the equity bridge — surfaced here so a caller
+        that needs to hold the equity bridge constant while re-deriving a
+        value from the SAME `fcf_projection` under different WACC/terminal-
+        growth assumptions (e.g. `src.dcf_model.sensitivity`) can reuse
+        them directly instead of re-parsing `financial_data` a second time.
 
     Raises:
         ValueError: If required inputs (e.g. base revenue, share count)
@@ -1366,6 +1375,9 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
         "current_market_price": inputs["current_price"],
         "market_enterprise_value": market_enterprise_value,
         "fcf_yield": fcf_yield,
+        "total_debt": inputs["total_debt"],
+        "cash_and_equivalents": inputs["cash_and_equivalents"],
+        "shares_outstanding": inputs["shares_outstanding"],
     }
 
 
