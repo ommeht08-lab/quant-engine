@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 
 interface TradeLog {
   id: number;
@@ -62,14 +61,14 @@ function ActionBadge({ action }: { action: string }) {
   const normalized = action.toUpperCase();
   const colorClasses =
     normalized === "BUY"
-      ? "border-[rgba(85,184,170,.35)] bg-[var(--verdigris-soft)] text-[var(--verdigris)]"
+      ? "border-[var(--verdigris)] bg-[var(--verdigris-soft)] text-[var(--verdigris)]"
       : normalized === "SELL"
-        ? "border-[rgba(228,113,104,.35)] bg-[rgba(228,113,104,.09)] text-[var(--signal)]"
-        : "border-[var(--line)] bg-[rgba(236,232,220,.04)] text-[var(--paper-muted)]";
+        ? "border-[var(--signal)] bg-[var(--signal-soft)] text-[var(--signal)]"
+        : "border-[var(--line-strong)] bg-[var(--ledger)] text-[var(--paper-muted)]";
 
   return (
     <span
-      className={`inline-flex items-center border px-2.5 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[.08em] ${colorClasses}`}
+      className={`inline-flex items-center rounded-[4px] border px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-[.06em] ${colorClasses}`}
     >
       {action}
     </span>
@@ -137,44 +136,30 @@ export default function TradesPage() {
 
   return (
     <div className="page-shell">
-      <div className="shell-container pb-20">
+      <div className="shell-container pb-16">
         <header className="page-header">
           <div>
-            <p className="eyebrow mb-5">Execution record</p>
-            <h1 className="display-title">Every submitted order, with its evidence attached.</h1>
+            <p className="eyebrow mb-2">Execution record</p>
+            <h1 className="display-title">Trade log</h1>
           </div>
-          <div>
-            <p className="page-deck">
-              Every order the autonomous execution engine has actually submitted, with the
-              WACC, beta, and Conviction Score behind each decision.
-            </p>
-            <Link
-              href="/"
-              className="mt-5 inline-flex items-center gap-1 text-sm text-[var(--paper-muted)] transition-colors hover:text-[var(--verdigris)]"
-            >
-              ← Return to research desk
-            </Link>
-          </div>
+          <p className="page-deck">
+            Every order the autonomous execution engine has submitted, with the WACC, beta, and
+            Conviction Score behind each decision.
+          </p>
         </header>
 
         {isLoading && (
-          <div className="panel px-6 py-16 text-center text-sm text-[var(--paper-dim)]">
+          <div className="panel px-5 py-10 text-center text-sm text-[var(--paper-dim)]">
             Loading trade history…
           </div>
         )}
 
-        {error && !isLoading && (
-          <div className="status-error">
-            {error}
-          </div>
-        )}
+        {error && !isLoading && <div className="status-error">{error}</div>}
 
         {!isLoading && !error && trades && trades.length === 0 && (
-          <div className="empty-state px-6 py-16 text-center">
-            <strong className="block text-[var(--paper-muted)]">
-              No submitted orders are recorded.
-            </strong>
-            <span className="mt-1 block">
+          <div className="empty-state px-5 py-10 text-center">
+            <strong className="block text-[var(--paper)]">No submitted orders are recorded.</strong>
+            <span className="mt-1.5 block">
               Completed paper executions will appear here with the model inputs used at
               submission.
             </span>
@@ -182,10 +167,12 @@ export default function TradesPage() {
         )}
 
         {!isLoading && !error && trades && trades.length > 0 && (
-          <div className="panel p-6 sm:p-8">
-            <h2 className="panel-title mb-4">
-              Showing {trades.length} of {total} Trade{total === 1 ? "" : "s"}
-            </h2>
+          <div className="panel p-5 sm:p-6">
+            <div className="panel-header">
+              <h2 className="panel-title">
+                Showing {trades.length} of {total} trade{total === 1 ? "" : "s"}
+              </h2>
+            </div>
             <div className="overflow-x-auto">
               <table className="data-table w-full min-w-[820px] border-collapse text-sm">
                 <thead>
@@ -197,17 +184,12 @@ export default function TradesPage() {
                     <th className="py-2 pr-4 text-right font-medium">Execution Price</th>
                     <th className="py-2 pr-4 text-right font-medium">WACC</th>
                     <th className="py-2 pr-4 text-right font-medium">Beta</th>
-                    <th className="py-2 pl-4 text-right font-medium">
-                      Conviction Score
-                    </th>
+                    <th className="py-2 pl-4 text-right font-medium">Conviction Score</th>
                   </tr>
                 </thead>
                 <tbody>
                   {trades.map((trade) => (
-                    <tr
-                      key={trade.id}
-                      className="font-mono text-[var(--paper-muted)]"
-                    >
+                    <tr key={trade.id} className="tabular-nums font-mono text-[var(--paper-muted)]">
                       <td className="py-3 pr-4 font-sans text-[var(--paper-dim)]">
                         {formatTimestamp(trade.timestamp)}
                       </td>
@@ -218,9 +200,7 @@ export default function TradesPage() {
                         <ActionBadge action={trade.action} />
                       </td>
                       <td className="py-3 pr-4 text-right">{formatNumber(trade.quantity, 4)}</td>
-                      <td className="py-3 pr-4 text-right">
-                        {formatCurrency(trade.execution_price)}
-                      </td>
+                      <td className="py-3 pr-4 text-right">{formatCurrency(trade.execution_price)}</td>
                       <td className="py-3 pr-4 text-right">{formatPercent(trade.wacc)}</td>
                       <td className="py-3 pr-4 text-right">{formatNumber(trade.beta)}</td>
                       <td className="py-3 pl-4 text-right font-semibold text-[var(--verdigris)]">

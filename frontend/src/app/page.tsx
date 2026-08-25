@@ -2,10 +2,9 @@
 
 import { useState } from "react";
 import type { FormEvent } from "react";
-import PortfolioAllocation from "@/components/PortfolioAllocation";
-import BacktestChart from "@/components/BacktestChart";
-import RiskHistogram from "@/components/RiskHistogram";
 import { valuationErrorFromResponse, type ValuationRequestError } from "@/lib/valuation-errors";
+import { formatPercentInputValue, parsePercentInput, type PercentFieldRange } from "@/lib/percent-field";
+import { computeValuationSpread } from "@/lib/valuation-spread";
 
 interface FreeCashFlowYear {
   year: number;
@@ -72,64 +71,101 @@ function formatPercent(value: number, digits = 1): string {
   return `${(value * 100).toFixed(digits)}%`;
 }
 
-interface SliderFieldProps {
+interface AssumptionFieldProps {
   id: string;
   label: string;
   value: number;
   min: number;
   max: number;
   step: number;
+  precision: number;
   onChange: (value: number) => void;
+  disabled?: boolean;
+  helper?: string;
 }
 
-function SliderField({ id, label, value, min, max, step, onChange }: SliderFieldProps) {
+function AssumptionField({
+  id,
+  label,
+  value,
+  min,
+  max,
+  step,
+  precision,
+  onChange,
+  disabled = false,
+  helper,
+}: AssumptionFieldProps) {
+  const range: PercentFieldRange = { min, max, step };
+  const [text, setText] = useState(() => formatPercentInputValue(value, precision));
+  // Keep the numeric box in sync when `value` changes from outside (e.g. a
+  // slider drag) without re-formatting on every keystroke — adjusted during
+  // render rather than in an effect, per React's "you might not need an
+  // effect" guidance, so mid-typing input isn't clobbered by a render caused
+  // by something else.
+  const [syncedValue, setSyncedValue] = useState(value);
+  if (syncedValue !== value) {
+    setSyncedValue(value);
+    setText(formatPercentInputValue(value, precision));
+  }
+
+  function commit(raw: string) {
+    const next = parsePercentInput(raw, range);
+    if (next === null) {
+      // Blank or invalid: revert to the last valid value rather than
+      // silently coercing to 0.
+      setText(formatPercentInputValue(value, precision));
+      return;
+    }
+    // Always reformat from the quantized value, even when `next` equals the
+    // current `value` (e.g. the user typed an off-step number that snapped
+    // back to what was already selected) — otherwise the box could keep
+    // showing the raw, un-quantized text the user typed while the slider and
+    // submitted value have already moved to the snapped one.
+    setText(formatPercentInputValue(next, precision));
+    onChange(next);
+  }
+
   return (
-    <div>
-      <div className="mb-2 flex items-baseline justify-between gap-2">
+    <div className="numeric-slider-field">
+      <div className="mb-1.5 flex items-center justify-between gap-2">
         <label htmlFor={id} className="text-xs font-medium text-[var(--paper-muted)]">
           {label}
         </label>
-        <span className="font-mono text-xs text-[var(--brass)]">{formatPercent(value)}</span>
+        <span className="flex items-center gap-1">
+          <input
+            id={id}
+            type="number"
+            inputMode="decimal"
+            className="numeric-input"
+            value={text}
+            min={min * 100}
+            max={max * 100}
+            step={step * 100}
+            disabled={disabled}
+            aria-disabled={disabled}
+            onChange={(event) => setText(event.target.value)}
+            onBlur={(event) => commit(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") event.currentTarget.blur();
+            }}
+          />
+          <span className="text-xs text-[var(--paper-dim)]">%</span>
+        </span>
       </div>
       <input
-        id={id}
         type="range"
+        aria-label={label}
+        className="range-input"
         min={min}
         max={max}
         step={step}
         value={value}
+        disabled={disabled}
+        aria-disabled={disabled}
         onChange={(event) => onChange(Number(event.target.value))}
-        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-[var(--ledger)] accent-[var(--verdigris)]"
       />
-    </div>
-  );
-}
-
-interface MetricCardProps {
-  label: string;
-  value: string;
-  emphasis?: boolean;
-  sublabel?: string;
-}
-
-function MetricCard({ label, value, emphasis = false, sublabel }: MetricCardProps) {
-  return (
-    <div
-      className={`metric-panel p-5 ${
-        emphasis
-          ? "border-[rgba(85,184,170,.4)] bg-[var(--verdigris-soft)]"
-          : ""
-      }`}
-    >
-      <p className="data-label text-[var(--paper-dim)]">{label}</p>
-      <p
-        className={`mt-3 font-mono tracking-tight ${
-          emphasis ? "text-4xl text-[var(--verdigris)]" : "text-2xl text-[var(--paper)]"
-        }`}
-      >
-        {value}
-      </p>
-      {sublabel && <p className="mt-2 text-xs leading-5 text-[var(--paper-dim)]">{sublabel}</p>}
+      {helper && <p className="mt-1.5 text-[11px] leading-4 text-[var(--paper-dim)]">{helper}</p>}
     </div>
   );
 }
@@ -140,9 +176,83 @@ interface SectorBadgeProps {
 
 function SectorBadge({ sector }: SectorBadgeProps) {
   return (
-    <span className="inline-flex items-center border border-[var(--line)] bg-[rgba(236,232,220,.04)] px-3 py-1 font-mono text-[10px] font-semibold uppercase tracking-[.1em] text-[var(--paper-muted)]">
+    <span className="inline-flex items-center rounded-[4px] border border-[var(--line-strong)] bg-[var(--ledger)] px-2.5 py-1 font-mono text-[10px] font-semibold uppercase tracking-[.08em] text-[var(--paper-muted)]">
       {sector}
     </span>
+  );
+}
+
+interface ValuationSpreadRailProps {
+  ticker: string;
+  marketPrice: number | null;
+  intrinsicValue: number;
+}
+
+function ValuationSpreadRail({ ticker, marketPrice, intrinsicValue }: ValuationSpreadRailProps) {
+  const spread = computeValuationSpread({ marketPrice, intrinsicValue });
+
+  if (spread === null) {
+    return (
+      <div className="empty-state">
+        Market price is unavailable, so the valuation spread cannot be plotted for {ticker}.
+      </div>
+    );
+  }
+
+  const { direction, percent, marketPct, intrinsicPct, fillStartPct, fillWidthPct } = spread;
+  const toneClass =
+    direction === "upside"
+      ? "text-[var(--verdigris)]"
+      : direction === "downside"
+        ? "text-[var(--signal)]"
+        : "text-[var(--paper-muted)]";
+
+  let headline: string;
+  if (percent === null) {
+    headline = "Percent spread unavailable at a $0 market price";
+  } else if (direction === "equal") {
+    headline = "Trading exactly at intrinsic value";
+  } else {
+    headline = `${percent >= 0 ? "+" : ""}${percent.toFixed(1)}% ${direction} to intrinsic value`;
+  }
+
+  return (
+    <div>
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+        <span className="data-label">Valuation spread</span>
+        <span className={`tabular-nums font-mono text-sm font-semibold ${toneClass}`}>{headline}</span>
+      </div>
+
+      <div
+        className="spread-rail-track"
+        role="img"
+        aria-label={`${ticker} market price ${formatPreciseCurrency(marketPrice)} versus intrinsic value ${formatPreciseCurrency(intrinsicValue)}`}
+      >
+        <div
+          className={`spread-rail-fill ${direction === "downside" ? "is-downside" : "is-upside"}`}
+          style={{ left: `${fillStartPct}%`, width: `${fillWidthPct}%` }}
+        />
+        <div className="spread-marker is-market" style={{ left: `${marketPct}%` }} />
+        <div className="spread-marker is-intrinsic" style={{ left: `${intrinsicPct}%` }} />
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs">
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden="true" className="h-2 w-2 rounded-full" style={{ background: "var(--paper-muted)" }} />
+          <span className="text-[var(--paper-muted)]">Market price</span>
+          <span className="tabular-nums font-mono font-semibold text-[var(--paper)]">
+            {formatPreciseCurrency(marketPrice)}
+          </span>
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden="true" className="h-2 w-2 rounded-full" style={{ background: "var(--cobalt)" }} />
+          <span className="text-[var(--paper-muted)]">Intrinsic value</span>
+          <span className="tabular-nums font-mono font-semibold text-[var(--cobalt)]">
+            {formatPreciseCurrency(intrinsicValue)}
+          </span>
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -163,14 +273,11 @@ function SectorValuationComparison({
 }: SectorValuationComparisonProps) {
   if (priceToIntrinsicValue === null || sectorMedianPIV === null) {
     return (
-      <div className="panel p-6 sm:p-8">
-        <h2 className="panel-title mb-2">
-          Sector-Relative Valuation
-        </h2>
+      <div className="panel p-5 sm:p-6">
         <p className="text-sm leading-6 text-[var(--paper-dim)]">
           {priceToIntrinsicValue === null
             ? "Price-to-intrinsic-value could not be computed for this ticker."
-            : sectorMedianUnavailableReason ?? `No sector median P/IV available yet for ${sector}.`}
+            : (sectorMedianUnavailableReason ?? `No sector median P/IV available yet for ${sector}.`)}
         </p>
       </div>
     );
@@ -182,19 +289,20 @@ function SectorValuationComparison({
   const medianBarPct = Math.min((sectorMedianPIV / maxScale) * 100, 100);
 
   return (
-    <div className="panel p-6 sm:p-8">
-      <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-        <h2 className="panel-title">
-          Sector-Relative Valuation
-        </h2>
+    <div className="panel p-5 sm:p-6">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <span className="text-xs text-[var(--paper-dim)]">
+          Passes the sector-relative Margin of Safety filter when {ticker}&rsquo;s P/IV is at or
+          below the {sector} sector median.
+        </span>
         <span
-          className={`rounded-full border px-3 py-1 text-xs font-semibold uppercase tracking-wide ${
+          className={`rounded-[4px] border px-2.5 py-1 text-xs font-semibold uppercase tracking-wide ${
             passes
-              ? "border-[rgba(85,184,170,.35)] bg-[var(--verdigris-soft)] text-[var(--verdigris)]"
-              : "border-[rgba(228,113,104,.35)] bg-[rgba(228,113,104,.09)] text-[var(--signal)]"
+              ? "border-[var(--verdigris)] bg-[var(--verdigris-soft)] text-[var(--verdigris)]"
+              : "border-[var(--signal)] bg-[var(--signal-soft)] text-[var(--signal)]"
           }`}
         >
-          {passes ? "✓ Below Sector Median" : "✗ Above Sector Median"}
+          {passes ? "Below median" : "Above median"}
         </span>
       </div>
 
@@ -203,12 +311,12 @@ function SectorValuationComparison({
           <div className="mb-1.5 flex items-baseline justify-between text-sm">
             <span className="text-[var(--paper-muted)]">{ticker} P/IV</span>
             <span
-              className={`font-mono font-semibold ${passes ? "text-[var(--verdigris)]" : "text-[var(--signal)]"}`}
+              className={`tabular-nums font-mono font-semibold ${passes ? "text-[var(--verdigris)]" : "text-[var(--signal)]"}`}
             >
               {priceToIntrinsicValue.toFixed(2)}x
             </span>
           </div>
-          <div className="h-2 w-full overflow-hidden bg-[var(--ledger)]">
+          <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--ledger)]">
             <div
               className={`h-full ${passes ? "bg-[var(--verdigris)]" : "bg-[var(--signal)]"}`}
               style={{ width: `${stockBarPct}%` }}
@@ -218,24 +326,16 @@ function SectorValuationComparison({
 
         <div>
           <div className="mb-1.5 flex items-baseline justify-between text-sm">
-            <span className="text-[var(--paper-muted)]">{sector} Sector Median</span>
-            <span className="font-mono font-semibold text-[var(--paper-muted)]">
+            <span className="text-[var(--paper-muted)]">{sector} sector median</span>
+            <span className="tabular-nums font-mono font-semibold text-[var(--paper-muted)]">
               {sectorMedianPIV.toFixed(2)}x
             </span>
           </div>
-          <div className="h-2 w-full overflow-hidden bg-[var(--ledger)]">
-            <div
-              className="h-full bg-[var(--paper-dim)]"
-              style={{ width: `${medianBarPct}%` }}
-            />
+          <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--ledger)]">
+            <div className="h-full bg-[var(--paper-dim)]" style={{ width: `${medianBarPct}%` }} />
           </div>
         </div>
       </div>
-
-      <p className="mt-5 text-xs leading-5 text-[var(--paper-dim)]">
-        Passes the sector-relative Margin of Safety filter when {ticker}&rsquo;s P/IV is at or
-        below the {sector} sector median.
-      </p>
     </div>
   );
 }
@@ -314,34 +414,22 @@ export default function Home() {
 
   return (
     <div className="page-shell">
-      <div className="shell-container pb-20">
+      <div className="shell-container pb-16">
         <header className="page-header">
           <div>
-            <p className="eyebrow mb-5">Intrinsic value desk</p>
-            <h1 className="display-title">Turn market price into a research question.</h1>
+            <p className="eyebrow mb-2">Valuation workspace</p>
+            <h1 className="display-title">Intrinsic value desk</h1>
           </div>
           <p className="page-deck">
-            Build a discounted cash flow case from company history or your own operating
-            assumptions, then read it against portfolio exposure, risk, and evidence from the
-            paper account.
+            Build a DCF case from company history or your own operating assumptions, then read
+            it against market price.
           </p>
         </header>
 
-        <div className="section-intro">
-          <div>
-            <p className="eyebrow mb-2">Model workbench</p>
-            <h2>Set the case, then inspect the spread.</h2>
-          </div>
-          <p>
-            Historical mode keeps company-derived growth and margins. Custom mode makes every
-            override explicit.
-          </p>
-        </div>
-
-        <form onSubmit={runValuation} className="panel mb-5 p-6 sm:p-8">
-          <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,220px)_1fr_auto] lg:items-end">
-            <div>
-              <label htmlFor="ticker" className="data-label mb-2 block text-[var(--paper-dim)]">
+        <form onSubmit={runValuation} className="panel mb-6 p-5 sm:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:gap-4">
+            <div className="sm:max-w-xs sm:flex-1">
+              <label htmlFor="ticker" className="data-label mb-1.5 block">
                 Ticker
               </label>
               <input
@@ -353,97 +441,93 @@ export default function Home() {
                 maxLength={10}
                 autoComplete="off"
                 spellCheck={false}
-                className="input-field px-4 py-2.5 font-mono text-lg tracking-[.08em]"
+                className="input-field px-3.5 py-2.5 font-mono text-base tracking-[.06em]"
               />
             </div>
 
-            <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
-              <div
-                className={useCustomAssumptions ? undefined : "pointer-events-none opacity-40"}
-                aria-disabled={!useCustomAssumptions}
-              >
-                <SliderField
-                  id="revenue-growth"
-                  label="Revenue Growth Rate"
-                  value={revenueGrowthRate}
-                  min={-0.1}
-                  max={0.4}
-                  step={0.005}
-                  onChange={setRevenueGrowthRate}
-                />
-              </div>
-              <div
-                className={useCustomAssumptions ? undefined : "pointer-events-none opacity-40"}
-                aria-disabled={!useCustomAssumptions}
-              >
-                <SliderField
-                  id="operating-margin"
-                  label="Operating Margin"
-                  value={operatingMargin}
-                  min={0}
-                  max={0.6}
-                  step={0.005}
-                  onChange={setOperatingMargin}
-                />
-              </div>
-              <SliderField
-                id="terminal-growth"
-                label="Terminal Growth Rate"
-                value={terminalGrowthRate}
-                min={0}
-                max={0.05}
-                step={0.001}
-                onChange={setTerminalGrowthRate}
-              />
-            </div>
-
-            <button type="submit" disabled={isLoading} className="button-primary gap-2">
+            <button type="submit" disabled={isLoading} className="button-primary w-full gap-2 sm:w-auto">
               {isLoading ? (
                 <>
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-[rgba(4,16,15,.35)] border-t-[#04100f]" />
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/35 border-t-white" />
                   Running…
                 </>
               ) : (
                 "Run Valuation"
               )}
             </button>
+          </div>
 
-            <div className="lg:col-span-3">
-              <div className="flex items-center gap-3 border-t border-[var(--line)] py-4">
+          <div className="mt-5 border-t border-[var(--line)] pt-5">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="data-label mb-1.5">Assumption mode</p>
+                <p className="max-w-md text-xs leading-5 text-[var(--paper-dim)]">
+                  {useCustomAssumptions
+                    ? "Growth and margin below are sent as explicit overrides."
+                    : "Revenue growth & operating margin are derived from each company's own historical financials."}
+                </p>
+              </div>
+              <div className="mode-tabs" role="group" aria-label="Assumption mode">
                 <button
                   type="button"
-                  role="switch"
-                  aria-checked={useCustomAssumptions}
-                  id="assumption-mode-toggle"
-                  onClick={() => setUseCustomAssumptions((prev) => !prev)}
-                  className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${
-                    useCustomAssumptions ? "bg-[var(--verdigris)]" : "bg-[var(--ledger)]"
-                  }`}
+                  className="mode-tab"
+                  aria-pressed={!useCustomAssumptions}
+                  onClick={() => setUseCustomAssumptions(false)}
                 >
-                  <span
-                    className={`absolute top-0.5 h-5 w-5 rounded-full bg-[var(--paper)] transition-transform ${
-                      useCustomAssumptions ? "translate-x-[22px]" : "translate-x-0.5"
-                    }`}
-                  />
+                  Historical
                 </button>
-                <label htmlFor="assumption-mode-toggle" className="cursor-pointer text-sm">
-                  <span className="font-medium text-[var(--paper)]">
-                    {useCustomAssumptions ? "Custom Assumptions" : "Company Historical Assumptions"}
-                  </span>
-                  <span className="ml-2 text-[var(--paper-dim)]">
-                    {useCustomAssumptions
-                      ? "Growth and margin sliders above are sent as explicit overrides."
-                      : "Revenue growth & operating margin are derived from each company's own historical financials."}
-                  </span>
-                </label>
+                <button
+                  type="button"
+                  className="mode-tab"
+                  aria-pressed={useCustomAssumptions}
+                  onClick={() => setUseCustomAssumptions(true)}
+                >
+                  Custom
+                </button>
               </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-3">
+              <AssumptionField
+                id="revenue-growth"
+                label="Revenue growth rate"
+                value={revenueGrowthRate}
+                min={-0.1}
+                max={0.4}
+                step={0.005}
+                precision={1}
+                disabled={!useCustomAssumptions}
+                onChange={setRevenueGrowthRate}
+              />
+              <AssumptionField
+                id="operating-margin"
+                label="Operating margin"
+                value={operatingMargin}
+                min={0}
+                max={0.6}
+                step={0.005}
+                precision={1}
+                disabled={!useCustomAssumptions}
+                onChange={setOperatingMargin}
+              />
+              <AssumptionField
+                id="terminal-growth"
+                label="Terminal growth rate"
+                value={terminalGrowthRate}
+                min={0}
+                max={0.05}
+                step={0.001}
+                precision={1}
+                onChange={setTerminalGrowthRate}
+                helper="Always applied, regardless of mode."
+              />
             </div>
           </div>
         </form>
 
         {error && (
           <div
-            className={`${error.kind === "unavailable" ? "status-warning" : "status-error"} mb-5`}
+            className={`${error.kind === "unavailable" ? "status-warning" : "status-error"} mb-6`}
             role="alert"
           >
             <strong className="block text-[var(--paper)]">
@@ -454,162 +538,195 @@ export default function Home() {
         )}
 
         {!result && !isLoading && !error && (
-          <div className="empty-state px-6 py-12 text-center">
-            <strong className="block font-display text-xl font-normal text-[var(--paper-muted)]">
-              No valuation on the desk yet.
-            </strong>
-            <span className="mt-2 block">
+          <div className="empty-state px-5 py-10 text-center">
+            <strong className="block text-[var(--paper)]">No valuation on the desk yet.</strong>
+            <span className="mt-1.5 block">
               Choose a ticker and run the model to compare market price with intrinsic value.
             </span>
           </div>
         )}
 
         {isLoading && !result && (
-          <div className="panel px-6 py-12 text-center text-sm text-[var(--paper-dim)]">
+          <div className="panel px-5 py-10 text-center text-sm text-[var(--paper-dim)]">
             Fetching financial statements and running the model…
           </div>
         )}
 
         {result && (
           <div className="space-y-8">
-            <div className="flex flex-wrap items-center gap-3">
-              <h2 className="font-display text-3xl font-normal tracking-tight text-[var(--paper)]">
-                {result.ticker}
-              </h2>
-              <SectorBadge sector={result.sector} />
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <MetricCard
-                label={`Intrinsic Value / Share — ${result.ticker}`}
-                value={formatPreciseCurrency(result.intrinsic_value_per_share)}
-                emphasis
-                sublabel={
-                  priceDelta !== null && priceDeltaPct !== null
-                    ? `${priceDelta >= 0 ? "+" : ""}${formatPreciseCurrency(priceDelta)} (${
-                        priceDeltaPct >= 0 ? "+" : ""
-                      }${(priceDeltaPct * 100).toFixed(1)}%) vs. market`
-                    : undefined
-                }
-              />
-              <MetricCard
-                label="Current Market Price"
-                value={formatPreciseCurrency(result.current_price)}
-              />
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <MetricCard label="WACC" value={formatPercent(result.wacc, 2)} />
-              <MetricCard
-                label="Enterprise Value"
-                value={formatCompactCurrency(result.enterprise_value)}
-              />
-              <MetricCard
-                label="Equity Value"
-                value={formatCompactCurrency(result.equity_value)}
-              />
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-              <MetricCard
-                label="Revenue Growth Rate Used"
-                value={formatPercent(result.assumptions.revenue_growth_rate)}
-                sublabel={
-                  result.revenue_growth_rate_source === "historical"
-                    ? "Company historical (derived)"
-                    : "Custom (slider override)"
-                }
-              />
-              <MetricCard
-                label="Operating Margin Used"
-                value={formatPercent(result.assumptions.operating_margin)}
-                sublabel={
-                  result.operating_margin_source === "historical"
-                    ? "Company historical (derived)"
-                    : "Custom (slider override)"
-                }
-              />
-              <MetricCard
-                label="Terminal Growth Rate"
-                value={formatPercent(result.assumptions.terminal_growth_rate)}
-              />
-            </div>
-
-            <SectorValuationComparison
-              ticker={result.ticker}
-              sector={result.sector}
-              priceToIntrinsicValue={result.price_to_intrinsic_value}
-              sectorMedianPIV={result.sector_median_p_iv}
-              sectorMedianUnavailableReason={result.sector_median_unavailable_reason}
-            />
-
-            <div className="panel p-6 sm:p-8">
+            <div className="panel p-5 sm:p-6">
               <div className="panel-header">
-                <h2 className="panel-title">Projected Free Cash Flows</h2>
-                <span className="panel-kicker">Forecast detail</span>
+                <h2 className="panel-title">{result.ticker}</h2>
+                <SectorBadge sector={result.sector} />
               </div>
-              <div className="overflow-x-auto">
-                <table className="data-table w-full min-w-[640px] border-collapse text-sm">
-                  <thead>
-                    <tr className="border-b border-[var(--line)] text-left">
-                      <th className="py-2 pr-4 font-medium">Year</th>
-                      <th className="py-2 pr-4 font-medium">Revenue</th>
-                      <th className="py-2 pr-4 font-medium">EBIT</th>
-                      <th className="py-2 pr-4 font-medium">NOPAT</th>
-                      <th className="py-2 pr-4 font-medium">D&amp;A</th>
-                      <th className="py-2 pr-4 font-medium">CapEx</th>
-                      <th className="py-2 pr-4 font-medium">Δ NWC</th>
-                      <th className="py-2 pl-4 text-right font-medium">
-                        Free Cash Flow
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {result.projected_free_cash_flows.map((row) => (
-                      <tr
-                        key={row.year}
-                        className="font-mono text-[var(--paper-muted)]"
-                      >
-                        <td className="py-3 pr-4 font-sans text-[var(--paper-dim)]">
-                          Year {row.year}
-                        </td>
-                        <td className="py-3 pr-4">{formatCompactCurrency(row.revenue)}</td>
-                        <td className="py-3 pr-4">{formatCompactCurrency(row.ebit)}</td>
-                        <td className="py-3 pr-4">{formatCompactCurrency(row.nopat)}</td>
-                        <td className="py-3 pr-4">{formatCompactCurrency(row.da)}</td>
-                        <td className="py-3 pr-4">{formatCompactCurrency(row.capex)}</td>
-                        <td className="py-3 pr-4">{formatCompactCurrency(row.change_in_nwc)}</td>
-                        <td className="py-3 pl-4 text-right font-semibold text-[var(--verdigris)]">
-                          {formatCompactCurrency(row.fcf)}
-                        </td>
+
+              <div className="grid grid-cols-2 divide-x divide-y divide-[var(--line)] border border-[var(--line)] rounded-md sm:grid-cols-4 sm:divide-y-0">
+                <div className="p-4">
+                  <p className="data-label">Intrinsic value / share</p>
+                  <p className="tabular-nums font-mono mt-1.5 text-2xl font-semibold tracking-tight text-[var(--cobalt)]">
+                    {formatPreciseCurrency(result.intrinsic_value_per_share)}
+                  </p>
+                </div>
+                <div className="p-4">
+                  <p className="data-label">Market price</p>
+                  <p className="tabular-nums font-mono mt-1.5 text-2xl font-semibold tracking-tight text-[var(--paper)]">
+                    {formatPreciseCurrency(result.current_price)}
+                  </p>
+                </div>
+                <div className="p-4">
+                  <p className="data-label">Upside / downside</p>
+                  <p
+                    className={`tabular-nums font-mono mt-1.5 text-2xl font-semibold tracking-tight ${
+                      priceDelta === null
+                        ? "text-[var(--paper)]"
+                        : priceDelta >= 0
+                          ? "text-[var(--verdigris)]"
+                          : "text-[var(--signal)]"
+                    }`}
+                  >
+                    {priceDeltaPct !== null
+                      ? `${priceDeltaPct >= 0 ? "+" : ""}${(priceDeltaPct * 100).toFixed(1)}%`
+                      : "—"}
+                  </p>
+                  {priceDelta !== null && (
+                    <p className="mt-1 text-xs text-[var(--paper-dim)]">
+                      {priceDelta >= 0 ? "+" : ""}
+                      {formatPreciseCurrency(priceDelta)} vs. market
+                    </p>
+                  )}
+                </div>
+                <div className="p-4">
+                  <p className="data-label">WACC</p>
+                  <p className="tabular-nums font-mono mt-1.5 text-2xl font-semibold tracking-tight text-[var(--paper)]">
+                    {formatPercent(result.wacc, 2)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-6 border-t border-[var(--line)] pt-5">
+                <ValuationSpreadRail
+                  ticker={result.ticker}
+                  marketPrice={result.current_price}
+                  intrinsicValue={result.intrinsic_value_per_share}
+                />
+              </div>
+            </div>
+
+            <div>
+              <div className="section-intro">
+                <div>
+                  <p className="eyebrow mb-1.5">Model detail</p>
+                  <h2>Assumptions used</h2>
+                </div>
+              </div>
+              <dl className="divide-y divide-[var(--line)] border-y border-[var(--line)]">
+                <div className="flex items-baseline justify-between gap-4 py-2.5">
+                  <dt className="text-sm text-[var(--paper-muted)]">Enterprise value</dt>
+                  <dd className="tabular-nums font-mono text-sm font-semibold text-[var(--paper)]">
+                    {formatCompactCurrency(result.enterprise_value)}
+                  </dd>
+                </div>
+                <div className="flex items-baseline justify-between gap-4 py-2.5">
+                  <dt className="text-sm text-[var(--paper-muted)]">Equity value</dt>
+                  <dd className="tabular-nums font-mono text-sm font-semibold text-[var(--paper)]">
+                    {formatCompactCurrency(result.equity_value)}
+                  </dd>
+                </div>
+                <div className="flex items-baseline justify-between gap-4 py-2.5">
+                  <dt className="text-sm text-[var(--paper-muted)]">Revenue growth rate used</dt>
+                  <dd className="flex items-baseline gap-2 text-right">
+                    <span className="tabular-nums font-mono text-sm font-semibold text-[var(--paper)]">
+                      {formatPercent(result.assumptions.revenue_growth_rate)}
+                    </span>
+                    <span className="text-xs text-[var(--paper-dim)]">
+                      {result.revenue_growth_rate_source === "historical"
+                        ? "Company historical"
+                        : "Custom override"}
+                    </span>
+                  </dd>
+                </div>
+                <div className="flex items-baseline justify-between gap-4 py-2.5">
+                  <dt className="text-sm text-[var(--paper-muted)]">Operating margin used</dt>
+                  <dd className="flex items-baseline gap-2 text-right">
+                    <span className="tabular-nums font-mono text-sm font-semibold text-[var(--paper)]">
+                      {formatPercent(result.assumptions.operating_margin)}
+                    </span>
+                    <span className="text-xs text-[var(--paper-dim)]">
+                      {result.operating_margin_source === "historical"
+                        ? "Company historical"
+                        : "Custom override"}
+                    </span>
+                  </dd>
+                </div>
+                <div className="flex items-baseline justify-between gap-4 py-2.5">
+                  <dt className="text-sm text-[var(--paper-muted)]">Terminal growth rate</dt>
+                  <dd className="tabular-nums font-mono text-sm font-semibold text-[var(--paper)]">
+                    {formatPercent(result.assumptions.terminal_growth_rate)}
+                  </dd>
+                </div>
+              </dl>
+            </div>
+
+            <div>
+              <div className="section-intro">
+                <div>
+                  <p className="eyebrow mb-1.5">Relative check</p>
+                  <h2>Sector-relative valuation</h2>
+                </div>
+              </div>
+              <SectorValuationComparison
+                ticker={result.ticker}
+                sector={result.sector}
+                priceToIntrinsicValue={result.price_to_intrinsic_value}
+                sectorMedianPIV={result.sector_median_p_iv}
+                sectorMedianUnavailableReason={result.sector_median_unavailable_reason}
+              />
+            </div>
+
+            <div>
+              <div className="section-intro">
+                <div>
+                  <p className="eyebrow mb-1.5">Forecast detail</p>
+                  <h2>Projected free cash flows</h2>
+                </div>
+              </div>
+              <div className="panel p-5 sm:p-6">
+                <div className="overflow-x-auto">
+                  <table className="data-table w-full min-w-[640px] border-collapse text-sm">
+                    <thead>
+                      <tr className="border-b border-[var(--line)] text-left">
+                        <th className="py-2 pr-4 font-medium">Year</th>
+                        <th className="py-2 pr-4 font-medium">Revenue</th>
+                        <th className="py-2 pr-4 font-medium">EBIT</th>
+                        <th className="py-2 pr-4 font-medium">NOPAT</th>
+                        <th className="py-2 pr-4 font-medium">D&amp;A</th>
+                        <th className="py-2 pr-4 font-medium">CapEx</th>
+                        <th className="py-2 pr-4 font-medium">Δ NWC</th>
+                        <th className="py-2 pl-4 text-right font-medium">Free Cash Flow</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      {result.projected_free_cash_flows.map((row) => (
+                        <tr key={row.year} className="tabular-nums font-mono text-[var(--paper-muted)]">
+                          <td className="py-3 pr-4 font-sans text-[var(--paper-dim)]">Year {row.year}</td>
+                          <td className="py-3 pr-4">{formatCompactCurrency(row.revenue)}</td>
+                          <td className="py-3 pr-4">{formatCompactCurrency(row.ebit)}</td>
+                          <td className="py-3 pr-4">{formatCompactCurrency(row.nopat)}</td>
+                          <td className="py-3 pr-4">{formatCompactCurrency(row.da)}</td>
+                          <td className="py-3 pr-4">{formatCompactCurrency(row.capex)}</td>
+                          <td className="py-3 pr-4">{formatCompactCurrency(row.change_in_nwc)}</td>
+                          <td className="py-3 pl-4 text-right font-semibold text-[var(--verdigris)]">
+                            {formatCompactCurrency(row.fcf)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           </div>
         )}
-
-        <div className="section-intro">
-          <div>
-            <p className="eyebrow mb-2">Portfolio evidence</p>
-            <h2>What the paper account is carrying.</h2>
-          </div>
-          <p>
-            Exposure, historical performance, and risk remain separate from the valuation case
-            so unavailable data is never mistaken for zero.
-          </p>
-        </div>
-
-        <div className="grid gap-5 xl:grid-cols-2">
-          <PortfolioAllocation />
-          <RiskHistogram />
-        </div>
-
-        <div className="mt-5">
-          <BacktestChart />
-        </div>
       </div>
     </div>
   );
