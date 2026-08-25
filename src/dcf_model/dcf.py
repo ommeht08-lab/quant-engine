@@ -1233,7 +1233,7 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
         fcf_projection (DataFrame), terminal_value, pv_fcf,
         pv_terminal_value, enterprise_value, equity_value,
         intrinsic_value_per_share, current_market_price, total_debt,
-        cash_and_equivalents, shares_outstanding.
+        cash_and_equivalents, shares_outstanding, base_revenue, tax_rate.
 
         `revenue_growth_rate` and `operating_margin` reflect whatever was
         actually used for the projection: the explicit value from
@@ -1247,6 +1247,14 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
         value from the SAME `fcf_projection` under different WACC/terminal-
         growth assumptions (e.g. `src.dcf_model.sensitivity`) can reuse
         them directly instead of re-parsing `financial_data` a second time.
+
+        `base_revenue` is the trailing revenue `fcf_projection` was built
+        from, and `tax_rate` is the RESOLVED rate actually used (explicit
+        override, statement-derived, or the default fallback — never
+        `None`) — surfaced together so a caller that needs to re-project
+        FCF under different growth/margin assumptions while holding every
+        other input fixed (e.g. `src.dcf_model.scenarios`) has everything
+        `project_free_cash_flows` needs without re-parsing `financial_data`.
 
     Raises:
         ValueError: If required inputs (e.g. base revenue, share count)
@@ -1378,6 +1386,8 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
         "total_debt": inputs["total_debt"],
         "cash_and_equivalents": inputs["cash_and_equivalents"],
         "shares_outstanding": inputs["shares_outstanding"],
+        "base_revenue": inputs["revenue"],
+        "tax_rate": tax_rate,
     }
 
 
