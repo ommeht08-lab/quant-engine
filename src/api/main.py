@@ -56,6 +56,7 @@ from pydantic import BaseModel
 from src.api.sector_medians import get_sector_median_price_to_intrinsic
 from src.data_ingestion.fetch_financials import fetch_company_financials
 from src.dcf_model.dcf import DCFAssumptions, run_dcf_valuation
+from src.dcf_model.scenarios import ScenarioInputs, ScenarioResult, compute_dcf_scenarios
 from src.dcf_model.sensitivity import compute_dcf_sensitivity
 from src.utils.macro import get_risk_free_rate
 
@@ -464,6 +465,40 @@ class DCFSensitivityMatrix(BaseModel):
     baseline_intrinsic_value_per_share: Optional[float]
 
 
+class ScenarioAssumptionsModel(BaseModel):
+    """The (clamped) growth/margin/WACC/terminal-growth assumptions actually used for one
+    Bear/Base/Bull scenario, reported even when the scenario itself isn't computable."""
+
+    revenue_growth_rate: float
+    operating_margin: float
+    wacc: float
+    terminal_growth_rate: float
+
+
+class ScenarioResultModel(BaseModel):
+    """
+    One Bear/Base/Bull scenario — see `src.dcf_model.scenarios` for how
+    it's computed. `intrinsic_value_per_share` is `null` (never NaN/
+    infinity) when this scenario's (clamped) assumptions aren't
+    economically valid for the model; `invalid_reason` then explains why.
+    """
+
+    name: str
+    assumptions: ScenarioAssumptionsModel
+    intrinsic_value_per_share: Optional[float]
+    is_valid: bool
+    invalid_reason: Optional[str]
+
+
+class DCFScenarioSet(BaseModel):
+    """Bear / Base / Bull policy cases anchored to this valuation's own baseline
+    assumptions — transparent what-if cases, not probabilities or price targets."""
+
+    bear: ScenarioResultModel
+    base: ScenarioResultModel
+    bull: ScenarioResultModel
+
+
 class EvaluationResponse(BaseModel):
     """Response payload for GET /api/evaluate/{ticker}."""
 
@@ -482,6 +517,7 @@ class EvaluationResponse(BaseModel):
     revenue_growth_rate_source: str
     operating_margin_source: str
     sensitivity: DCFSensitivityMatrix
+    scenarios: DCFScenarioSet
 
 
 @app.get("/")
@@ -547,6 +583,23 @@ def readiness(response: Response) -> ReadinessResponse:
     if not is_ready:
         response.status_code = 503
     return ReadinessResponse(status="ready" if is_ready else "not_ready", checks=checks)
+
+
+def _scenario_result_to_model(scenario: ScenarioResult) -> ScenarioResultModel:
+    """Converts one `src.dcf_model.scenarios.ScenarioResult` dataclass into its API response
+    model — pure serialization glue, no valuation logic of its own."""
+    return ScenarioResultModel(
+        name=scenario.name,
+        assumptions=ScenarioAssumptionsModel(
+            revenue_growth_rate=scenario.assumptions.revenue_growth_rate,
+            operating_margin=scenario.assumptions.operating_margin,
+            wacc=scenario.assumptions.wacc,
+            terminal_growth_rate=scenario.assumptions.terminal_growth_rate,
+        ),
+        intrinsic_value_per_share=scenario.intrinsic_value_per_share,
+        is_valid=scenario.is_valid,
+        invalid_reason=scenario.invalid_reason,
+    )
 
 
 @app.get("/api/evaluate/{ticker}", response_model=EvaluationResponse, dependencies=[Depends(require_service_token)])
@@ -628,6 +681,17 @@ def evaluate_ticker(
         marks a WACC/terminal-growth combination this model refuses to
         value, never NaN/infinity.
 
+        `scenarios` is a Bear/Base/Bull set of transparent policy cases
+        anchored to this valuation's own baseline growth/margin/WACC/
+        terminal-growth (see `src.dcf_model.scenarios`) — not
+        probabilities, forecasts, or price targets. Base reproduces this
+        response's own `intrinsic_value_per_share` exactly; Bear/Bull
+        apply a fixed, clamped delta and re-project FCF, holding the
+        source financial data and equity bridge fixed. A scenario whose
+        assumptions aren't economically valid after clamping reports
+        `intrinsic_value_per_share: null` and a concise `invalid_reason`
+        rather than failing this response.
+
     Raises:
         HTTPException(400): If the ticker symbol itself is invalid.
         HTTPException(422): If required financial data (e.g. revenue,
@@ -697,6 +761,27 @@ def evaluate_ticker(
         shares_outstanding=result["shares_outstanding"],
     )
 
+    # Same principle as `sensitivity` above: every input is already-
+    # computed data from `result`/`assumptions` — no additional
+    # data-provider call, no re-fetch of financial_data.
+    scenarios = compute_dcf_scenarios(
+        ScenarioInputs(
+            base_revenue=result["base_revenue"],
+            baseline_revenue_growth_rate=result["revenue_growth_rate"],
+            baseline_operating_margin=result["operating_margin"],
+            baseline_wacc=result["wacc"],
+            baseline_terminal_growth_rate=assumptions.terminal_growth_rate,
+            tax_rate=result["tax_rate"],
+            da_pct_revenue=assumptions.da_pct_revenue,
+            capex_pct_revenue=assumptions.capex_pct_revenue,
+            nwc_pct_revenue_change=assumptions.nwc_pct_revenue_change,
+            projection_years=assumptions.projection_years,
+            total_debt=result["total_debt"],
+            cash_and_equivalents=result["cash_and_equivalents"],
+            shares_outstanding=result["shares_outstanding"],
+        )
+    )
+
     return EvaluationResponse(
         ticker=financial_data["ticker"],
         current_price=current_price,
@@ -740,5 +825,10 @@ def evaluate_ticker(
             baseline_wacc=sensitivity.baseline_wacc,
             baseline_terminal_growth_rate=sensitivity.baseline_terminal_growth_rate,
             baseline_intrinsic_value_per_share=sensitivity.baseline_intrinsic_value_per_share,
+        ),
+        scenarios=DCFScenarioSet(
+            bear=_scenario_result_to_model(scenarios.bear),
+            base=_scenario_result_to_model(scenarios.base),
+            bull=_scenario_result_to_model(scenarios.bull),
         ),
     )

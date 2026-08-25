@@ -5,6 +5,8 @@ import type { FormEvent } from "react";
 import { valuationErrorFromResponse, type ValuationRequestError } from "@/lib/valuation-errors";
 import { formatPercentInputValue, parsePercentInput, type PercentFieldRange } from "@/lib/percent-field";
 import { computeValuationSpread } from "@/lib/valuation-spread";
+import { computeValuationRange, type ValuationRangePoint } from "@/lib/valuation-range";
+import { computeMarketSpread, formatMarketSpread } from "@/lib/market-spread";
 import {
   classifySensitivityCell,
   sensitivityCellAccessibleLabel,
@@ -43,6 +45,29 @@ interface DCFSensitivityMatrix {
   baseline_intrinsic_value_per_share: number | null;
 }
 
+interface ScenarioAssumptions {
+  revenue_growth_rate: number;
+  operating_margin: number;
+  wacc: number;
+  terminal_growth_rate: number;
+}
+
+interface ScenarioResult {
+  name: "bear" | "base" | "bull";
+  assumptions: ScenarioAssumptions;
+  // null when this scenario's (clamped) assumptions aren't economically
+  // valid for the model — see `is_valid`/`invalid_reason`, never NaN/Infinity.
+  intrinsic_value_per_share: number | null;
+  is_valid: boolean;
+  invalid_reason: string | null;
+}
+
+interface DCFScenarioSet {
+  bear: ScenarioResult;
+  base: ScenarioResult;
+  bull: ScenarioResult;
+}
+
 interface EvaluationResponse {
   ticker: string;
   current_price: number | null;
@@ -68,6 +93,7 @@ interface EvaluationResponse {
   sector_median_p_iv: number | null;
   sector_median_unavailable_reason: string | null;
   sensitivity: DCFSensitivityMatrix;
+  scenarios: DCFScenarioSet;
 }
 
 const compactCurrencyFormatter = new Intl.NumberFormat("en-US", {
@@ -362,6 +388,206 @@ function SectorValuationComparison({
             <div className="h-full bg-[var(--paper-dim)]" style={{ width: `${medianBarPct}%` }} />
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+const SCENARIO_ORDER: Array<"bear" | "base" | "bull"> = ["bear", "base", "bull"];
+const SCENARIO_LABELS: Record<"bear" | "base" | "bull", string> = { bear: "Bear", base: "Base", bull: "Bull" };
+
+// Bear/Bull are neutral WHAT-IF policy cases, not good/bad outcomes — so
+// their rail markers deliberately avoid red/green (that coding is
+// reserved for the separate "vs. market" comparison). Shape, not color,
+// tells Bear apart from Bull; Base is the only one singled out by color
+// (cobalt, matching how the baseline case is marked elsewhere in this
+// workspace) since it's the case being emphasized.
+function scenarioMarkerShapeClass(key: string): string {
+  switch (key) {
+    case "base":
+      return "h-3.5 w-3.5 rounded-full bg-[var(--cobalt)]";
+    case "bear":
+      return "h-2.5 w-2.5 rotate-45 bg-[var(--paper-muted)]"; // diamond
+    case "bull":
+      return "h-2.5 w-2.5 bg-[var(--paper-muted)]"; // square
+    default:
+      return "h-2 w-2 rounded-full bg-[var(--paper-dim)]"; // market price
+  }
+}
+
+interface ValuationScenariosSectionProps {
+  scenarios: DCFScenarioSet;
+  marketPrice: number | null;
+}
+
+// Renders the already-computed Bear/Base/Bull set — every value is
+// exactly what the API returned; no DCF math happens in this component.
+function ValuationScenariosSection({ scenarios, marketPrice }: ValuationScenariosSectionProps) {
+  const rangePoints: ValuationRangePoint[] = [
+    ...SCENARIO_ORDER.map((key) => ({
+      key,
+      label: SCENARIO_LABELS[key],
+      value: scenarios[key].is_valid ? scenarios[key].intrinsic_value_per_share : null,
+    })),
+    { key: "market", label: "Market price", value: marketPrice },
+  ];
+  const range = computeValuationRange(rangePoints);
+  const invalidScenarioKeys = SCENARIO_ORDER.filter((key) => !scenarios[key].is_valid);
+
+  return (
+    <div>
+      <div className="section-intro">
+        <div>
+          <p className="eyebrow mb-1.5">Policy cases</p>
+          <h2>Valuation scenarios</h2>
+        </div>
+      </div>
+
+      <div className="panel p-5 sm:p-6">
+        <p className="mb-5 max-w-2xl text-xs leading-5 text-[var(--paper-dim)]">
+          Three assumption sets around the current model. Each reprojects cash flow and
+          discounting; none is a probability or recommendation.
+        </p>
+
+        {range ? (
+          <div className="mb-6">
+            <div
+              className="relative h-14"
+              role="img"
+              aria-label={`Valuation range: ${range.markers
+                .map((marker) => `${marker.label} ${formatPreciseCurrency(marker.value)}`)
+                .join(", ")}`}
+            >
+              <div className="spread-rail-track absolute left-0 right-0 top-1/2 -translate-y-1/2" />
+              {range.markers.map((marker) => (
+                <span
+                  key={marker.key}
+                  aria-hidden="true"
+                  className={`absolute rounded-[2px] ${scenarioMarkerShapeClass(marker.key)}`}
+                  style={{
+                    left: `${marker.pct}%`,
+                    top: `calc(50% + ${marker.stackLevel * 9}px)`,
+                    transform: `translate(-50%, -50%)${marker.key === "bear" ? " rotate(45deg)" : ""}`,
+                  }}
+                />
+              ))}
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs">
+              {range.markers.map((marker) => (
+                <span key={marker.key} className="inline-flex items-center gap-1.5">
+                  <span
+                    aria-hidden="true"
+                    className={`inline-block rounded-[1px] ${scenarioMarkerShapeClass(marker.key)}`}
+                  />
+                  <span className="text-[var(--paper-muted)]">{marker.label}</span>
+                  <span className="tabular-nums font-mono font-semibold text-[var(--paper)]">
+                    {formatPreciseCurrency(marker.value)}
+                  </span>
+                </span>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="empty-state mb-6">No scenario values are available to plot.</div>
+        )}
+
+        <div className="overflow-x-auto">
+          <table className="data-table w-full min-w-[680px] border-collapse text-sm">
+            <caption className="sr-only">
+              Bear, Base, and Bull valuation scenarios: intrinsic value per share, comparison to
+              market price, and the revenue growth, operating margin, WACC, and terminal growth
+              assumptions used for each case.
+            </caption>
+            <thead>
+              <tr className="border-b border-[var(--line)] text-left">
+                <th scope="col" className="py-2 pr-4 font-medium">
+                  Case
+                </th>
+                <th scope="col" className="px-3 py-2 text-right font-medium">
+                  Intrinsic value / share
+                </th>
+                <th scope="col" className="px-3 py-2 text-right font-medium">
+                  vs. Market
+                </th>
+                <th scope="col" className="px-3 py-2 text-right font-medium">
+                  Revenue growth
+                </th>
+                <th scope="col" className="px-3 py-2 text-right font-medium">
+                  Operating margin
+                </th>
+                <th scope="col" className="px-3 py-2 text-right font-medium">
+                  WACC
+                </th>
+                <th scope="col" className="py-2 pl-3 text-right font-medium">
+                  Terminal growth
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {SCENARIO_ORDER.map((key) => {
+                const scenario = scenarios[key];
+                const isBase = key === "base";
+                const value = scenario.is_valid ? scenario.intrinsic_value_per_share : null;
+                const spread = computeMarketSpread({ value, marketPrice });
+                const { toneClass, glyph } = sensitivityCellToneAndGlyph(spread.status);
+                const { visible: vsMarketVisible, accessible: accessibleVsMarket } = formatMarketSpread(spread);
+
+                return (
+                  <tr
+                    key={key}
+                    className={`border-b border-[var(--line)] last:border-0 ${isBase ? "bg-[var(--cobalt-soft)]" : ""}`}
+                  >
+                    <th
+                      scope="row"
+                      className={`py-2.5 pr-4 text-left font-medium ${isBase ? "text-[var(--cobalt)]" : "text-[var(--paper)]"}`}
+                    >
+                      {SCENARIO_LABELS[key]}
+                    </th>
+                    <td className="tabular-nums font-mono px-3 py-2.5 text-right text-[var(--paper)]">
+                      {value !== null ? (
+                        formatPreciseCurrency(value)
+                      ) : (
+                        <span className="text-[var(--paper-dim)]">Not computable</span>
+                      )}
+                    </td>
+                    <td aria-label={accessibleVsMarket} className={`px-3 py-2.5 text-right ${toneClass}`}>
+                      <span aria-hidden="true" className="tabular-nums font-mono">
+                        {glyph && <span className="mr-0.5">{glyph}</span>}
+                        {vsMarketVisible}
+                      </span>
+                    </td>
+                    <td className="tabular-nums font-mono px-3 py-2.5 text-right text-[var(--paper-muted)]">
+                      {formatPercent(scenario.assumptions.revenue_growth_rate)}
+                    </td>
+                    <td className="tabular-nums font-mono px-3 py-2.5 text-right text-[var(--paper-muted)]">
+                      {formatPercent(scenario.assumptions.operating_margin)}
+                    </td>
+                    <td className="tabular-nums font-mono px-3 py-2.5 text-right text-[var(--paper-muted)]">
+                      {formatPercent(scenario.assumptions.wacc, 2)}
+                    </td>
+                    <td className="tabular-nums font-mono py-2.5 pl-3 text-right text-[var(--paper-muted)]">
+                      {formatPercent(scenario.assumptions.terminal_growth_rate)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {invalidScenarioKeys.length > 0 && (
+          <div className="mt-4 space-y-1.5">
+            {invalidScenarioKeys.map((key) => (
+              <p key={key} className="text-xs leading-5 text-[var(--paper-dim)]">
+                <span className="font-semibold text-[var(--paper-muted)]">
+                  {SCENARIO_LABELS[key]} case not computable:
+                </span>{" "}
+                {scenarios[key].invalid_reason}
+              </p>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -808,6 +1034,8 @@ export default function Home() {
                 />
               </div>
             </div>
+
+            <ValuationScenariosSection scenarios={result.scenarios} marketPrice={result.current_price} />
 
             <SensitivityMatrixSection matrix={result.sensitivity} marketPrice={result.current_price} />
 
