@@ -12,7 +12,6 @@ import pytest
 
 from src.dcf_model.dcf import (
     DCFAssumptions,
-    MAX_DISCOUNT_RATE,
     MIN_DISCOUNT_RATE,
     project_free_cash_flows,
     run_dcf_valuation,
