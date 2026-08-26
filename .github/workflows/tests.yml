@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Same Python version as .github/workflows/rebalance.yml (the
       # scheduled live-execution workflow) — dependency resolution and
@@ -19,7 +19,7 @@ jobs:
       # actually runs in production, not whatever's on a contributor's
       # machine.
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
@@ -59,7 +59,7 @@ jobs:
     # modified workflow run.
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # frontend/src/lib/*.test.ts run as plain `.ts` files via Node's
       # native TypeScript type-stripping (stable/default since Node
@@ -67,7 +67,7 @@ jobs:
       # dependency needed) — see frontend/package.json's "engines" field
       # for the same minimum version requirement.
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: 'npm'
