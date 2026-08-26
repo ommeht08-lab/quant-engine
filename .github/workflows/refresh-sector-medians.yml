@@ -1,0 +1,108 @@
+name: Refresh sector median snapshot
+
+# Values every ticker in the reference universe against current data and
+# publishes a fresh sector-median snapshot to Supabase
+# (src.api.sector_median_store) for the live /api/evaluate endpoint to
+# read. Runs on trading days only — a snapshot generated before a
+# weekend gets extra staleness headroom automatically (see
+# src.api.sector_medians._weekend_adjusted_max_staleness), so a Friday
+# run comfortably covers the following Monday without needing a weekend
+# schedule.
+"on":
+  schedule:
+    # GitHub Actions cron uses UTC. The deliberately non-round minute
+    # avoids the busiest part of the hour, when scheduled workflows are
+    # more likely to be delayed. Weekdays only (1-5 = Mon-Fri), after US
+    # market close.
+    - cron: "37 21 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refresh-sector-medians
+  cancel-in-progress: false
+
+jobs:
+  # Runs the isolation-safe test suite with NO production secrets
+  # available to it — the same fixtures in tests/conftest.py that
+  # poison credentials and block real Postgres/yfinance access apply
+  # here too; the absence of secrets.* in this job's env is defense in
+  # depth on top of that, not a substitute for it.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Compile check
+        run: python -m compileall -q src tests
+
+      - name: Pyflakes
+        run: pyflakes src tests
+
+      - name: Run isolation-safe test suite
+        # tests/validation runs a real reconciliation pass and writes its
+        # own output artifacts as a side effect (an .xlsx workbook, JSON
+        # manifests) -- not a pass/fail assertion suite, and not
+        # something a CI run should be regenerating.
+        run: python -m pytest -q --ignore=tests/validation
+
+  # Only runs if `test` succeeds — a failing/broken test suite (e.g. a
+  # reverted isolation fixture, a regressed publish-threshold check)
+  # must never let this job publish against the real database.
+  refresh:
+    needs: test
+    runs-on: ubuntu-latest
+    # Valuing ~100 tickers against yfinance, with bounded retries, can
+    # take a while — well short of GitHub's own 6-hour job ceiling, but
+    # bounded here so a hung run doesn't sit consuming Actions minutes.
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Pinned to exactly what src.api.publish_sector_medians's own import
+      # graph needs (generate + publish a snapshot) — matching the same
+      # versions pyproject.toml pins for the Vercel deployment, so this
+      # job runs against the same dependency versions the live API does.
+      # Deliberately NOT `pip install -r requirements.txt`: that file also
+      # pulls in alpaca-py, scipy, and uvicorn, none of which this job
+      # ever imports — installing them here would be unreviewed,
+      # unnecessary bloat for a scheduled data-refresh job.
+      - name: Install pinned dependencies
+        run: >
+          pip install --disable-pip-version-check
+          "pandas==2.3.3" "numpy==2.0.2" "requests==2.32.5" "yfinance==1.2.0"
+          "python-dotenv==1.2.1" "psycopg2-binary==2.9.12"
+
+      - name: Generate and publish sector median snapshot
+        env:
+          # The only production secret this job needs — no Alpaca/Upstash
+          # credentials are available here, matching this workflow's
+          # read-market-data/write-one-table scope.
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        # src.api.publish_sector_medians.run() generates the snapshot
+        # exactly once — each ticker gets its own bounded per-ticker
+        # retry inline, so a transient failure never regenerates tickers
+        # that already succeeded or reruns the whole universe — then
+        # retries PUBLISHING that same snapshot separately on a
+        # transient database failure. It never overwrites or deletes a
+        # prior snapshot, so a run that exhausts its retries (non-zero
+        # exit, failing this step) simply leaves the last published
+        # snapshot as "latest" — never a lost or partially-written one.
+        run: python -m src.api.publish_sector_medians

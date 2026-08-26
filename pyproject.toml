@@ -55,20 +55,26 @@ dependencies = [
     # UPSTASH_REDIS_REST_URL/TOKEN are configured on the future backend
     # Vercel project — those backend credentials are not configured yet.
     "upstash-redis==1.7.0",
+    # Genuinely needed now, not merely reachable: src.api.sector_median_store
+    # (imported lazily from src.api.sector_medians.get_live_sector_median_price_to_intrinsic,
+    # the live /api/evaluate lookup) opens a real Postgres connection to
+    # read the newest published sector-median snapshot from Supabase.
+    # This reverses the OLD exclusion below (kept for history) — that
+    # exclusion was valid when psycopg2 was only an incidental transitive
+    # import with no actual runtime use from src.api.main; it is a
+    # required runtime dependency now. The import itself stays lazy
+    # (inside sector_median_store._connect, never at module import time),
+    # so `import src.api.main` still succeeds even in an environment
+    # where psycopg2 is genuinely uninstalled — see
+    # tests/api/test_deployment.py::TestImportsWithoutOptionalHeavyDependencies,
+    # which only imports the module and never calls the endpoint.
+    "psycopg2-binary==2.9.12",
 ]
 # Deliberately NOT here:
 #   - scipy: only used by src/risk/hedging.py, which src.api.main's
 #     import graph never reaches (confirmed by walking the import
 #     graph) — excluded from the Vercel bundle via vercel.json's
 #     excludeFiles regardless.
-#   - psycopg2-binary: was only a transitive import (src.api.sector_medians
-#     -> src.backtesting.historical_tester -> src.utils.db) caused by
-#     DEFAULT_SP500_TOP_100_TICKERS living inside historical_tester.py.
-#     That constant now lives in src/utils/ticker_universe.py, a
-#     zero-src-dependency module — sector_medians.py imports it from
-#     there directly and no longer reaches historical_tester.py (or
-#     therefore src.utils.db/psycopg2) at all. Re-verified by re-running
-#     the import-graph trace after the change.
 #   - alpaca-py: this service never imports src.trading.
 #   - uvicorn: Vercel's Python runtime invokes the ASGI `app` callable
 #     directly; it does not run `uvicorn.run()` the way the Docker image

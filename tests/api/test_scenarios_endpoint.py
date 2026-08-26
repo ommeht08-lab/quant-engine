@@ -11,6 +11,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.api import main as api_main
+from src.api.sector_median_thresholds import SectorMedianUnavailableCode
+from src.api.sector_medians import LiveSectorMedianResult
 
 TEST_SERVICE_TOKEN = "test-service-token-do-not-use-in-prod"  # noqa: S105 - test-only fixture value
 
@@ -53,7 +55,14 @@ def fetch_call_counter(monkeypatch):
 def client(fetch_call_counter, monkeypatch):
     monkeypatch.setattr(api_main, "get_risk_free_rate", lambda *a, **k: 0.04)
     monkeypatch.setattr(
-        api_main, "get_sector_median_price_to_intrinsic", lambda sector, assumptions=None: (None, "no cache in test")
+        api_main,
+        "get_live_sector_median_price_to_intrinsic",
+        lambda sector, assumptions=None: LiveSectorMedianResult(
+            median=None,
+            unavailable_code=SectorMedianUnavailableCode.SNAPSHOT_UNAVAILABLE,
+            unavailable_reason="no cache in test",
+            provenance=None,
+        ),
     )
     monkeypatch.setenv(api_main.VALUATION_API_TOKEN_ENV_VAR, TEST_SERVICE_TOKEN)
     test_client = TestClient(api_main.app)

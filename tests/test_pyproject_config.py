@@ -27,12 +27,22 @@ PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 # upstash-redis is included deliberately: it activates src.utils.cache's
 # existing @cached statement/risk-free-rate caching against the same
 # Upstash database the frontend already uses (see pyproject.toml's own
-# comment on that dependency) -- it is not forbidden the way psycopg2/
-# alpaca/scipy/uvicorn are, none of which this service ever needs.
+# comment on that dependency) -- it is not forbidden the way alpaca/
+# scipy/uvicorn are, none of which this service ever needs.
+#
+# psycopg2-binary is included deliberately too, as of the Supabase-backed
+# sector-median store (src.api.sector_median_store): the live
+# /api/evaluate endpoint now opens a real Postgres connection to read the
+# newest published snapshot -- see pyproject.toml's own comment on this
+# dependency for why the OLD exclusion (when psycopg2 was merely an
+# incidental, unused transitive import) no longer applies. The import
+# itself stays lazy (never at module import time), which is what keeps
+# it compatible with
+# tests/api/test_deployment.py::TestImportsWithoutOptionalHeavyDependencies.
 EXPECTED_DEPENDENCY_NAMES = {
-    "fastapi", "pandas", "numpy", "requests", "yfinance", "python-dotenv", "upstash-redis",
+    "fastapi", "pandas", "numpy", "requests", "yfinance", "python-dotenv", "upstash-redis", "psycopg2-binary",
 }
-FORBIDDEN_DEPENDENCY_NAMES = {"scipy", "psycopg2-binary", "psycopg2", "alpaca-py", "alpaca", "uvicorn"}
+FORBIDDEN_DEPENDENCY_NAMES = {"scipy", "alpaca-py", "alpaca", "uvicorn"}
 
 
 def _load_pyproject() -> dict:

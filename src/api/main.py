@@ -53,7 +53,8 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Res
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from src.api.sector_medians import get_sector_median_price_to_intrinsic
+from src.api.sector_median_thresholds import SectorMedianUnavailableCode
+from src.api.sector_medians import get_live_sector_median_price_to_intrinsic
 from src.data_ingestion.fetch_financials import fetch_company_financials
 from src.dcf_model.dcf import DCFAssumptions, run_dcf_valuation
 from src.dcf_model.scenarios import ScenarioInputs, ScenarioResult, compute_dcf_scenarios
@@ -499,6 +500,24 @@ class DCFScenarioSet(BaseModel):
     bull: ScenarioResultModel
 
 
+class SectorMedianProvenance(BaseModel):
+    """
+    Where the sector-median comparison denominator came from: the
+    Supabase-backed snapshot's generation time, how much of the
+    reference universe it covered, and how many of those tickers landed
+    in THIS ticker's sector specifically. Present whenever a snapshot
+    was fetched at all — even one this specific sector/assumptions
+    combination failed validation against (`sector_median_p_iv` null) —
+    so a caller can distinguish "no snapshot exists yet" from "a recent
+    snapshot exists but isn't usable for this request."
+    """
+
+    generated_at: str
+    universe_size: int
+    tickers_used: int
+    sector_sample_count: int
+
+
 class EvaluationResponse(BaseModel):
     """Response payload for GET /api/evaluate/{ticker}."""
 
@@ -513,7 +532,14 @@ class EvaluationResponse(BaseModel):
     sector: str
     price_to_intrinsic_value: Optional[float]
     sector_median_p_iv: Optional[float]
+    # A small, stable vocabulary ("incompatible_assumptions" /
+    # "insufficient_peers" / "snapshot_unavailable") a caller should
+    # switch on — see `SectorMedianUnavailableCode`'s own docstring.
+    # `sector_median_unavailable_reason` is kept for logs/debugging only
+    # — it's free text and must never be shown to an end user verbatim.
+    sector_median_unavailable_code: Optional[SectorMedianUnavailableCode] = None
     sector_median_unavailable_reason: Optional[str] = None
+    sector_median_snapshot: Optional[SectorMedianProvenance] = None
     revenue_growth_rate_source: str
     operating_margin_source: str
     sensitivity: DCFSensitivityMatrix
@@ -661,18 +687,30 @@ def evaluate_ticker(
         EvaluationResponse containing intrinsic value per share, current
         market price, WACC, enterprise value, equity value, the 5-year
         FCF projection, the company's sector, its Price / Intrinsic Value
-        (P/IV) ratio, that sector's median P/IV (from a precomputed
-        cache — see `src.api.sector_medians`), and
+        (P/IV) ratio, that sector's median P/IV (from the newest
+        published snapshot in the Supabase-backed store — see
+        `src.api.sector_medians.get_live_sector_median_price_to_intrinsic`
+        and `src.api.sector_median_store`), and
         `revenue_growth_rate_source`/`operating_margin_source` ("historical"
         or "custom") so a caller can distinguish "the dashboard is
         showing the company's own historical growth" from "the dashboard
         is showing a user-chosen slider value" rather than guessing from
         the numeric value alone. `sector_median_p_iv` is `null` whenever
-        the comparison is refused — cache missing/stale/unhealthy,
-        generated with different assumptions than this request, or too
-        few samples for the sector — with `sector_median_unavailable_reason`
-        explaining why, rather than silently comparing against a
-        cache that isn't actually comparable to this valuation.
+        the comparison is refused — no snapshot published yet,
+        stale/unhealthy, generated with different assumptions than this
+        request, or too few samples for the sector — with
+        `sector_median_unavailable_code` (a small, stable vocabulary — see
+        `SectorMedianUnavailableCode`) telling a caller WHICH kind of
+        refusal it is, and `sector_median_unavailable_reason` (free text,
+        for logs/debugging — never meant to be shown to an end user
+        verbatim) explaining why, rather than silently comparing against
+        a snapshot that isn't actually comparable to this valuation.
+        `sector_median_snapshot` reports
+        that snapshot's own provenance (generation time, universe size,
+        tickers used, and this sector's sample count) whenever ANY
+        snapshot was fetched — even one this request failed validation
+        against — and is `null` only when no snapshot could be fetched
+        at all.
 
         `sensitivity` is a 5x5 WACC x terminal-growth-rate grid of
         intrinsic-value-per-share outcomes around this valuation's own
@@ -745,9 +783,19 @@ def evaluate_ticker(
     )
 
     sector = financial_data.get("sector", "Unknown")
-    sector_median_p_iv, sector_median_unavailable_reason = get_sector_median_price_to_intrinsic(
-        sector, assumptions=assumptions
-    )
+    # `sector_median_result` is a typed `LiveSectorMedianResult`
+    # (`src.api.sector_medians`) — this handler only ever reads its named
+    # attributes, never a raw snapshot dict, and knows nothing about how
+    # `src.api.sector_median_store` shapes or stores one.
+    sector_median_result = get_live_sector_median_price_to_intrinsic(sector, assumptions=assumptions)
+    sector_median_provenance = None
+    if sector_median_result.provenance is not None:
+        sector_median_provenance = SectorMedianProvenance(
+            generated_at=sector_median_result.provenance.generated_at,
+            universe_size=sector_median_result.provenance.universe_size,
+            tickers_used=sector_median_result.provenance.tickers_used,
+            sector_sample_count=sector_median_result.provenance.sector_sample_count,
+        )
 
     # Reuses the baseline `fcf_projection` and equity-bridge inputs
     # `run_dcf_valuation` already computed above — no additional
@@ -804,8 +852,10 @@ def evaluate_ticker(
         },
         sector=sector,
         price_to_intrinsic_value=price_to_intrinsic_value,
-        sector_median_p_iv=sector_median_p_iv,
-        sector_median_unavailable_reason=sector_median_unavailable_reason,
+        sector_median_p_iv=sector_median_result.median,
+        sector_median_unavailable_code=sector_median_result.unavailable_code,
+        sector_median_unavailable_reason=sector_median_result.unavailable_reason,
+        sector_median_snapshot=sector_median_provenance,
         revenue_growth_rate_source=revenue_growth_rate_source,
         operating_margin_source=operating_margin_source,
         sensitivity=DCFSensitivityMatrix(

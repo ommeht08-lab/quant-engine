@@ -15,6 +15,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.api import main as api_main
+from src.api.sector_median_thresholds import SectorMedianUnavailableCode
+from src.api.sector_medians import LiveSectorMedianResult
 
 VALID_TOKEN = "correct-service-token-at-least-32-chars-long"  # noqa: S105 - test fixture, not a real secret
 
@@ -50,7 +52,14 @@ def app_with_valid_token(monkeypatch):
     monkeypatch.setattr(api_main, "fetch_company_financials", lambda ticker: _synthetic_financial_data())
     monkeypatch.setattr(api_main, "get_risk_free_rate", lambda *a, **k: 0.04)
     monkeypatch.setattr(
-        api_main, "get_sector_median_price_to_intrinsic", lambda sector, assumptions=None: (None, "no cache in test")
+        api_main,
+        "get_live_sector_median_price_to_intrinsic",
+        lambda sector, assumptions=None: LiveSectorMedianResult(
+            median=None,
+            unavailable_code=SectorMedianUnavailableCode.SNAPSHOT_UNAVAILABLE,
+            unavailable_reason="no cache in test",
+            provenance=None,
+        ),
     )
     monkeypatch.setenv(api_main.VALUATION_API_TOKEN_ENV_VAR, VALID_TOKEN)
     return TestClient(api_main.app)

@@ -12,6 +12,11 @@ import ValuationSpectrum, {
 } from "@/components/valuation/ValuationSpectrum";
 import ScrollHintTable from "@/components/valuation/ScrollHintTable";
 import { formatCompactCurrency, formatPercent, formatPreciseCurrency } from "@/components/valuation/format";
+import {
+  sectorMedianProvenanceCaption,
+  sectorMedianUnavailableCopy,
+  type SectorMedianUnavailableCode,
+} from "@/lib/sector-median-copy";
 
 interface FreeCashFlowYear {
   year: number;
@@ -68,7 +73,14 @@ interface EvaluationResponse {
   sector: string;
   price_to_intrinsic_value: number | null;
   sector_median_p_iv: number | null;
+  sector_median_unavailable_code: SectorMedianUnavailableCode | null;
   sector_median_unavailable_reason: string | null;
+  sector_median_snapshot: {
+    generated_at: string;
+    universe_size: number;
+    tickers_used: number;
+    sector_sample_count: number;
+  } | null;
   sensitivity: DCFSensitivityMatrix;
   scenarios: DCFScenarioSet;
 }
@@ -78,7 +90,13 @@ interface SectorValuationComparisonProps {
   sector: string;
   priceToIntrinsicValue: number | null;
   sectorMedianPIV: number | null;
-  sectorMedianUnavailableReason: string | null;
+  sectorMedianUnavailableCode: SectorMedianUnavailableCode | null;
+  sectorMedianSnapshot: {
+    generated_at: string;
+    universe_size: number;
+    tickers_used: number;
+    sector_sample_count: number;
+  } | null;
 }
 
 function SectorValuationComparison({
@@ -86,7 +104,8 @@ function SectorValuationComparison({
   sector,
   priceToIntrinsicValue,
   sectorMedianPIV,
-  sectorMedianUnavailableReason,
+  sectorMedianUnavailableCode,
+  sectorMedianSnapshot,
 }: SectorValuationComparisonProps) {
   if (priceToIntrinsicValue === null || sectorMedianPIV === null) {
     return (
@@ -94,7 +113,7 @@ function SectorValuationComparison({
         <p className="text-sm leading-6 text-[var(--paper-dim)]">
           {priceToIntrinsicValue === null
             ? "Price-to-intrinsic-value could not be computed for this ticker."
-            : (sectorMedianUnavailableReason ?? `No sector median P/IV available yet for ${sector}.`)}
+            : sectorMedianUnavailableCopy(sectorMedianUnavailableCode)}
         </p>
       </div>
     );
@@ -151,6 +170,12 @@ function SectorValuationComparison({
           </div>
         </div>
       </div>
+
+      {sectorMedianSnapshot && (
+        <p className="mt-4 text-xs text-[var(--paper-dim)]">
+          {sectorMedianProvenanceCaption(sectorMedianSnapshot)}
+        </p>
+      )}
     </div>
   );
 }
@@ -499,7 +524,8 @@ export default function Home() {
                 sector={result.sector}
                 priceToIntrinsicValue={result.price_to_intrinsic_value}
                 sectorMedianPIV={result.sector_median_p_iv}
-                sectorMedianUnavailableReason={result.sector_median_unavailable_reason}
+                sectorMedianUnavailableCode={result.sector_median_unavailable_code}
+                sectorMedianSnapshot={result.sector_median_snapshot}
               />
             </div>
 
