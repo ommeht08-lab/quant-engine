@@ -1,20 +1,28 @@
 @import "tailwindcss";
 
 :root {
-  /* Canvas / surfaces */
-  --ink: #eef1f5;
-  --ink-raised: #ffffff;
+  /* Canvas / surfaces — a quiet, cool-neutral shell. All material boldness
+     is reserved for the instrument tokens below. */
+  --ink: #f3f5f7;
+  --ink-raised: #fcfdfe;
   --ledger: #e3e7ec;
 
   /* Text */
-  --paper: #141a22;
+  --paper: #171a20;
   --paper-muted: #4b5563;
   --paper-dim: #5b6472;
 
+  /* Instrument — the Valuation Spectrum's own dark, material surface.
+     Not used anywhere else in the shell. */
+  --instrument: #171c24;
+  --instrument-edge: #3a4656;
+  --instrument-text: #edeff3;
+  --instrument-text-dim: #9aa4b2;
+
   /* Semantic accents */
-  --cobalt: #1d4ed8;
-  --cobalt-hover: #1739ad;
-  --cobalt-soft: rgba(29, 78, 216, 0.08);
+  --cobalt: #2f5fe0;
+  --cobalt-hover: #2650bd;
+  --cobalt-soft: rgba(47, 95, 224, 0.08);
   --verdigris: #0f766e;
   --verdigris-soft: rgba(15, 118, 110, 0.1);
   --brass: #92400e;
@@ -23,13 +31,15 @@
   --signal-soft: rgba(179, 38, 30, 0.09);
 
   /* Borders */
-  --line: rgba(20, 26, 34, 0.1);
-  --line-strong: rgba(20, 26, 34, 0.18);
+  --line: rgba(23, 26, 32, 0.1);
+  --line-strong: rgba(23, 26, 32, 0.18);
 
-  /* Type */
-  --display: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  --body: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
-  --utility: "SFMono-Regular", ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  /* Type — loaded via next/font/google in layout.tsx, which defines the
+     --font-instrument-sans / --font-plex-sans / --font-plex-mono custom
+     properties this falls back from. */
+  --display: var(--font-instrument-sans, "Instrument Sans"), -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --body: var(--font-plex-sans, "IBM Plex Sans"), -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  --utility: var(--font-plex-mono, "IBM Plex Mono"), "SFMono-Regular", ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
 }
 
 @theme inline {
@@ -134,6 +144,15 @@ input {
   letter-spacing: 0.04em;
 }
 
+.status-dot {
+  display: inline-block;
+  width: 0.35rem;
+  height: 0.35rem;
+  margin-right: 0.4rem;
+  border-radius: 999px;
+  background: var(--verdigris);
+}
+
 .command-nav {
   display: flex;
   align-items: center;
@@ -145,23 +164,22 @@ input {
   display: inline-flex;
   align-items: center;
   min-height: 2.15rem;
-  border-radius: 5px;
   padding: 0.4rem 0.65rem;
+  border-bottom: 2px solid transparent;
   color: var(--paper-muted);
   font-size: 0.8rem;
   font-weight: 500;
   white-space: nowrap;
-  transition: color 120ms ease, background 120ms ease;
+  transition: color 120ms ease, border-color 120ms ease;
 }
 
 .nav-link:hover {
   color: var(--paper);
-  background: var(--ledger);
 }
 
 .nav-link[aria-current="page"] {
+  border-bottom-color: var(--cobalt);
   color: var(--cobalt);
-  background: var(--cobalt-soft);
 }
 
 .sign-out-button {
@@ -251,16 +269,6 @@ input {
   line-height: 1.5;
 }
 
-.section-intro {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
-  justify-content: space-between;
-  gap: 1rem;
-  margin: 2.25rem 0 0.9rem;
-}
-
-.section-intro h2,
 .panel-title {
   font-family: var(--display);
   font-size: 0.98rem;
@@ -269,18 +277,43 @@ input {
   color: var(--paper);
 }
 
-.section-intro p {
-  max-width: 32rem;
-  color: var(--paper-dim);
-  font-size: 0.79rem;
-  line-height: 1.5;
+/* A single concise section title with a rule above it — replaces the
+   repeated eyebrow-plus-heading block that made every lower section of
+   the workspace look like the same templated unit. */
+.section-title {
+  margin: 2.5rem 0 1.1rem;
+  padding-top: 1.75rem;
+  border-top: 1px solid var(--line);
+  font-family: var(--display);
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--paper);
 }
 
+/* The workspace's control surface — deliberately NOT another boxed
+   .panel card. Ticker + primary action sit directly on the page canvas,
+   with a single rule underneath separating controls from results; the
+   assumption mode/sliders are visually secondary (tighter, quieter). */
+.command-surface {
+  padding-bottom: 1.25rem;
+  margin-bottom: 2rem;
+  border-bottom: 1px solid var(--line-strong);
+}
+
+.command-surface-secondary {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+/* No shadow here by design — depth/material is reserved for the
+   Valuation Spectrum instrument; ordinary panels stay flat, told apart
+   only by a hairline border. Radius stays modest (4-6px) — the larger,
+   more confident radius is reserved for the instrument too. */
 .panel {
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 6px;
   background: var(--ink-raised);
-  box-shadow: 0 1px 2px rgba(20, 26, 34, 0.04);
 }
 
 .panel-header {
@@ -304,6 +337,104 @@ input {
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--ink-raised);
+}
+
+/* Valuation thesis — an analyst's conclusion, not an equal-weight KPI
+   grid. Intrinsic value and upside/downside are dominant; market price
+   and WACC are compact supporting facts underneath a rule. */
+
+.thesis-panel {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--ink-raised);
+  padding: 1.25rem 1.5rem 1.5rem;
+}
+
+.thesis-byline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.65rem;
+  margin-bottom: 1.1rem;
+}
+
+.thesis-ticker {
+  font-family: var(--display);
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--paper);
+}
+
+.thesis-sector {
+  font-family: var(--utility);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--paper-dim);
+}
+
+.thesis-updating {
+  font-family: var(--utility);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--cobalt);
+}
+
+.thesis-primary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 2.5rem;
+  row-gap: 1.25rem;
+}
+
+.thesis-value {
+  margin-top: 0.3rem;
+  font-family: var(--utility);
+  font-size: clamp(2rem, 4.5vw, 2.75rem);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  color: var(--cobalt);
+}
+
+.thesis-delta {
+  margin-top: 0.3rem;
+  font-family: var(--utility);
+  font-size: clamp(1.5rem, 3.5vw, 2rem);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1;
+}
+
+.thesis-delta-note {
+  margin-top: 0.4rem;
+  font-size: 0.76rem;
+  color: var(--paper-dim);
+}
+
+.thesis-supporting {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.5rem;
+  margin-top: 1.25rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.82rem;
+  color: var(--paper-muted);
+}
+
+.thesis-supporting b {
+  font-family: var(--utility);
+  font-weight: 600;
+  color: var(--paper);
+}
+
+.thesis-supporting-sep {
+  color: var(--paper-dim);
 }
 
 .input-field {
@@ -509,49 +640,223 @@ input {
   accent-color: var(--paper-dim);
 }
 
-/* Valuation spread rail — signature element comparing market price and
-   intrinsic value on one scale. */
+/* Valuation Spectrum instrument — the one dark, material surface in the
+   product. Market, Bear, Base, and Bull all live on this single rail;
+   gloss comes from a crisp inset top-edge highlight and a controlled
+   outer shadow, never a gradient or glow. */
 
-.spread-rail-track {
+.instrument-panel {
   position: relative;
-  height: 0.55rem;
-  width: 100%;
-  border-radius: 999px;
-  background: var(--ledger);
+  border-radius: 14px;
+  border: 1px solid var(--instrument-edge);
+  background: var(--instrument);
+  padding: 1.5rem;
+  color: var(--instrument-text);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.3),
+    0 16px 32px -20px rgba(8, 10, 14, 0.6);
 }
 
-.spread-rail-fill {
+.instrument-caption {
+  max-width: 42rem;
+  margin-bottom: 1.75rem;
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: var(--instrument-text-dim);
+}
+
+.instrument-rail {
+  position: relative;
+  height: 4.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.instrument-rail-track {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  border-radius: 999px;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  background: var(--instrument-edge);
+  transform: translateY(-50%);
 }
 
-.spread-rail-fill.is-upside {
-  background: var(--verdigris);
-}
-
-.spread-rail-fill.is-downside {
-  background: var(--signal);
-}
-
-.spread-marker {
+.instrument-indicator {
   position: absolute;
   top: 50%;
-  width: 0.9rem;
-  height: 0.9rem;
-  border-radius: 999px;
-  border: 2px solid var(--ink-raised);
-  transform: translate(-50%, -50%);
-  box-shadow: 0 0 0 1px var(--line-strong);
-}
-
-.spread-marker.is-market {
-  background: var(--paper-muted);
-}
-
-.spread-marker.is-intrinsic {
+  width: 2px;
+  height: 1.75rem;
   background: var(--cobalt);
+  transform: translate(-50%, -50%);
+  transition: left 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+
+/* Rail markers are purely visual now — position along the scale is
+   informative, but too easily clustered/overlapping to serve as a real
+   touch target at narrow widths. The authoritative control is the
+   selector row below. */
+.instrument-marker {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  transform: translate(-50%, -50%);
+  color: inherit;
+}
+
+/* No border-radius here — each shape (circle/diamond/square) sets its
+   own radius inline so this rule can never silently override it. */
+.instrument-marker-glyph {
+  display: block;
+  transition: outline-color 150ms ease;
+}
+
+.instrument-marker--current .instrument-marker-glyph {
+  outline: 2px solid var(--cobalt);
+  outline-offset: 3px;
+}
+
+/* The authoritative Bear/Base/Bull/Market control — real buttons with a
+   44px minimum touch target, evenly spaced regardless of how close the
+   underlying dollar values are, so clustered values never overlap or
+   become hard to hit. Replaces what used to be a decorative legend. */
+.instrument-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 1.5rem;
+}
+
+.instrument-selector-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid var(--instrument-edge);
+  border-radius: 8px;
+  color: var(--instrument-text-dim);
+  font-size: 0.8rem;
+  font-weight: 500;
+  transition: border-color 150ms ease, color 150ms ease, background 150ms ease;
+}
+
+.instrument-selector-button:hover {
+  border-color: var(--instrument-text-dim);
+  color: var(--instrument-text);
+}
+
+.instrument-selector-button[aria-pressed="true"] {
+  border-color: var(--cobalt);
+  background: rgba(47, 95, 224, 0.16);
+  color: var(--instrument-text);
+}
+
+.instrument-readout {
+  border-top: 1px solid var(--instrument-edge);
+  padding-top: 1.25rem;
+}
+
+.instrument-readout-label {
+  font-family: var(--utility);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--instrument-text-dim);
+}
+
+.instrument-readout-value {
+  margin-top: 0.4rem;
+  font-family: var(--utility);
+  font-size: clamp(1.6rem, 3vw, 2.1rem);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--instrument-text);
+}
+
+.instrument-readout-value--muted {
+  font-size: 1.1rem;
+  color: var(--instrument-text-dim);
+}
+
+.instrument-readout-note {
+  margin-top: 0.5rem;
+  max-width: 34rem;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--instrument-text-dim);
+}
+
+.instrument-readout-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem 1.5rem;
+  margin-top: 0.9rem;
+  font-family: var(--utility);
+  font-size: 0.78rem;
+  color: var(--instrument-text-dim);
+}
+
+.instrument-readout-grid b {
+  margin-left: 0.35rem;
+  font-weight: 600;
+  color: var(--instrument-text);
+}
+
+@media (min-width: 640px) {
+  .instrument-readout-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* Horizontally scrollable data tables get an explicit affordance on
+   narrow viewports rather than a silent overflow — a short text hint
+   plus a fade at the scrollable edge. The fade lives on `.table-scroll-
+   frame`, a non-scrolling OUTER wrapper, while `.table-scroll` (the
+   INNER element) carries the actual `overflow-x: auto` — so the fade
+   stays anchored to the visible right edge as the content scrolls
+   underneath it, rather than scrolling away with that content or
+   (previously) sitting on top of the final column once fully scrolled.
+   `.table-scroll-frame--more` is present only while there is still more
+   to reveal. */
+
+.table-scroll-frame {
+  position: relative;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+.table-scroll-hint {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .table-scroll-hint {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-family: var(--utility);
+    font-size: 0.64rem;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--paper-dim);
+  }
+
+  .table-scroll-frame--more::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 1.75rem;
+    background: linear-gradient(to right, transparent, var(--ink-raised));
+    pointer-events: none;
+  }
 }
 
 @media (min-width: 768px) {

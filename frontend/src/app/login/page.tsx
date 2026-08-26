@@ -12,7 +12,6 @@ export default function LoginPage() {
   return (
     <main className="grid min-h-screen lg:grid-cols-[minmax(0,1.15fr)_minmax(24rem,.85fr)]">
       <section className="relative hidden overflow-hidden border-r border-[var(--line)] p-12 lg:flex lg:flex-col lg:justify-between">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_30%_25%,rgba(85,184,170,.12),transparent_38%)]" />
         <div className="relative">
           <div className="brand-lockup">
             <span className="brand-mark" aria-hidden="true">OM</span>
