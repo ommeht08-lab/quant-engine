@@ -6,7 +6,9 @@ the current test-function/collected-case counts (counted, not hand-maintained, t
 Consumers: [`src/api/main.py`](../../src/api/main.py) (single-ticker live API),
 [`src/backtesting/historical_tester.py`](../../src/backtesting/historical_tester.py)
 (point-in-time backtesting), [`src/api/sector_medians.py`](../../src/api/sector_medians.py)
-(sector median cache generation)
+(sector median snapshot generation — published to a Supabase-backed store for the live
+API to read; see [L-008](../limitations-register.md#l-008--sector-median-and-price-history-cache-limitations)
+in the limitations register)
 
 ## Objective
 

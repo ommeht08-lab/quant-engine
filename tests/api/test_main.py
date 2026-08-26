@@ -17,7 +17,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from src.api import main as api_main
-from src.api.sector_medians import generate_sector_medians
+from src.api.sector_median_thresholds import SectorMedianUnavailableCode
+from src.api.sector_medians import LiveSectorMedianResult, SectorMedianSnapshotProvenance, generate_sector_medians
 from src.dcf_model.dcf import DCFAssumptions
 
 
@@ -57,7 +58,14 @@ def client(monkeypatch):
     monkeypatch.setattr(api_main, "fetch_company_financials", lambda ticker: _synthetic_financial_data())
     monkeypatch.setattr(api_main, "get_risk_free_rate", lambda *a, **k: 0.04)
     monkeypatch.setattr(
-        api_main, "get_sector_median_price_to_intrinsic", lambda sector, assumptions=None: (None, "no cache in test")
+        api_main,
+        "get_live_sector_median_price_to_intrinsic",
+        lambda sector, assumptions=None: LiveSectorMedianResult(
+            median=None,
+            unavailable_code=SectorMedianUnavailableCode.SNAPSHOT_UNAVAILABLE,
+            unavailable_reason="no cache in test",
+            provenance=None,
+        ),
     )
     monkeypatch.setenv(api_main.VALUATION_API_TOKEN_ENV_VAR, TEST_SERVICE_TOKEN)
     test_client = TestClient(api_main.app)
@@ -168,3 +176,91 @@ class TestDefaultAssumptionCrossSystemContract:
 
         assert cache["assumptions"]["revenue_growth_rate"] is None
         assert cache["assumptions"]["operating_margin"] is None
+
+
+class TestSectorMedianProvenanceSerialization:
+    """
+    `sector_median_snapshot` on `EvaluationResponse` reports where the
+    live sector-median comparison actually came from. It must appear
+    whenever `get_live_sector_median_price_to_intrinsic` returned ANY
+    snapshot — even one this specific request failed validation against
+    — and must be `null` only when no snapshot could be fetched at all.
+    """
+
+    def test_provenance_is_serialized_when_a_snapshot_was_available(self, monkeypatch):
+        monkeypatch.setattr(api_main, "fetch_company_financials", lambda ticker: _synthetic_financial_data())
+        monkeypatch.setattr(api_main, "get_risk_free_rate", lambda *a, **k: 0.04)
+        monkeypatch.setattr(
+            api_main,
+            "get_live_sector_median_price_to_intrinsic",
+            lambda sector, assumptions=None: LiveSectorMedianResult(
+                median=1.5,
+                unavailable_code=None,
+                unavailable_reason=None,
+                provenance=SectorMedianSnapshotProvenance(
+                    generated_at="2026-08-20T12:00:00+00:00",
+                    universe_size=100,
+                    tickers_used=87,
+                    sector_sample_count=12,
+                ),
+            ),
+        )
+        monkeypatch.setenv(api_main.VALUATION_API_TOKEN_ENV_VAR, TEST_SERVICE_TOKEN)
+        test_client = TestClient(api_main.app)
+        test_client.headers.update({"Authorization": f"Bearer {TEST_SERVICE_TOKEN}"})
+
+        response = test_client.get("/api/evaluate/TEST")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["sector_median_p_iv"] == pytest.approx(1.5)
+        assert body["sector_median_unavailable_code"] is None
+        assert body["sector_median_snapshot"] == {
+            "generated_at": "2026-08-20T12:00:00+00:00",
+            "universe_size": 100,
+            "tickers_used": 87,
+            "sector_sample_count": 12,
+        }
+
+    def test_provenance_is_still_reported_when_this_requests_comparison_failed(self, monkeypatch):
+        """A snapshot can exist (and be worth showing "as of" provenance
+        for) even when THIS request's own assumptions/sector don't
+        validate against it — e.g. a custom-assumption request compared
+        against a cache generated with historical assumptions."""
+        monkeypatch.setattr(api_main, "fetch_company_financials", lambda ticker: _synthetic_financial_data())
+        monkeypatch.setattr(api_main, "get_risk_free_rate", lambda *a, **k: 0.04)
+        monkeypatch.setattr(
+            api_main,
+            "get_live_sector_median_price_to_intrinsic",
+            lambda sector, assumptions=None: LiveSectorMedianResult(
+                median=None,
+                unavailable_code=SectorMedianUnavailableCode.INCOMPATIBLE_ASSUMPTIONS,
+                unavailable_reason="Sector median cache was generated with different DCF assumptions.",
+                provenance=SectorMedianSnapshotProvenance(
+                    generated_at="2026-08-20T12:00:00+00:00",
+                    universe_size=100,
+                    tickers_used=87,
+                    sector_sample_count=12,
+                ),
+            ),
+        )
+        monkeypatch.setenv(api_main.VALUATION_API_TOKEN_ENV_VAR, TEST_SERVICE_TOKEN)
+        test_client = TestClient(api_main.app)
+        test_client.headers.update({"Authorization": f"Bearer {TEST_SERVICE_TOKEN}"})
+
+        response = test_client.get("/api/evaluate/TEST")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["sector_median_p_iv"] is None
+        assert body["sector_median_unavailable_code"] == "incompatible_assumptions"
+        assert body["sector_median_unavailable_reason"] is not None
+        assert body["sector_median_snapshot"]["tickers_used"] == 87
+
+    def test_provenance_is_null_when_no_snapshot_could_be_fetched(self, client):
+        """The default `client` fixture's monkeypatch returns `snapshot=None`."""
+        response = client.get("/api/evaluate/TEST")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["sector_median_snapshot"] is None

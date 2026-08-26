@@ -144,50 +144,73 @@ change conclusions materially.
 
 ## L-008 — Sector-median and price-history cache limitations
 
-- **Severity**: Low-Medium
-- **Affected model(s)**: Live sector-relative comparison (`src.api.sector_medians`),
-  every module using `src.utils.cache`'s Redis caching layer
-- **Description**: The live API's sector-median comparison depends on a
-  periodically (manually) regenerated cache with explicit staleness (48h),
-  minimum-sample-size (3), and minimum-overall-coverage (50%) refusal rules — a
-  comparison can go silently unavailable (with an explicit reason, not a wrong
-  number) if the cache hasn't been regenerated recently enough. Separately, most
-  yfinance fetches across the codebase are cached with TTLs ranging from 1 hour
-  (RSI, risk-free rate) to 24 hours (statements, price history) — a genuine
-  same-day market move can be invisible to a cached read within that window.
-- **Mitigation**: The sector-median cache (`get_sector_median_price_to_intrinsic`,
-  [`src/api/sector_medians.py`](../src/api/sector_medians.py)) fails closed —
-  refuses rather than serves a stale/thin/discount-rate-incompatible/malformed
-  comparison:
-  - A check against the cache's own generation-time risk-free rate (`A-027`,
-    closed after being found missing entirely).
-  - The cache file is read/written defensively: corrupt JSON or an unreadable file
-    degrades to "unavailable" rather than a 500; a timezone-naive generation
-    timestamp is refused rather than crashing on an aware-vs-naive datetime
-    subtraction; writes are atomic via a temp-file-plus-`os.replace` so a
-    concurrent reader can never observe a partially-written file.
-  - **(Track A Phase 1.5B)** Valid JSON whose TOP-LEVEL value isn't a JSON object
-    (`[]`, `null`, a bare string/number/bool) is refused with an explicit
-    "malformed" reason — distinct from "not been generated yet" — instead of
-    reaching a `.get(...)` call and leaking a raw `AttributeError`. Every NESTED
-    container the lookup touches is also validated before use: `sector_medians`/
-    `sector_sample_counts` must be dicts, `assumptions` must be a dict when
-    present, `universe_size`/`tickers_used`/the returned median value/a sector's
-    sample count must each be a genuine finite non-boolean number (a string,
-    bool, list, or NaN/infinity in any of these positions is refused, not
-    silently coerced or left to raise deep in a comparison or division).
+- **Severity**: Low
+- **Affected model(s)**: Live sector-relative comparison (`src.api.sector_medians`,
+  `src.api.sector_median_store`), every module using `src.utils.cache`'s Redis
+  caching layer
+- **Description**: The live API's sector-median comparison reads the newest
+  snapshot from a Supabase-backed store, refreshed by a scheduled GitHub Actions
+  workflow (`.github/workflows/refresh-sector-medians.yml`, weekdays), with
+  explicit staleness (48h, extended by one day per weekend date spanned — see
+  `_weekend_adjusted_max_staleness`), minimum-sample-size (3), and
+  minimum-overall-coverage (50%) refusal rules — a comparison can go silently
+  unavailable (with an explicit internal reason and a stable, user-facing
+  `sector_median_unavailable_code`, never a wrong number) if a fresh snapshot
+  hasn't been published recently enough, or if `DATABASE_URL` is unset/the
+  database is unreachable. Separately, most yfinance fetches across the codebase
+  are cached with TTLs ranging from 1 hour (RSI, risk-free rate) to 24 hours
+  (statements, price history) — a genuine same-day market move can be invisible
+  to a cached read within that window.
+- **Mitigation**: The sector-median store fails closed at every layer — refuses
+  rather than serves a stale/thin/discount-rate-incompatible/malformed comparison,
+  and refuses to PUBLISH a bad snapshot in the first place:
+  - **Read path** (`get_live_sector_median_price_to_intrinsic`,
+    [`src/api/sector_medians.py`](../src/api/sector_medians.py)): strictly
+    read-only against Supabase — never issues `CREATE TABLE`/`CREATE INDEX` (that
+    is the publisher's job alone) — and opens its connection with a short connect
+    timeout and a short server-side statement timeout so a database hiccup
+    degrades in a few seconds rather than threatening Vercel's 40s
+    `/api/evaluate` function ceiling. A check against the snapshot's own
+    generation-time risk-free rate (`A-027`, closed after being found missing
+    entirely) still applies.
+  - **Publish path** (`publish_sector_median_snapshot`,
+    [`src/api/sector_median_store.py`](../src/api/sector_median_store.py)):
+    validates a candidate snapshot — parseable/timezone-aware/non-future
+    `generated_at`; exact assumptions shape; finite, positive sector medians;
+    genuine integer counts with `tickers_used <= universe_size` and per-sector
+    sample counts summing exactly to `tickers_used`; minimum overall coverage;
+    at least one sector meeting the minimum sample size — BEFORE appending it.
+    A run that fails any check publishes nothing, so the previously published
+    snapshot stays "latest," untouched — malformed or tampered data can never
+    supersede a good snapshot.
+  - **(Track A Phase 1.5B)** carried over from the original file-based cache:
+    every NESTED container the read path touches is validated before use
+    (`sector_medians`/`sector_sample_counts` must be dicts, `assumptions` must be
+    a dict when present, `universe_size`/`tickers_used`/the returned median
+    value/a sector's sample count must each be a genuine finite non-boolean
+    number) — a string, bool, list, or NaN/infinity in any of these positions is
+    refused, not silently coerced or left to raise deep in a comparison or
+    division.
+  - Neither the read nor the publish path ever logs a raw exception message or
+    traceback that could contain `DATABASE_URL`'s host/user/password — only a
+    fixed operation description plus the exception's class name.
   - Cache TTLs are individually tuned per data type's actual volatility (annual
     statements: 24h; intraday momentum signal: 1h).
-- **Status**: Mitigated for every currently-identified failure mode (never serves a
-  misleadingly-labeled stale, thin-sample, discount-rate-incompatible, or
-  malformed comparison; never crashes on a corrupt file, a naive timestamp, a
-  wrong-shaped top-level payload, or a wrong-shaped nested container; never risks a
-  torn write). Not mitigated for the underlying staleness itself, which requires
-  periodic manual cache regeneration (`python -m src.api.sector_medians`) that is
-  not currently automated/scheduled.
+- **Status**: Mitigated for every currently-identified failure mode, including the
+  staleness gap this entry originally flagged as unmitigated: regeneration is now
+  scheduled (weekdays), with per-ticker retry-with-backoff on generation and a
+  separately-retried publish step — a run that still fails every retry simply
+  leaves the last published snapshot as "latest," a missed refresh rather than a
+  lost or corrupted one. Not mitigated: a run of consecutive scheduled-workflow
+  failures (e.g. a multi-day Supabase or yfinance outage) can still leave the
+  live comparison unavailable once the weekend-adjusted staleness window is
+  exceeded — there is no secondary/fallback data source.
 - **Consequence for interpretation**: A "sector median unavailable" response on the
-  live dashboard may simply mean the cache needs regenerating, not that the
-  comparison is fundamentally impossible.
+  live dashboard means either the comparison genuinely isn't meaningful for this
+  request (e.g. custom assumptions that don't match the snapshot's baseline —
+  `sector_median_unavailable_code: incompatible_assumptions`) or a snapshot isn't
+  currently available (`snapshot_unavailable`) — never that the comparison is
+  fundamentally impossible.
 
 ## L-009 — No liquidity, slippage, or transaction-cost model
 

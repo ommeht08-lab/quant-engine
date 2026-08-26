@@ -16,10 +16,15 @@ from pathlib import Path
 
 WORKFLOW_PATH = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "rebalance.yml"
 HEARTBEAT_WORKFLOW_PATH = WORKFLOW_PATH.parent / "database-heartbeat.yml"
+REFRESH_SECTOR_MEDIANS_WORKFLOW_PATH = WORKFLOW_PATH.parent / "refresh-sector-medians.yml"
 
 
 def _read_workflow() -> str:
     return WORKFLOW_PATH.read_text()
+
+
+def _read_refresh_sector_medians_workflow() -> str:
+    return REFRESH_SECTOR_MEDIANS_WORKFLOW_PATH.read_text()
 
 
 def _job_block(content: str, job_name: str) -> str:
@@ -155,3 +160,80 @@ class TestDatabaseHeartbeatWorkflow:
         assert "python -m src.utils.database_heartbeat" in content
         assert "permissions:\n  contents: read" in content
         assert "cancel-in-progress: true" in content
+
+
+class TestRefreshSectorMediansWorkflow:
+    """
+    The scheduled sector-median refresh workflow: generates and publishes
+    a fresh snapshot to Supabase. Must run on a bounded, pinned
+    dependency set (never the full `requirements.txt`, which pulls in
+    Alpaca/scipy/uvicorn this job never needs), never contact anything
+    but `DATABASE_URL`, and must exclude `tests/validation` from its own
+    gating test run (that directory's "tests" actually regenerate real
+    reconciliation artifacts as a side effect, not pure assertions).
+    """
+
+    def test_workflow_file_exists(self):
+        assert REFRESH_SECTOR_MEDIANS_WORKFLOW_PATH.is_file()
+
+    def test_schedule_is_weekdays_only_with_a_manual_dispatch_fallback(self):
+        content = _read_refresh_sector_medians_workflow()
+        assert "cron:" in content
+        assert "* * 1-5" in content  # Mon-Fri only
+        assert "workflow_dispatch:" in content
+
+    def test_concurrency_guard_prevents_overlapping_runs(self):
+        content = _read_refresh_sector_medians_workflow()
+        assert "concurrency:" in content
+        assert "group: refresh-sector-medians" in content
+
+    def test_refresh_job_needs_the_test_job(self):
+        block = _job_block(_read_refresh_sector_medians_workflow(), "refresh")
+        assert "needs: test" in block
+
+    def test_test_job_excludes_the_validation_reconciliation_tests(self):
+        block = _job_block(_read_refresh_sector_medians_workflow(), "test")
+        assert "--ignore=tests/validation" in block
+
+    def test_test_job_has_no_production_secrets(self):
+        block = _job_block(_read_refresh_sector_medians_workflow(), "test")
+        assert "secrets." not in block
+
+    def test_refresh_job_receives_only_the_database_secret(self):
+        block = _job_block(_read_refresh_sector_medians_workflow(), "refresh")
+        assert "secrets.DATABASE_URL" in block
+        assert block.count("secrets.") == 1
+
+    def test_refresh_job_does_not_install_the_full_requirements_file(self):
+        """requirements.txt pulls in alpaca-py/scipy/uvicorn, none of
+        which src.api.publish_sector_medians's import graph ever
+        reaches — installing them here would be unreviewed bloat for a
+        scheduled data-refresh job. Checked against the EXECUTABLE lines
+        only (a comment explaining this choice is allowed to mention the
+        file/package names by name)."""
+        block = _job_block(_read_refresh_sector_medians_workflow(), "refresh")
+        executable_lines = "\n".join(
+            line for line in block.splitlines() if line.strip() and not line.strip().startswith("#")
+        )
+        assert "requirements.txt" not in executable_lines
+        for forbidden_package in ("alpaca-py", "scipy", "uvicorn"):
+            assert forbidden_package not in executable_lines
+
+    def test_refresh_job_installs_pinned_versions_matching_the_vercel_deployment(self):
+        """Same exact pins pyproject.toml declares for the Vercel
+        deployment target, so the scheduled workflow runs against the
+        same dependency versions the live API does."""
+        block = _job_block(_read_refresh_sector_medians_workflow(), "refresh")
+        for pinned_dependency in (
+            "pandas==2.3.3",
+            "numpy==2.0.2",
+            "requests==2.32.5",
+            "yfinance==1.2.0",
+            "python-dotenv==1.2.1",
+            "psycopg2-binary==2.9.12",
+        ):
+            assert pinned_dependency in block
+
+    def test_refresh_job_runs_the_publish_entry_point(self):
+        block = _job_block(_read_refresh_sector_medians_workflow(), "refresh")
+        assert "python -m src.api.publish_sector_medians" in block
