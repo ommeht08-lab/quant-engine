@@ -12,11 +12,13 @@ shape is simple and stable: two jobs (`test`, `execute_trades`), a
 execution job only.
 """
 
+import re
 from pathlib import Path
 
 WORKFLOW_PATH = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "rebalance.yml"
 HEARTBEAT_WORKFLOW_PATH = WORKFLOW_PATH.parent / "database-heartbeat.yml"
 REFRESH_SECTOR_MEDIANS_WORKFLOW_PATH = WORKFLOW_PATH.parent / "refresh-sector-medians.yml"
+WORKFLOWS_DIR = WORKFLOW_PATH.parent
 
 
 def _read_workflow() -> str:
@@ -237,3 +239,64 @@ class TestRefreshSectorMediansWorkflow:
     def test_refresh_job_runs_the_publish_entry_point(self):
         block = _job_block(_read_refresh_sector_medians_workflow(), "refresh")
         assert "python -m src.api.publish_sector_medians" in block
+
+
+# GitHub deprecated the Node 20 runtime these action majors still ran
+# on; every workflow must use the Node24-runtime major instead. Kept as
+# module-level maps (not hardcoded per-test) so there is exactly one
+# place to update if a future bump changes the required major again.
+DEPRECATED_NODE20_ACTION_VERSIONS = {
+    "actions/checkout": "v4",
+    "actions/setup-python": "v5",
+    "actions/setup-node": "v4",
+}
+REQUIRED_ACTION_VERSIONS = {
+    "actions/checkout": "v7",
+    "actions/setup-python": "v7",
+    "actions/setup-node": "v7",
+}
+_USES_LINE_PATTERN = re.compile(r"uses:\s*(actions/[\w-]+)@(v\d+)")
+
+
+def _all_workflow_files():
+    return sorted(WORKFLOWS_DIR.glob("*.yml"))
+
+
+class TestActionVersionsAreNotDeprecatedNode20Majors:
+    """
+    `actions/checkout@v4`, `actions/setup-python@v5`, and
+    `actions/setup-node@v4` all run on GitHub's deprecated Node 20
+    runtime — every workflow must use the Node24-runtime v7 major of
+    each instead. Scans every `.github/workflows/*.yml` file's raw text
+    (same plain-text-parsing convention as the rest of this file — no
+    PyYAML dependency), so a newly added workflow, or a future revert of
+    this bump, is caught immediately rather than only the four files
+    reviewed when this test was written.
+    """
+
+    def test_at_least_the_four_known_workflows_are_scanned(self):
+        # Guards against this test silently checking zero files if the
+        # workflows directory ever moves or empties.
+        names = {p.name for p in _all_workflow_files()}
+        assert {"tests.yml", "rebalance.yml", "database-heartbeat.yml", "refresh-sector-medians.yml"} <= names
+
+    def test_no_workflow_uses_a_deprecated_node20_action_major(self):
+        for workflow_path in _all_workflow_files():
+            content = workflow_path.read_text()
+            for action, deprecated_version in DEPRECATED_NODE20_ACTION_VERSIONS.items():
+                assert f"{action}@{deprecated_version}" not in content, (
+                    f"{workflow_path.name} still uses the deprecated {action}@{deprecated_version} "
+                    f"(Node 20 runtime) — bump to {action}@{REQUIRED_ACTION_VERSIONS[action]}."
+                )
+
+    def test_every_tracked_action_is_pinned_to_its_required_major(self):
+        for workflow_path in _all_workflow_files():
+            content = workflow_path.read_text()
+            for match in _USES_LINE_PATTERN.finditer(content):
+                action, version = match.group(1), match.group(2)
+                if action not in REQUIRED_ACTION_VERSIONS:
+                    continue
+                assert version == REQUIRED_ACTION_VERSIONS[action], (
+                    f"{workflow_path.name} uses {action}@{version}, expected "
+                    f"{action}@{REQUIRED_ACTION_VERSIONS[action]}."
+                )
