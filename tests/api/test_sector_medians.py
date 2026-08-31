@@ -81,11 +81,14 @@ class TestStaleness:
 
     def test_stale_cache_is_refused(self, tmp_path):
         path = tmp_path / "cache.json"
-        old = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=72)
+        # `now` is fixed so this doesn't depend on the real calendar date.
+        # 10 days stays stale even with the max weekend extension (+4 days on the 48h base).
+        now = datetime.datetime(2026, 1, 12, 12, 0, tzinfo=datetime.timezone.utc)
+        old = now - datetime.timedelta(days=10)
         _write_cache(path, generated_at=old)
 
         median, reason = get_sector_median_price_to_intrinsic(
-            "Technology", path=path, max_staleness=datetime.timedelta(hours=48)
+            "Technology", path=path, max_staleness=datetime.timedelta(hours=48), now=now
         )
         assert median is None
         assert "stale" in reason.lower()
