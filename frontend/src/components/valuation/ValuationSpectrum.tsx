@@ -4,6 +4,7 @@ import { useState } from "react";
 import { computeValuationRange, type ValuationRangePoint } from "@/lib/valuation-range";
 import { computeMarketSpread, formatMarketSpread } from "@/lib/market-spread";
 import type { SensitivityCellStatus } from "@/lib/sensitivity-cell";
+import { resolveDisplayedKey, resolveMarketSelectedForNewResult, type CaseKey, type SpectrumKey } from "@/lib/scenario-selection";
 import { formatPercent, formatPreciseCurrency } from "./format";
 import ScrollHintTable from "./ScrollHintTable";
 
@@ -30,8 +31,7 @@ export interface DCFScenarioSet {
   bull: ScenarioResult;
 }
 
-type CaseKey = "bear" | "base" | "bull";
-type SpectrumKey = CaseKey | "market";
+export type { CaseKey };
 
 const CASE_ORDER: CaseKey[] = ["bear", "base", "bull"];
 const CASE_LABELS: Record<CaseKey, string> = { bear: "Bear", base: "Base", bull: "Bull" };
@@ -78,6 +78,12 @@ function markerGlyphClass(key: SpectrumKey): string {
 interface ValuationSpectrumProps {
   scenarios: DCFScenarioSet;
   marketPrice: number | null;
+  // Bear/Base/Bull selection is lifted to the page and shared with the
+  // Thesis Rail — this instrument still owns its OWN transient Market
+  // inspection and hover-preview state locally, since neither of those
+  // belongs on the Rail.
+  selectedScenario: CaseKey;
+  onSelectScenario: (key: CaseKey) => void;
 }
 
 // Consolidates the former headline market-vs-intrinsic rail and the
@@ -90,24 +96,33 @@ interface ValuationSpectrumProps {
 // serve as real touch targets, so the AUTHORITATIVE control is a
 // separate, evenly-spaced selector row (>=44px targets) below it — the
 // rail is a purely visual indicator.
-export default function ValuationSpectrum({ scenarios, marketPrice }: ValuationSpectrumProps) {
-  const [selectedKey, setSelectedKey] = useState<SpectrumKey>("base");
+export default function ValuationSpectrum({
+  scenarios,
+  marketPrice,
+  selectedScenario,
+  onSelectScenario,
+}: ValuationSpectrumProps) {
+  const [isMarketSelected, setIsMarketSelected] = useState(false);
   const [hoveredKey, setHoveredKey] = useState<SpectrumKey | null>(null);
 
   // A new result can arrive with no market price at all (or a re-run can
   // drop it) while Market was still selected/hovered from a previous
-  // result — fall back to Base rather than pointing the readout at a
-  // case that no longer has a selector button. Adjusting state during
-  // render like this is safe: the condition is self-clearing, so it
-  // settles in the same render pass and never loops.
-  if (marketPrice === null && selectedKey === "market") {
-    setSelectedKey("base");
+  // result — fall back to the shared scenario selection rather than
+  // pointing the readout at a case that no longer has a selector button.
+  // Adjusting state during render like this is safe: the condition is
+  // self-clearing, so it settles in the same render pass and never loops.
+  const nextIsMarketSelected = resolveMarketSelectedForNewResult({
+    wasMarketSelected: isMarketSelected,
+    marketPrice,
+  });
+  if (nextIsMarketSelected !== isMarketSelected) {
+    setIsMarketSelected(nextIsMarketSelected);
   }
   if (marketPrice === null && hoveredKey === "market") {
     setHoveredKey(null);
   }
 
-  const displayedKey = hoveredKey ?? selectedKey;
+  const displayedKey = resolveDisplayedKey({ hoveredKey, isMarketSelected, selectedScenario });
 
   const rangePoints: ValuationRangePoint[] = [
     ...CASE_ORDER.map((key) => ({
@@ -125,6 +140,19 @@ export default function ValuationSpectrum({ scenarios, marketPrice }: ValuationS
   // one then shows exactly why via the readout) and Market only when an
   // observed price actually exists.
   const selectableKeys: SpectrumKey[] = marketPrice !== null ? [...CASE_ORDER, "market"] : [...CASE_ORDER];
+
+  function selectKey(key: SpectrumKey) {
+    if (key === "market") {
+      setIsMarketSelected(true);
+    } else {
+      setIsMarketSelected(false);
+      onSelectScenario(key);
+    }
+  }
+
+  function isKeySelected(key: SpectrumKey): boolean {
+    return key === "market" ? isMarketSelected : !isMarketSelected && selectedScenario === key;
+  }
 
   function selectorLabel(key: SpectrumKey): string {
     if (key === "market") return `Market: ${formatPreciseCurrency(marketPrice)}, observed price`;
@@ -169,7 +197,7 @@ export default function ValuationSpectrum({ scenarios, marketPrice }: ValuationS
           onMouseLeave={() => setHoveredKey(null)}
         >
           {selectableKeys.map((key) => {
-            const isSelected = selectedKey === key;
+            const isSelected = isKeySelected(key);
             return (
               <button
                 key={key}
@@ -178,7 +206,7 @@ export default function ValuationSpectrum({ scenarios, marketPrice }: ValuationS
                 aria-pressed={isSelected}
                 aria-label={`${selectorLabel(key)}${isSelected ? ", selected" : ""}`}
                 onMouseEnter={() => setHoveredKey(key)}
-                onClick={() => setSelectedKey(key)}
+                onClick={() => selectKey(key)}
               >
                 <span
                   aria-hidden="true"
@@ -267,7 +295,7 @@ export default function ValuationSpectrum({ scenarios, marketPrice }: ValuationS
             triggers a screen-reader announcement, since selection must
             not depend on hover. */}
         <span className="sr-only" aria-live="polite">
-          {selectionAnnouncement(selectedKey)}
+          {selectionAnnouncement(isMarketSelected ? "market" : selectedScenario)}
         </span>
       </div>
 

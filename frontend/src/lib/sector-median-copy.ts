@@ -61,3 +61,26 @@ export function sectorMedianProvenanceCaption(snapshot: SectorMedianSnapshotProv
     `${snapshot.sector_sample_count} sampled in this sector`
   );
 }
+
+/**
+ * The sector-relative badge label. Deliberately NOT "Passes the
+ * sector-relative Margin of Safety filter" (the prior copy) — trading
+ * at or below the sector median P/IV means this ticker is relatively
+ * LESS EXPENSIVE than its peers, which is not the same claim as "Margin
+ * of Safety" (reserved for market price at or below INTRINSIC value —
+ * see `hasMarginOfSafety`/the Thesis Rail's own delta label). A ticker
+ * can be below its sector median while still trading above its own
+ * intrinsic value, and vice versa; this label never implies otherwise.
+ */
+export function sectorRelativeBadgeLabel(isBelowSectorMedian: boolean): string {
+  return isBelowSectorMedian ? "Below sector median" : "Above sector median";
+}
+
+/**
+ * The disclaimer every sector-relative comparison must carry — a
+ * peer-relative read is not a claim about intrinsic value, and must
+ * never be presented as one.
+ */
+export function sectorRelativeDisclaimer(): string {
+  return "Relative valuation does not imply the shares trade below intrinsic value.";
+}
