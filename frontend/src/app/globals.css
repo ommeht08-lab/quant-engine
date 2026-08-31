@@ -1,28 +1,35 @@
 @import "tailwindcss";
 
 :root {
-  /* Canvas / surfaces — a quiet, cool-neutral shell. All material boldness
-     is reserved for the instrument tokens below. */
-  --ink: #f3f5f7;
-  --ink-raised: #fcfdfe;
-  --ledger: #e3e7ec;
+  /* Canvas / surfaces — a cold, restrained mineral shell. Material
+     boldness (the dark "instrument" surfaces) is reserved for the
+     Valuation Spectrum and the Thesis Rail; every other surface here
+     stays flat and quiet. */
+  --ink: #f3f5f8; /* porcelain canvas */
+  --ink-raised: #fcfdfe; /* raised white */
+  --ledger: #e6e9ef;
 
-  /* Text */
-  --paper: #171a20;
-  --paper-muted: #4b5563;
-  --paper-dim: #5b6472;
+  /* Text — the SAME blue-black used for the dark instrument surfaces
+     below doubles as the primary text color on light surfaces; slate is
+     the one secondary/tertiary text tone. A deliberately small
+     vocabulary, not a five-step gray ramp. */
+  --paper: #151c26; /* blue-black instrument, as text */
+  --paper-muted: #596579; /* slate text */
+  --paper-dim: #838d9d; /* a lighter tint of slate, for tertiary/caption text only */
 
-  /* Instrument — the Valuation Spectrum's own dark, material surface.
-     Not used anywhere else in the shell. */
-  --instrument: #171c24;
-  --instrument-edge: #3a4656;
-  --instrument-text: #edeff3;
-  --instrument-text-dim: #9aa4b2;
+  /* Instrument — the dark, material surface shared by the Valuation
+     Spectrum and the Thesis Rail: the two places the workspace's core
+     numbers live. Nowhere else uses this surface. */
+  --instrument: #151c26;
+  --instrument-raised: #1b2431;
+  --instrument-edge: #2c3847;
+  --instrument-text: #eef1f5;
+  --instrument-text-dim: #9aa7b9;
 
   /* Semantic accents */
-  --cobalt: #2f5fe0;
-  --cobalt-hover: #2650bd;
-  --cobalt-soft: rgba(47, 95, 224, 0.08);
+  --cobalt: #315fe5;
+  --cobalt-hover: #2850c8;
+  --cobalt-soft: rgba(49, 95, 229, 0.09);
   --verdigris: #0f766e;
   --verdigris-soft: rgba(15, 118, 110, 0.1);
   --brass: #92400e;
@@ -31,8 +38,8 @@
   --signal-soft: rgba(179, 38, 30, 0.09);
 
   /* Borders */
-  --line: rgba(23, 26, 32, 0.1);
-  --line-strong: rgba(23, 26, 32, 0.18);
+  --line: rgba(21, 28, 38, 0.1);
+  --line-strong: rgba(21, 28, 38, 0.18);
 
   /* Type — loaded via next/font/google in layout.tsx, which defines the
      --font-instrument-sans / --font-plex-sans / --font-plex-mono custom
@@ -65,7 +72,7 @@ body {
 }
 
 ::selection {
-  background: rgba(29, 78, 216, 0.18);
+  background: rgba(49, 95, 229, 0.18);
   color: var(--paper);
 }
 
@@ -86,7 +93,7 @@ input {
 }
 
 .shell-container {
-  width: min(100% - 2rem, 78rem);
+  width: min(100% - 2rem, 84rem);
   margin-inline: auto;
 }
 
@@ -95,7 +102,8 @@ input {
   font-variant-numeric: tabular-nums;
 }
 
-/* App shell / navigation */
+/* App shell / navigation — compact, quiet, unchanged in structure from
+   the prior pass; only the token values underneath shifted. */
 
 .app-header {
   position: sticky;
@@ -163,7 +171,7 @@ input {
   position: relative;
   display: inline-flex;
   align-items: center;
-  min-height: 2.15rem;
+  min-height: 2.75rem; /* 44px — the same thumb-friendly floor used everywhere else */
   padding: 0.4rem 0.65rem;
   border-bottom: 2px solid transparent;
   color: var(--paper-muted);
@@ -185,7 +193,7 @@ input {
 .sign-out-button {
   display: inline-flex;
   align-items: center;
-  min-height: 2.15rem;
+  min-height: 2.75rem; /* 44px — the same thumb-friendly floor used everywhere else */
   border: 1px solid var(--line-strong);
   border-radius: 5px;
   padding: 0.4rem 0.7rem;
@@ -200,16 +208,11 @@ input {
   color: var(--paper);
 }
 
-/* display is intentionally left to the `hidden`/`sm:hidden` Tailwind
-   utilities applied alongside this class in JSX — declaring it here too
-   would fight the responsive utility for the cascade (both are
-   equal-specificity class selectors, and this rule comes after
-   Tailwind's utilities in source order, so it would always win). */
 .search-toggle {
   align-items: center;
   justify-content: center;
-  width: 2.15rem;
-  height: 2.15rem;
+  width: 2.75rem; /* 44px */
+  height: 2.75rem;
   flex-shrink: 0;
   border: 1px solid var(--line-strong);
   border-radius: 5px;
@@ -234,11 +237,13 @@ input {
 }
 
 .page-header {
-  display: grid;
-  gap: 0.75rem;
-  align-items: end;
-  margin-bottom: 1.5rem;
-  padding-block: 1.5rem 1.1rem;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem 1.5rem;
+  margin-bottom: 1.25rem;
+  padding-block: 1.1rem 1rem;
   border-bottom: 1px solid var(--line);
 }
 
@@ -253,66 +258,120 @@ input {
 }
 
 .display-title {
-  max-width: 46rem;
   font-family: var(--display);
-  font-size: clamp(1.35rem, 2vw, 1.7rem);
+  font-size: clamp(1.2rem, 1.6vw, 1.45rem);
   font-weight: 600;
-  line-height: 1.25;
+  line-height: 1.2;
   letter-spacing: -0.01em;
   color: var(--paper);
 }
 
 .page-deck {
-  max-width: 40rem;
+  max-width: 32rem;
   color: var(--paper-muted);
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   line-height: 1.5;
 }
 
-.panel-title {
+/* A single concise section title with a rule above it — deliberately
+   never paired with a repeated eyebrow line; every analysis section
+   below the fold uses this exact same, quiet unit. */
+.section-title {
+  margin: 2.25rem 0 1rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--line);
   font-family: var(--display);
   font-size: 0.98rem;
   font-weight: 600;
-  line-height: 1.3;
   color: var(--paper);
 }
 
-/* A single concise section title with a rule above it — replaces the
-   repeated eyebrow-plus-heading block that made every lower section of
-   the workspace look like the same templated unit. */
-.section-title {
-  margin: 2.5rem 0 1.1rem;
-  padding-top: 1.75rem;
-  border-top: 1px solid var(--line);
-  font-family: var(--display);
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--paper);
+.section-title:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }
 
-/* The workspace's control surface — deliberately NOT another boxed
-   .panel card. Ticker + primary action sit directly on the page canvas,
-   with a single rule underneath separating controls from results; the
-   assumption mode/sliders are visually secondary (tighter, quieter). */
-.command-surface {
-  padding-bottom: 1.25rem;
-  margin-bottom: 2rem;
+/* Ticker command bar — the one place data entry happens. Deliberately
+   not a boxed panel: a single flat strip sitting directly on the
+   canvas, so the ticker field and Run action read as the obvious,
+   immediate starting point rather than one more card among many. */
+.run-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 1rem;
+  padding-bottom: 1.1rem;
+  margin-bottom: 1.75rem;
   border-bottom: 1px solid var(--line-strong);
 }
 
-.command-surface-secondary {
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--line);
+.run-bar-field {
+  flex: 1 1 14rem;
+  min-width: 0;
 }
 
-/* No shadow here by design — depth/material is reserved for the
-   Valuation Spectrum instrument; ordinary panels stay flat, told apart
-   only by a hairline border. Radius stays modest (4-6px) — the larger,
-   more confident radius is reserved for the instrument too. */
+.run-bar-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+/* Assumption tray — directly beneath the ticker command bar, always
+   visible (even before the first run), so every assumption the model
+   will actually use can be set before Run is ever pressed. Deliberately
+   slimmer than a `.panel` card: a quiet strip, not another box among
+   the analysis panels below. */
+.assumption-tray {
+  margin-bottom: 1.75rem;
+  padding: 0.9rem 1.1rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--ink-raised);
+}
+
+.assumption-tray-label {
+  margin-bottom: 0.75rem;
+  color: var(--paper-dim);
+  font-family: var(--utility);
+  font-size: 0.64rem;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.assumption-tray-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem 1.5rem;
+}
+
+@media (min-width: 640px) {
+  .assumption-tray-fields {
+    grid-template-columns: minmax(0, 20rem);
+  }
+
+  .assumption-tray-fields--custom {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* A rerun that failed while a previous result is still visible — the
+   result stays on screen (never silently cleared), marked clearly as
+   the previous one, distinct from the error banner above it. */
+.previous-result-notice {
+  display: block;
+  margin-bottom: 1.25rem;
+  color: var(--paper-muted);
+  font-size: 0.78rem;
+}
+
+/* No shadow here by design — depth/material stays reserved for the two
+   instrument surfaces (Spectrum, Thesis Rail); every other panel is
+   flat, told apart only by a hairline border. */
 .panel {
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--ink-raised);
 }
 
@@ -333,114 +392,26 @@ input {
   text-transform: uppercase;
 }
 
+/* Still used by Portfolio/Backtests/Trades/ticker-detail panels, which
+   are out of scope for this redesign. */
+.panel-title {
+  font-family: var(--display);
+  font-size: 0.98rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--paper);
+}
+
 .metric-panel {
   border: 1px solid var(--line);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--ink-raised);
-}
-
-/* Valuation thesis — an analyst's conclusion, not an equal-weight KPI
-   grid. Intrinsic value and upside/downside are dominant; market price
-   and WACC are compact supporting facts underneath a rule. */
-
-.thesis-panel {
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--ink-raised);
-  padding: 1.25rem 1.5rem 1.5rem;
-}
-
-.thesis-byline {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.65rem;
-  margin-bottom: 1.1rem;
-}
-
-.thesis-ticker {
-  font-family: var(--display);
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: var(--paper);
-}
-
-.thesis-sector {
-  font-family: var(--utility);
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--paper-dim);
-}
-
-.thesis-updating {
-  font-family: var(--utility);
-  font-size: 0.68rem;
-  font-weight: 600;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--cobalt);
-}
-
-.thesis-primary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  column-gap: 2.5rem;
-  row-gap: 1.25rem;
-}
-
-.thesis-value {
-  margin-top: 0.3rem;
-  font-family: var(--utility);
-  font-size: clamp(2rem, 4.5vw, 2.75rem);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  line-height: 1;
-  color: var(--cobalt);
-}
-
-.thesis-delta {
-  margin-top: 0.3rem;
-  font-family: var(--utility);
-  font-size: clamp(1.5rem, 3.5vw, 2rem);
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  line-height: 1;
-}
-
-.thesis-delta-note {
-  margin-top: 0.4rem;
-  font-size: 0.76rem;
-  color: var(--paper-dim);
-}
-
-.thesis-supporting {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem 0.5rem;
-  margin-top: 1.25rem;
-  padding-top: 0.9rem;
-  border-top: 1px solid var(--line);
-  font-size: 0.82rem;
-  color: var(--paper-muted);
-}
-
-.thesis-supporting b {
-  font-family: var(--utility);
-  font-weight: 600;
-  color: var(--paper);
-}
-
-.thesis-supporting-sep {
-  color: var(--paper-dim);
 }
 
 .input-field {
   width: 100%;
   border: 1px solid var(--line-strong);
-  border-radius: 6px;
+  border-radius: 7px;
   background: var(--ink-raised);
   color: var(--paper);
   transition: border-color 120ms ease, box-shadow 120ms ease;
@@ -468,12 +439,12 @@ input {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 2.5rem;
-  border-radius: 6px;
-  padding-inline: 1rem;
-  font-size: 0.8rem;
+  min-height: 2.75rem;
+  border-radius: 7px;
+  padding-inline: 1.15rem;
+  font-size: 0.82rem;
   font-weight: 600;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease, transform 120ms ease;
 }
 
 .button-primary {
@@ -485,6 +456,10 @@ input {
 .button-primary:hover:not(:disabled) {
   border-color: var(--cobalt-hover);
   background: var(--cobalt-hover);
+}
+
+.button-primary:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 .button-primary:disabled {
@@ -515,7 +490,7 @@ input {
 .status-warning {
   border: 1px solid var(--line);
   border-left: 3px solid var(--line-strong);
-  border-radius: 6px;
+  border-radius: 7px;
   padding: 0.9rem 1.1rem;
   font-size: 0.83rem;
   line-height: 1.5;
@@ -578,8 +553,11 @@ input {
 }
 
 .mode-tab {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem; /* 44px — the same thumb-friendly floor used everywhere else */
   border-radius: 5px;
-  padding: 0.45rem 0.85rem;
+  padding-inline: 0.85rem;
   color: var(--paper-muted);
   font-size: 0.78rem;
   font-weight: 600;
@@ -589,7 +567,7 @@ input {
 .mode-tab[aria-pressed="true"] {
   background: var(--ink-raised);
   color: var(--cobalt);
-  box-shadow: 0 1px 2px rgba(20, 26, 34, 0.1);
+  box-shadow: 0 1px 2px rgba(21, 28, 38, 0.1);
 }
 
 .mode-tab:hover:not([aria-pressed="true"]) {
@@ -640,22 +618,320 @@ input {
   accent-color: var(--paper-dim);
 }
 
-/* Valuation Spectrum instrument — the one dark, material surface in the
-   product. Market, Bear, Base, and Bull all live on this single rail;
-   gloss comes from a crisp inset top-edge highlight and a controlled
-   outer shadow, never a gradient or glow. */
+/* ================================================================
+   Workspace grid — the primary analysis column plus the sticky
+   Thesis Rail. The Rail is FIRST in document order at every width
+   (a summary-first reading order, and the correct source order for
+   the stacked mobile/tablet layout) and is repositioned to a fixed
+   320px column on the right purely via named grid areas once there
+   is room for it — no DOM reordering, no JS-computed layout.
+
+   The two-column breakpoint is 1024px, verified visually (screenshots
+   + computed styles at 1024px/1023px), not duplicated as a JS
+   constant — there is nothing here for a JS module to test without
+   also rendering this CSS. ================================================================ */
+
+.workspace-grid {
+  display: grid;
+  grid-template-areas: "rail" "analysis";
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2rem;
+  align-items: start;
+}
+
+.workspace-rail-slot {
+  grid-area: rail;
+  min-width: 0;
+}
+
+.workspace-analysis-slot {
+  grid-area: analysis;
+  min-width: 0;
+}
+
+@media (min-width: 1024px) {
+  .workspace-grid {
+    grid-template-areas: "analysis rail";
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 2.5rem;
+  }
+
+  .workspace-rail-slot {
+    /* Deliberately no max-height/overflow-y clamp: the Rail's own
+       content is fixed and modest, and clamping it would risk an
+       inner-scroll trap on shorter desktop screens (a viewport tall
+       enough for the header but too short for the full Rail). Sticky
+       positioning alone lets it ride along with the page and, on a
+       genuinely short screen, simply scroll past with the rest of the
+       page rather than trap scroll inside a nested region. */
+    position: sticky;
+    top: 4.75rem;
+  }
+}
+
+@media (min-width: 1280px) {
+  .workspace-grid {
+    grid-template-columns: minmax(0, 1fr) 340px;
+  }
+}
+
+/* ================================================================
+   Thesis Rail — the workspace's one persistent, signature surface.
+   Deliberately the SAME dark instrument material as the Valuation
+   Spectrum (not a second, different "sidebar" style): together they
+   read as one instrument system, distinct from the flat porcelain
+   research panels everywhere else. ================================================================ */
+
+.thesis-rail {
+  position: relative;
+  border-radius: 12px;
+  border: 1px solid var(--instrument-edge);
+  background: var(--instrument);
+  color: var(--instrument-text);
+  padding: 1.35rem 1.35rem 1.1rem;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 12px 28px -18px rgba(8, 10, 14, 0.55);
+}
+
+.thesis-rail-byline {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 1.1rem;
+}
+
+.thesis-rail-ticker {
+  font-family: var(--display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--instrument-text);
+}
+
+.thesis-rail-sector {
+  font-family: var(--utility);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--instrument-text-dim);
+}
+
+.thesis-rail-updating {
+  font-family: var(--utility);
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cobalt);
+}
+
+.thesis-rail-updating::before {
+  content: "";
+  display: inline-block;
+  width: 0.32rem;
+  height: 0.32rem;
+  margin-right: 0.35rem;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.thesis-rail-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding-block: 0.5rem;
+  border-top: 1px solid var(--instrument-edge);
+}
+
+.thesis-rail-row:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.thesis-rail-row-label {
+  font-family: var(--utility);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--instrument-text-dim);
+}
+
+.thesis-rail-row-value {
+  font-family: var(--utility);
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--instrument-text);
+  text-align: right;
+}
+
+.thesis-rail-primary {
+  padding-block: 0.75rem 1rem;
+  border-top: 1px solid var(--instrument-edge);
+}
+
+.thesis-rail-primary:first-of-type {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.thesis-rail-value {
+  margin-top: 0.25rem;
+  font-family: var(--utility);
+  font-size: clamp(1.7rem, 3.4vw, 2.05rem);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.05;
+  color: var(--instrument-text);
+}
+
+.thesis-rail-delta {
+  margin-top: 0.15rem;
+  font-family: var(--utility);
+  font-size: 1.1rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+
+.thesis-rail-delta-note {
+  margin-top: 0.2rem;
+  font-size: 0.72rem;
+  color: var(--instrument-text-dim);
+}
+
+/* The Rail's own Bear/Base/Bull selector — visually compact, but never
+   below the 44px touch-target floor used everywhere else in the
+   product. Shares selection state with the Valuation Spectrum
+   instrument; this is simply a second, always-visible place to change
+   it. */
+.thesis-rail-selector {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.75rem;
+}
+
+.thesis-rail-selector-button {
+  flex: 1 1 0;
+  min-height: 44px;
+  border-radius: 6px;
+  border: 1px solid var(--instrument-edge);
+  color: var(--instrument-text-dim);
+  font-size: 0.74rem;
+  font-weight: 600;
+  transition: border-color 150ms ease, color 150ms ease, background 150ms ease;
+}
+
+.thesis-rail-selector-button:hover {
+  border-color: var(--instrument-text-dim);
+  color: var(--instrument-text);
+}
+
+.thesis-rail-selector-button[aria-pressed="true"] {
+  border-color: var(--cobalt);
+  background: rgba(49, 95, 229, 0.18);
+  color: var(--instrument-text);
+}
+
+.thesis-rail-footnote {
+  margin-top: 1rem;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--instrument-edge);
+  font-size: 0.68rem;
+  line-height: 1.5;
+  color: var(--instrument-text-dim);
+}
+
+/* ================================================================
+   Result transition — ONE orchestrated fade+lift on the analysis
+   column and Rail together when a fresh result replaces the current
+   one. Everything else in the product (hover states, the mode-tab
+   background, the Spectrum's rail indicator) keeps its own short,
+   independent transition; this is the single "a new result just
+   arrived" moment. ================================================================ */
+
+.result-enter {
+  animation: result-enter 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes result-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Restrained dimming (not a 50% wash, and never pointer-events-none) —
+   the previous result stays clearly marked as stale via aria-busy and
+   the Rail's own "Updating" status, but stays legible and inspectable
+   while the replacement loads. */
+.result-stale {
+  opacity: 0.72;
+  transition: opacity 200ms ease;
+}
+
+/* First-load skeleton — a quiet placeholder shaped like the Rail and
+   headline it is about to become, not a spinner-in-a-box. */
+.skeleton-block {
+  position: relative;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--ledger);
+}
+
+.skeleton-block::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+  animation: skeleton-sweep 1.6s ease-in-out infinite;
+}
+
+@keyframes skeleton-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.spinner {
+  display: inline-block;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #ffffff;
+  border-radius: 999px;
+  animation: spinner-spin 700ms linear infinite;
+}
+
+@keyframes spinner-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Valuation Spectrum instrument — the dark, material surface (shared
+   visual language with the Thesis Rail) holding Market, Bear, Base,
+   and Bull on one scale. Gloss comes from a crisp inset top-edge
+   highlight and a controlled outer shadow, never a gradient or glow. */
 
 .instrument-panel {
   position: relative;
-  border-radius: 14px;
+  border-radius: 12px;
   border: 1px solid var(--instrument-edge);
   background: var(--instrument);
   padding: 1.5rem;
   color: var(--instrument-text);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.07),
-    inset 0 0 0 1px rgba(0, 0, 0, 0.3),
-    0 16px 32px -20px rgba(8, 10, 14, 0.6);
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 16px 32px -20px rgba(8, 10, 14, 0.55);
 }
 
 .instrument-caption {
@@ -693,10 +969,6 @@ input {
   pointer-events: none;
 }
 
-/* Rail markers are purely visual now — position along the scale is
-   informative, but too easily clustered/overlapping to serve as a real
-   touch target at narrow widths. The authoritative control is the
-   selector row below. */
 .instrument-marker {
   position: absolute;
   display: grid;
@@ -705,8 +977,6 @@ input {
   color: inherit;
 }
 
-/* No border-radius here — each shape (circle/diamond/square) sets its
-   own radius inline so this rule can never silently override it. */
 .instrument-marker-glyph {
   display: block;
   transition: outline-color 150ms ease;
@@ -717,10 +987,6 @@ input {
   outline-offset: 3px;
 }
 
-/* The authoritative Bear/Base/Bull/Market control — real buttons with a
-   44px minimum touch target, evenly spaced regardless of how close the
-   underlying dollar values are, so clustered values never overlap or
-   become hard to hit. Replaces what used to be a decorative legend. */
 .instrument-selector {
   display: flex;
   flex-wrap: wrap;
@@ -750,7 +1016,7 @@ input {
 
 .instrument-selector-button[aria-pressed="true"] {
   border-color: var(--cobalt);
-  background: rgba(47, 95, 224, 0.16);
+  background: rgba(49, 95, 229, 0.16);
   color: var(--instrument-text);
 }
 
@@ -818,10 +1084,8 @@ input {
    frame`, a non-scrolling OUTER wrapper, while `.table-scroll` (the
    INNER element) carries the actual `overflow-x: auto` — so the fade
    stays anchored to the visible right edge as the content scrolls
-   underneath it, rather than scrolling away with that content or
-   (previously) sitting on top of the final column once fully scrolled.
-   `.table-scroll-frame--more` is present only while there is still more
-   to reveal. */
+   underneath it. `.table-scroll-frame--more` is present only while
+   there is still more to reveal. */
 
 .table-scroll-frame {
   position: relative;
@@ -859,15 +1123,9 @@ input {
   }
 }
 
-@media (min-width: 768px) {
-  .page-header {
-    grid-template-columns: minmax(0, 1fr) minmax(16rem, 0.5fr);
-  }
-}
-
 @media (max-width: 640px) {
   .shell-container {
-    width: min(100% - 1.25rem, 78rem);
+    width: min(100% - 1.25rem, 84rem);
   }
 
   .brand-lockup small {

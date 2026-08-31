@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { sectorMedianProvenanceCaption, sectorMedianUnavailableCopy } from "./sector-median-copy.ts";
+import {
+  sectorMedianProvenanceCaption,
+  sectorMedianUnavailableCopy,
+  sectorRelativeBadgeLabel,
+  sectorRelativeDisclaimer,
+} from "./sector-median-copy.ts";
 
 const ALL_CODES = ["incompatible_assumptions", "insufficient_peers", "snapshot_unavailable"] as const;
 
@@ -66,4 +71,23 @@ test("sectorMedianProvenanceCaption degrades gracefully on an unparseable timest
   });
   assert.match(caption, /unknown date/);
   assert.match(caption, /8\/10 tickers valued/);
+});
+
+test("sectorRelativeBadgeLabel: below-median reads as 'Below sector median'", () => {
+  assert.equal(sectorRelativeBadgeLabel(true), "Below sector median");
+});
+
+test("sectorRelativeBadgeLabel: above-median reads as 'Above sector median'", () => {
+  assert.equal(sectorRelativeBadgeLabel(false), "Above sector median");
+});
+
+test("sectorRelativeBadgeLabel: never uses the retired 'Margin of Safety filter' language", () => {
+  assert.ok(!/margin of safety|passes|filter/i.test(sectorRelativeBadgeLabel(true)));
+  assert.ok(!/margin of safety|passes|filter/i.test(sectorRelativeBadgeLabel(false)));
+});
+
+test("sectorRelativeDisclaimer: states relative valuation is not an intrinsic-value claim", () => {
+  const disclaimer = sectorRelativeDisclaimer();
+  assert.match(disclaimer, /does not imply/i);
+  assert.match(disclaimer, /intrinsic value/i);
 });
