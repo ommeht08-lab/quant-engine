@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { IBM_Plex_Mono, IBM_Plex_Sans, Instrument_Sans } from "next/font/google";
+import { IBM_Plex_Mono, IBM_Plex_Sans, Instrument_Sans, Outfit } from "next/font/google";
 import AppHeader from "@/components/AppHeader";
 import "./globals.css";
 
@@ -28,6 +28,16 @@ const plexMono = IBM_Plex_Mono({
   display: "swap",
 });
 
+// Product UI: used by the flagship research shell. Outfit's open,
+// geometric forms make dense navigation and financial labels feel calm
+// and deliberate, while Plex Mono remains reserved for auditable data.
+const outfit = Outfit({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-outfit",
+  display: "swap",
+});
+
 export const metadata: Metadata = {
   title: "Valuation Engine | Om Mehta Equity Research",
   description: "A private intrinsic-value and paper-portfolio research workspace.",
@@ -37,7 +47,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html
       lang="en"
-      className={`h-full antialiased ${instrumentSans.variable} ${plexSans.variable} ${plexMono.variable}`}
+      className={`h-full antialiased ${instrumentSans.variable} ${plexSans.variable} ${plexMono.variable} ${outfit.variable}`}
     >
       <body className="min-h-full">
         <AppHeader />

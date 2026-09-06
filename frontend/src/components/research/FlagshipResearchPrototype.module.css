@@ -11,12 +11,13 @@
   --rp-cobalt-deep: #244ac0;
   --rp-cobalt-soft: #eef2ff;
   --rp-positive: #087b67;
+  --rp-interface: var(--font-outfit, "Outfit"), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   min-height: 100vh;
   display: grid;
   grid-template-columns: 15.5rem minmax(0, 1fr);
   background: var(--rp-canvas);
   color: var(--rp-navy);
-  font-family: var(--body);
+  font-family: var(--rp-interface);
 }
 
 .prototypeShell button,
@@ -52,7 +53,7 @@
   border-radius: 10px;
   background: var(--rp-cobalt);
   color: #fff;
-  font-family: var(--utility);
+  font-family: var(--rp-interface);
   font-weight: 700;
   letter-spacing: -0.04em;
 }
@@ -70,27 +71,28 @@
 }
 
 .brand strong {
-  font-family: var(--display);
-  font-size: 0.92rem;
-  font-weight: 650;
-  letter-spacing: -0.015em;
+  font-family: var(--rp-interface);
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.025em;
 }
 
 .brand small {
   margin-top: 0.1rem;
   color: var(--rp-dim);
-  font-family: var(--utility);
-  font-size: 0.61rem;
-  letter-spacing: 0.035em;
+  font-family: var(--rp-interface);
+  font-size: 0.66rem;
+  font-weight: 500;
+  letter-spacing: 0.015em;
 }
 
 .navEyebrow,
 .kicker {
   color: var(--rp-dim);
-  font-family: var(--utility);
-  font-size: 0.64rem;
-  font-weight: 650;
-  letter-spacing: 0.09em;
+  font-family: var(--rp-interface);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.11em;
   text-transform: uppercase;
 }
 
@@ -100,30 +102,90 @@
 
 .workflowNav {
   display: grid;
-  gap: 0.28rem;
+  gap: 0.35rem;
 }
 
 .navItem,
 .activeNavItem {
+  position: relative;
   display: flex;
-  min-height: 2.7rem;
+  min-height: 3.55rem;
   align-items: center;
-  gap: 0.8rem;
-  border-radius: 9px;
-  padding: 0.58rem 0.68rem;
+  gap: 0.72rem;
+  border: 1px solid transparent;
+  border-radius: 11px;
+  padding: 0.55rem 0.62rem;
   color: var(--rp-slate);
-  font-size: 0.78rem;
-  font-weight: 560;
-  transition-property: color, background-color, transform;
+  transition-property: color, background-color, border-color, transform;
 }
 
-.navItem span,
-.activeNavItem span {
-  width: 1.3rem;
+.navIcon {
+  display: grid;
+  width: 2.15rem;
+  height: 2.15rem;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid var(--rp-line);
+  border-radius: 8px;
+  background: var(--rp-surface-soft);
+  color: #788397;
+}
+
+.navIcon svg {
+  width: 1.15rem;
+  height: 1.15rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.6;
+}
+
+.navCopy {
+  min-width: 0;
+  flex: 1;
+}
+
+.navCopy strong,
+.navCopy small {
+  display: block;
+}
+
+.navCopy strong {
+  color: inherit;
+  font-size: 0.79rem;
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.navCopy small {
+  margin-top: 0.2rem;
+  overflow: hidden;
   color: var(--rp-dim);
-  font-family: var(--utility);
-  font-size: 0.58rem;
-  font-weight: 650;
+  font-size: 0.61rem;
+  font-weight: 500;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.navArrow {
+  display: grid;
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 auto;
+  place-items: center;
+  color: #a0a8b7;
+}
+
+.navArrow svg {
+  width: 0.85rem;
+  height: 0.85rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
 }
 
 .navItem:hover {
@@ -133,11 +195,29 @@
 }
 
 .activeNavItem {
+  border-color: #dbe2fb;
   background: var(--rp-cobalt-soft);
   color: var(--rp-cobalt-deep);
 }
 
-.activeNavItem span {
+.activeNavItem::before {
+  position: absolute;
+  top: 0.72rem;
+  bottom: 0.72rem;
+  left: -1px;
+  width: 3px;
+  border-radius: 0 4px 4px 0;
+  background: var(--rp-cobalt);
+  content: "";
+}
+
+.activeNavItem .navIcon {
+  border-color: #cbd6ff;
+  background: #fff;
+  color: var(--rp-cobalt);
+}
+
+.activeNavItem .navArrow {
   color: var(--rp-cobalt);
 }
 
@@ -170,7 +250,7 @@
 }
 
 .sidebarStatus strong {
-  font-size: 0.7rem;
+  font-size: 0.73rem;
   font-weight: 600;
 }
 
@@ -179,8 +259,9 @@
   margin-top: 0.22rem;
   overflow: hidden;
   color: var(--rp-dim);
-  font-family: var(--utility);
-  font-size: 0.55rem;
+  font-family: var(--rp-interface);
+  font-size: 0.6rem;
+  font-weight: 500;
   line-height: 1.45;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -300,8 +381,8 @@
   background: var(--rp-cobalt-soft);
   padding: 0.25rem 0.62rem;
   color: var(--rp-cobalt-deep);
-  font-family: var(--utility);
-  font-size: 0.58rem;
+  font-family: var(--rp-interface);
+  font-size: 0.62rem;
   font-weight: 600;
   letter-spacing: 0.025em;
 }
@@ -335,24 +416,25 @@
 }
 
 .companyLine strong {
-  font-family: var(--display);
-  font-size: 0.86rem;
-  font-weight: 650;
+  font-family: var(--rp-interface);
+  font-size: 0.91rem;
+  font-weight: 700;
 }
 
 .companyLine span {
   margin-top: 0.12rem;
   color: var(--rp-slate);
-  font-family: var(--utility);
-  font-size: 0.59rem;
+  font-family: var(--rp-interface);
+  font-size: 0.64rem;
+  font-weight: 500;
 }
 
 .caseIntro h1 {
-  font-family: var(--display);
-  font-size: clamp(2.05rem, 4.2vw, 3.55rem);
-  font-weight: 650;
-  letter-spacing: -0.055em;
-  line-height: 0.98;
+  font-family: var(--rp-interface);
+  font-size: clamp(2rem, 3.45vw, 3.05rem);
+  font-weight: 600;
+  letter-spacing: -0.038em;
+  line-height: 1.04;
 }
 
 .caseDeck {
@@ -464,7 +546,7 @@
   align-items: center;
   gap: 0.5rem;
   color: var(--rp-positive);
-  font-family: var(--display);
+  font-family: var(--rp-interface);
   font-size: 1.12rem;
   letter-spacing: -0.01em;
 }
@@ -503,9 +585,9 @@
 .sectionHeading h2,
 .evidenceStrip h2 {
   margin-top: 0.22rem;
-  font-family: var(--display);
-  font-size: 1.05rem;
-  font-weight: 650;
+  font-family: var(--rp-interface);
+  font-size: 1.08rem;
+  font-weight: 700;
   letter-spacing: -0.022em;
 }
 
@@ -778,7 +860,7 @@
   border-radius: 4px;
   background: var(--rp-cobalt-soft);
   padding: 0.13rem 0.3rem;
-  font-family: var(--body);
+  font-family: var(--rp-interface);
   font-size: 0.52rem;
 }
 
@@ -787,7 +869,7 @@
   align-items: center;
   gap: 0.42rem;
   color: var(--rp-positive);
-  font-family: var(--body);
+  font-family: var(--rp-interface);
   font-size: 0.62rem;
   font-weight: 600;
 }
@@ -863,7 +945,7 @@
   align-items: center;
   gap: 0.35rem;
   color: var(--rp-cobalt-deep);
-  font-family: var(--body);
+  font-family: var(--rp-interface);
   font-weight: 620;
 }
 
@@ -905,7 +987,7 @@
 
 .drawerHeader h2 {
   margin-top: 0.25rem;
-  font-family: var(--display);
+  font-family: var(--rp-interface);
   font-size: 1.45rem;
   font-weight: 650;
   letter-spacing: -0.035em;
@@ -1090,7 +1172,7 @@
 
   .mobileBrand {
     display: block;
-    font-family: var(--display);
+    font-family: var(--rp-interface);
     font-size: 0.8rem;
     font-weight: 650;
   }

@@ -7,13 +7,38 @@ import type { ResearchCaseFixture, ResearchFactFixture } from "@/lib/research-fi
 import styles from "./FlagshipResearchPrototype.module.css";
 
 const WORKFLOW = [
-  { id: "overview", label: "Overview" },
-  { id: "statements", label: "Historical statements" },
-  { id: "forecast", label: "Forecast" },
-  { id: "valuation", label: "Valuation" },
-  { id: "evidence", label: "Evidence" },
-  { id: "methodology", label: "Methodology" },
+  { id: "overview", label: "Overview", description: "Case summary" },
+  { id: "statements", label: "Historical statements", description: "Eligible actuals" },
+  { id: "forecast", label: "Forecast", description: "Operating model" },
+  { id: "valuation", label: "Valuation", description: "DCF and scenarios" },
+  { id: "evidence", label: "Evidence", description: "Checks and lineage" },
+  { id: "methodology", label: "Methodology", description: "Methods and limits" },
 ] as const;
+
+type WorkflowId = (typeof WORKFLOW)[number]["id"];
+
+function WorkflowIcon({ name }: { name: WorkflowId }) {
+  if (name === "overview") {
+    return <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1.2" /><rect x="14" y="3.5" width="6.5" height="6.5" rx="1.2" /><rect x="3.5" y="14" width="6.5" height="6.5" rx="1.2" /><rect x="14" y="14" width="6.5" height="6.5" rx="1.2" /></svg>;
+  }
+  if (name === "statements") {
+    return <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 3.5h9l3 3v14H6z" /><path d="M15 3.5v3h3M9 11h6M9 14.5h6M9 18h4" /></svg>;
+  }
+  if (name === "forecast") {
+    return <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 19.5h16M5.5 17l4-4 3 2 5.5-7" /><path d="m15 8 3-.5.5 3" /></svg>;
+  }
+  if (name === "valuation") {
+    return <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" /><path d="M14.7 8.7c-.7-.6-1.5-.9-2.6-.9-1.5 0-2.5.7-2.5 1.8 0 2.8 5.2 1.4 5.2 4.4 0 1.2-1 2.1-2.7 2.1-1.2 0-2.2-.4-3-1.1M12 6.3v11.4" /></svg>;
+  }
+  if (name === "evidence") {
+    return <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3.5 19 6v5.2c0 4.4-2.8 7.6-7 9.3-4.2-1.7-7-4.9-7-9.3V6z" /><path d="m8.7 12 2.1 2.1 4.6-4.7" /></svg>;
+  }
+  return <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4.5 5.5c2.6-.8 5.1-.5 7.5 1.1v13c-2.4-1.6-4.9-1.9-7.5-1.1zM19.5 5.5c-2.6-.8-5.1-.5-7.5 1.1v13c2.4-1.6 4.9-1.9 7.5-1.1z" /></svg>;
+}
+
+function NavArrowIcon() {
+  return <svg aria-hidden="true" viewBox="0 0 20 20"><path d="m7.5 5 5 5-5 5" /></svg>;
+}
 
 function CloseIcon() {
   return (
@@ -166,14 +191,16 @@ export default function FlagshipResearchPrototype({ researchCase }: { researchCa
 
         <p className={styles.navEyebrow}>Research workflow</p>
         <nav className={styles.workflowNav} aria-label="Research workflow">
-          {WORKFLOW.map((item, index) => (
+          {WORKFLOW.map((item) => (
             <a
               key={item.id}
               href={`#${item.id}`}
               className={item.id === "overview" ? styles.activeNavItem : styles.navItem}
               onClick={() => setMobileNavigationOpen(false)}
             >
-              <span>{String(index + 1).padStart(2, "0")}</span>{item.label}
+              <span className={styles.navIcon}><WorkflowIcon name={item.id} /></span>
+              <span className={styles.navCopy}><strong>{item.label}</strong><small>{item.description}</small></span>
+              <span className={styles.navArrow}><NavArrowIcon /></span>
             </a>
           ))}
         </nav>
