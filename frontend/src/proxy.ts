@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 import { SESSION_COOKIE_NAME, verifySessionToken } from "@/lib/auth";
+import { isPublicRoute } from "@/lib/public-route";
 
 /**
  * Route protection for this single-operator dashboard — see
@@ -23,7 +24,7 @@ import { SESSION_COOKIE_NAME, verifySessionToken } from "@/lib/auth";
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  if (pathname === "/login") {
+  if (pathname === "/login" || isPublicRoute(pathname)) {
     return NextResponse.next();
   }
 

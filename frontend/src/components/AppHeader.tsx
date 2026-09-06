@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import SearchBar from "@/components/SearchBar";
+import { isPublicRoute } from "@/lib/public-route";
 
 const NAV_ITEMS = [
   { href: "/", label: "Valuation" },
@@ -28,7 +29,7 @@ export default function AppHeader() {
   const pathname = usePathname();
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
-  if (pathname === "/login") return null;
+  if (pathname === "/login" || isPublicRoute(pathname)) return null;
 
   return (
     <header className="app-header">
