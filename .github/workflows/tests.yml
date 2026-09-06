@@ -9,6 +9,20 @@ on:
 jobs:
   pytest:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: valuation_engine_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d valuation_engine_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -42,6 +56,15 @@ jobs:
       # substitute for it.
       - name: Run tests
         run: python -m pytest -q
+
+      # This is the suite's sole network exception: a synthetic database
+      # inside this CI runner, named and addressed explicitly. The normal
+      # full-suite step above still runs with every socket blocked.
+      - name: PostgreSQL fundamentals integration
+        env:
+          ALLOW_TEST_POSTGRES: '1'
+          FUNDAMENTALS_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/valuation_engine_test
+        run: python -m pytest -q tests/fundamentals/test_store_postgres.py
 
   frontend:
     runs-on: ubuntu-latest

@@ -3,7 +3,13 @@ from decimal import Decimal
 
 import pytest
 
-from src.fundamentals.adapters.fixture import DEFAULT_TEST_CIK, make_fact, make_period, make_provenance
+from src.fundamentals.adapters.fixture import (
+    DEFAULT_TEST_CIK,
+    make_fact,
+    make_lineage,
+    make_period,
+    make_provenance,
+)
 from src.fundamentals.selection import select_point_in_time
 from src.fundamentals.time_policy import US_EASTERN, knowledge_cutoff_for_date
 from src.fundamentals.types import FactContext, FactIdentity, FinancialFact, StatementKind
@@ -928,4 +934,5 @@ class TestFinancialFactConstructionValidation:
                 statement_kind=StatementKind.INCOME_STATEMENT, period=period, identity=identity,
                 value=1000.0,  # a float, not a Decimal
                 raw_tag="Revenues", taxonomy="us-gaap", provenance=self._provenance(),
+                lineage=make_lineage(),
             )
