@@ -9,5 +9,5 @@ export const metadata: Metadata = {
 };
 
 export default function AaplResearchCasePage() {
-  return <FlagshipResearchPrototype researchCase={AAPL_RESEARCH_FIXTURE} />;
+  return <FlagshipResearchPrototype researchCase={AAPL_RESEARCH_FIXTURE} view="overview" />;
 }

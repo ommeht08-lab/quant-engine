@@ -6,6 +6,10 @@ import { isPublicRoute } from "./public-route.ts";
 test("curated research cases and methodology are public", () => {
   assert.equal(isPublicRoute("/research"), true);
   assert.equal(isPublicRoute("/research/aapl"), true);
+  assert.equal(isPublicRoute("/research/aapl/statements"), true);
+  assert.equal(isPublicRoute("/research/aapl/forecast"), true);
+  assert.equal(isPublicRoute("/research/aapl/valuation"), true);
+  assert.equal(isPublicRoute("/research/aapl/evidence"), true);
   assert.equal(isPublicRoute("/methodology"), true);
   assert.equal(isPublicRoute("/methodology/data"), true);
 });
