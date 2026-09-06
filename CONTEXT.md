@@ -22,7 +22,7 @@ same day.
 
 The exact instant a fact became knowable. Equal to the filing's SEC
 `accepted_at` timestamp when known; when genuinely missing, a
-conservative stand-in of 23:59:59 US/Eastern on the filing's `filed_date`
+conservative stand-in of 23:59:59.999999 US/Eastern on the filing's `filed_date`
 — the latest moment consistent with the known date, never an earlier
 guess. A fact is selectable for a given knowledge cutoff only if its
 `eligible_at` is on or before that cutoff.
@@ -61,3 +61,23 @@ reported facts. An amendment does not replace an entire prior filing's
 worth of facts — only the specific fact identities it actually restates
 win selection from it; every other identity continues resolving from
 whichever filing most recently and legitimately reported it.
+
+## Data vintage cutoff
+
+The latest ingestion timestamp a reproducible query is allowed to see.
+This is deliberately distinct from the knowledge cutoff: the knowledge
+cutoff governs when a filing became public, while the data-vintage cutoff
+governs which version of our stored dataset existed for the reproduced run.
+
+## Ingestion batch
+
+An immutable set of normalized facts published by one offline ingestion run.
+Every fact in the set shares one batch ID and one timezone-aware ingestion
+timestamp. A partially written batch is never a valid dataset state.
+
+## Fact lineage
+
+The record of how a normalized fact entered the dataset: source adapter,
+source document URL, concept-map version, ingestion batch, and ingestion
+timestamp. Lineage explains our normalization process; filing provenance
+separately explains when and where the issuer reported the fact.

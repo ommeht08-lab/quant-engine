@@ -32,7 +32,8 @@ root `.env`.
    sentinel values from step 1, but a call site could pass
    `override=True`.)
 3. `socket.socket.connect`/`.connect_ex` are replaced with a version that
-   always raises, for the lifetime of the whole pytest process — the
+   raises for every destination except one explicitly enabled, synthetic
+   loopback PostgreSQL database used by the dedicated integration job — the
    backstop that fails loudly the instant *any* code (ours or a
    dependency's, over Postgres, Alpaca, Redis, or yfinance/Yahoo
    Finance) tries to open a real network connection, independent of
@@ -55,6 +56,7 @@ import dotenv  # noqa: E402 - must be patched before any `src.*` module imports 
 dotenv.load_dotenv = lambda *args, **kwargs: False  # real load_dotenv() returns a bool
 
 import socket  # noqa: E402
+from urllib.parse import urlparse  # noqa: E402
 
 EXTERNAL_ACCESS_BLOCKED_MESSAGE = (
     "External access blocked during tests — this guards against accidental "
@@ -64,12 +66,47 @@ EXTERNAL_ACCESS_BLOCKED_MESSAGE = (
 )
 
 
+_ORIGINAL_SOCKET_CONNECT = socket.socket.connect
+_ORIGINAL_SOCKET_CONNECT_EX = socket.socket.connect_ex
+
+
+def _test_postgres_target():
+    """Return the one allowed loopback target, or None outside its CI job."""
+    if os.getenv("ALLOW_TEST_POSTGRES") != "1":
+        return None
+    database_url = os.getenv("FUNDAMENTALS_TEST_DATABASE_URL", "")
+    parsed = urlparse(database_url)
+    if (
+        parsed.scheme not in {"postgres", "postgresql"}
+        or parsed.hostname != "127.0.0.1"
+        or parsed.path != "/valuation_engine_test"
+    ):
+        return None
+    return (parsed.hostname, parsed.port or 5432)
+
+
+def _is_allowed_test_postgres_socket(args) -> bool:
+    target = _test_postgres_target()
+    if target is None or not args:
+        return False
+    address = args[0]
+    return isinstance(address, tuple) and len(address) >= 2 and address[:2] == target
+
+
 def _blocked_socket_connect(self, *args, **kwargs):
+    if _is_allowed_test_postgres_socket(args):
+        return _ORIGINAL_SOCKET_CONNECT(self, *args, **kwargs)
+    raise RuntimeError(f"Test attempted a raw network socket connection. {EXTERNAL_ACCESS_BLOCKED_MESSAGE}")
+
+
+def _blocked_socket_connect_ex(self, *args, **kwargs):
+    if _is_allowed_test_postgres_socket(args):
+        return _ORIGINAL_SOCKET_CONNECT_EX(self, *args, **kwargs)
     raise RuntimeError(f"Test attempted a raw network socket connection. {EXTERNAL_ACCESS_BLOCKED_MESSAGE}")
 
 
 socket.socket.connect = _blocked_socket_connect
-socket.socket.connect_ex = _blocked_socket_connect
+socket.socket.connect_ex = _blocked_socket_connect_ex
 
 import types  # noqa: E402
 from dataclasses import dataclass, field  # noqa: E402
@@ -390,12 +427,22 @@ def _no_real_database(monkeypatch):
     rows to the production `trade_logs`/`backtest_curve` tables — exactly
     what happened before this fixture existed (see the incident noted in
     the remediation task's final report). Autouse so every test gets
-    this for free: `psycopg2.connect` is replaced with a stub that always
-    raises, so any accidental real-DB attempt fails loudly and immediately
-    instead of silently succeeding against production.
+    this for free: `psycopg2.connect` is replaced with a stub that raises for
+    everything except the exact synthetic loopback URL used by the dedicated
+    fundamentals integration job. Any accidental real-DB attempt still fails
+    loudly and immediately instead of silently succeeding against production.
     """
 
+    import psycopg2
+
+    original_connect = psycopg2.connect
+
     def _blocked_connect(*args, **kwargs):
+        dsn = args[0] if args else kwargs.get("dsn")
+        if _test_postgres_target() is not None and dsn == os.getenv(
+            "FUNDAMENTALS_TEST_DATABASE_URL"
+        ):
+            return original_connect(*args, **kwargs)
         raise RuntimeError(
             "Test attempted a real psycopg2.connect() — database calls must be mocked in tests."
         )

@@ -134,6 +134,36 @@ class FilingProvenance:
 
 
 @dataclass(frozen=True)
+class FactLineage:
+    """
+    How one normalized fact entered this dataset. FilingProvenance answers
+    when the market could know the filing; FactLineage answers which adapter,
+    mapping policy, source document, and immutable ingestion batch produced
+    this stored representation. Keeping the two concepts separate prevents a
+    database refresh timestamp from being mistaken for a filing timestamp.
+    """
+
+    source_adapter: str
+    source_document_url: str
+    concept_map_version: str
+    ingestion_batch_id: str
+    ingested_at: datetime
+
+    def __post_init__(self) -> None:
+        for field_name in (
+            "source_adapter",
+            "source_document_url",
+            "concept_map_version",
+            "ingestion_batch_id",
+        ):
+            value = getattr(self, field_name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"FactLineage.{field_name} must be a non-empty string.")
+        if not is_aware(self.ingested_at):
+            raise ValueError("FactLineage.ingested_at must be timezone-aware.")
+
+
+@dataclass(frozen=True)
 class FinancialFact:
     """
     One reported number: its identity, its value, where it came from, and
@@ -152,6 +182,7 @@ class FinancialFact:
     raw_tag: str
     taxonomy: str
     provenance: FilingProvenance
+    lineage: FactLineage
 
     def __post_init__(self) -> None:
         if (
