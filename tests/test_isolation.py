@@ -23,7 +23,7 @@ import yfinance as yf
 from alpaca.trading.client import TradingClient
 from curl_cffi import requests as curl_cffi_requests
 
-from tests.conftest import _TEST_ISOLATION_SENTINEL
+from tests.conftest import _TEST_ISOLATION_SENTINEL, _test_postgres_target
 
 
 class TestEnvironmentIsPoisoned:
@@ -102,3 +102,29 @@ class TestExternalAccessIsBlocked:
         session = curl_cffi_requests.Session()
         with pytest.raises(RuntimeError, match="curl_cffi"):
             session.get("http://127.0.0.1:0/unreachable-placeholder-never-dispatched")
+
+
+class TestPostgresIntegrationExceptionIsNarrow:
+    def test_a_non_loopback_database_is_never_allowlisted(self, monkeypatch):
+        monkeypatch.setenv("ALLOW_TEST_POSTGRES", "1")
+        monkeypatch.setenv(
+            "FUNDAMENTALS_TEST_DATABASE_URL",
+            "postgresql://postgres:postgres@production.example/valuation_engine_test",
+        )
+        assert _test_postgres_target() is None
+
+    def test_a_different_database_name_is_never_allowlisted(self, monkeypatch):
+        monkeypatch.setenv("ALLOW_TEST_POSTGRES", "1")
+        monkeypatch.setenv(
+            "FUNDAMENTALS_TEST_DATABASE_URL",
+            "postgresql://postgres:postgres@127.0.0.1:5432/postgres",
+        )
+        assert _test_postgres_target() is None
+
+    def test_only_the_named_loopback_database_can_be_allowlisted(self, monkeypatch):
+        monkeypatch.setenv("ALLOW_TEST_POSTGRES", "1")
+        monkeypatch.setenv(
+            "FUNDAMENTALS_TEST_DATABASE_URL",
+            "postgresql://postgres:postgres@127.0.0.1:5432/valuation_engine_test",
+        )
+        assert _test_postgres_target() == ("127.0.0.1", 5432)

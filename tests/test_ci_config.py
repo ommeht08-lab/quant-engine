@@ -19,6 +19,7 @@ WORKFLOW_PATH = Path(__file__).resolve().parents[1] / ".github" / "workflows" / 
 HEARTBEAT_WORKFLOW_PATH = WORKFLOW_PATH.parent / "database-heartbeat.yml"
 REFRESH_SECTOR_MEDIANS_WORKFLOW_PATH = WORKFLOW_PATH.parent / "refresh-sector-medians.yml"
 WORKFLOWS_DIR = WORKFLOW_PATH.parent
+TESTS_WORKFLOW_PATH = WORKFLOWS_DIR / "tests.yml"
 
 
 def _read_workflow() -> str:
@@ -128,8 +129,30 @@ class TestGeneralTestsWorkflowUnaffected:
         assert tests_workflow.exists()
 
     def test_tests_workflow_has_no_production_secrets(self):
-        tests_workflow = WORKFLOW_PATH.parent / "tests.yml"
-        assert "secrets." not in tests_workflow.read_text()
+        assert "secrets." not in TESTS_WORKFLOW_PATH.read_text()
+
+
+class TestFundamentalsPostgresIntegration:
+    """The only live socket in tests is one explicit synthetic CI database."""
+
+    def test_uses_postgres_16_with_a_fixed_synthetic_database(self):
+        content = TESTS_WORKFLOW_PATH.read_text()
+        assert "image: postgres:16" in content
+        assert "POSTGRES_DB: valuation_engine_test" in content
+        assert "POSTGRES_USER: postgres" in content
+        assert "POSTGRES_PASSWORD: postgres" in content
+
+    def test_integration_step_enables_only_the_loopback_test_database(self):
+        content = TESTS_WORKFLOW_PATH.read_text()
+        assert "ALLOW_TEST_POSTGRES: '1'" in content
+        assert (
+            "FUNDAMENTALS_TEST_DATABASE_URL: "
+            "postgresql://postgres:postgres@127.0.0.1:5432/valuation_engine_test"
+        ) in content
+        assert "python -m pytest -q tests/fundamentals/test_store_postgres.py" in content
+
+    def test_workflow_still_has_no_repository_secret_reference(self):
+        assert "secrets." not in TESTS_WORKFLOW_PATH.read_text()
 
 
 class TestDatabaseHeartbeatWorkflow:

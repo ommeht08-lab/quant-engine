@@ -4,24 +4,23 @@ Deterministic, network-free fixture builders for constructing
 and any future test that needs realistic, hand-authored facts without
 touching SEC or Supabase.
 
-This is a builder library, not yet a `FundamentalsRepository`
-implementation: the repository Protocol and its production
-(Supabase-backed) and fixture implementations arrive in a later PR, once
-`get_fundamentals()` orchestration (ticker/CIK resolution, bounded
-repository queries) exists. Everything here is pure construction — no
+This is the builder library used alongside `InMemoryFundamentalsRepository`:
+tests construct facts here, then exercise the same bounded repository seam
+as the PostgreSQL adapter. Everything here is pure construction — no
 randomness, no clock reads, no I/O — so two calls with the same arguments
 always produce equal objects.
 """
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional, Tuple, Union
 
 from ..types import (
     FactContext,
     FactIdentity,
+    FactLineage,
     FilingProvenance,
     FinancialFact,
     StatementKind,
@@ -29,6 +28,25 @@ from ..types import (
 )
 
 DEFAULT_TEST_CIK = "0001111111"  # synthetic — not a real issuer
+DEFAULT_TEST_INGESTED_AT = datetime(2024, 1, 1, tzinfo=timezone.utc)
+
+
+def make_lineage(
+    *,
+    source_adapter: str = "fixture",
+    source_document_url: str = "fixture://fundamentals/test-document",
+    concept_map_version: str = "fixture-v1",
+    ingestion_batch_id: str = "fixture-batch-001",
+    ingested_at: datetime = DEFAULT_TEST_INGESTED_AT,
+) -> FactLineage:
+    """Build deterministic dataset lineage for a normalized fixture fact."""
+    return FactLineage(
+        source_adapter=source_adapter,
+        source_document_url=source_document_url,
+        concept_map_version=concept_map_version,
+        ingestion_batch_id=ingestion_batch_id,
+        ingested_at=ingested_at,
+    )
 
 
 def make_provenance(
@@ -81,6 +99,7 @@ def make_fact(
     entity_cik: str = DEFAULT_TEST_CIK,
     raw_tag: Optional[str] = None,
     taxonomy: str = "us-gaap",
+    lineage: Optional[FactLineage] = None,
 ) -> FinancialFact:
     """
     Builds a FinancialFact from a StatementPeriod, deriving its
@@ -108,4 +127,5 @@ def make_fact(
         raw_tag=raw_tag if raw_tag is not None else concept,
         taxonomy=taxonomy,
         provenance=provenance,
+        lineage=lineage if lineage is not None else make_lineage(),
     )
