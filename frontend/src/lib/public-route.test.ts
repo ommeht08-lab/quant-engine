@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { isPublicRoute } from "./public-route.ts";
+import { isPublicRoute, publicRedirectPath } from "./public-route.ts";
+
+test("the public root redirects to the flagship research case", () => {
+  assert.equal(publicRedirectPath("/"), "/research/aapl");
+  assert.equal(publicRedirectPath("/workspace"), null);
+  assert.equal(publicRedirectPath("/research/aapl"), null);
+});
 
 test("curated research cases and methodology are public", () => {
   assert.equal(isPublicRoute("/research"), true);

@@ -2,18 +2,18 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
 import { SESSION_COOKIE_NAME, verifySessionToken } from "@/lib/auth";
-import { isPublicRoute } from "@/lib/public-route";
+import { isPublicRoute, publicRedirectPath } from "@/lib/public-route";
 
 /**
  * Route protection for this single-operator dashboard — see
  * `src/lib/auth.ts` for why a shared-passphrase session (rather than a
  * full auth library / user table) is the right scope here.
  *
- * `/login` (the page AND its Server Action, which posts back to the
- * same route) is the only path left open; everything else requires a
- * valid session cookie. API routes get a 401 JSON response — they're
- * called from client-side `fetch()`, not navigated to — page routes get
- * redirected to `/login`.
+ * `/` redirects to the public flagship research case. `/login`, curated
+ * `/research/*` cases, and `/methodology` remain open; everything else
+ * requires a valid session cookie. API routes get a 401 JSON response —
+ * they're called from client-side `fetch()`, not navigated to — page
+ * routes get redirected to `/login`.
  *
  * Per the Next.js docs' own caution, Proxy is an optimistic first line
  * of defense, not the only one: each private API route handler
@@ -23,6 +23,11 @@ import { isPublicRoute } from "@/lib/public-route";
  */
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
+
+  const publicRedirect = publicRedirectPath(pathname);
+  if (publicRedirect) {
+    return NextResponse.redirect(new URL(publicRedirect, request.url));
+  }
 
   if (pathname === "/login" || isPublicRoute(pathname)) {
     return NextResponse.next();

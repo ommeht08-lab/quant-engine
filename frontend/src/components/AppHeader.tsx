@@ -34,7 +34,7 @@ export default function AppHeader() {
   return (
     <header className="app-header">
       <div className="shell-container flex flex-wrap items-center gap-x-4 gap-y-2 py-2.5">
-        <Link href="/" className="brand-lockup" aria-label="Valuation Engine home">
+        <Link href="/workspace" className="brand-lockup" aria-label="Valuation Engine workspace home">
           <span className="brand-mark" aria-hidden="true">OM</span>
           <span>
             <strong>Valuation Engine</strong>

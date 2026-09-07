@@ -123,5 +123,5 @@ export async function login(_prevState: LoginState, formData: FormData): Promise
     path: "/",
   });
 
-  redirect("/");
+  redirect("/workspace");
 }

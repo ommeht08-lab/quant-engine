@@ -268,7 +268,7 @@ export default async function TickerTearSheetPage({
     <div className="page-shell">
       <div className="shell-container max-w-5xl pb-20">
         <Link
-          href="/"
+          href="/workspace"
           className="inline-flex items-center gap-1 pt-10 text-sm text-[var(--paper-muted)] transition-colors hover:text-[var(--verdigris)]"
         >
           ← Back to Dashboard
