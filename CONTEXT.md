@@ -81,3 +81,30 @@ The record of how a normalized fact entered the dataset: source adapter,
 source document URL, concept-map version, ingestion batch, and ingestion
 timestamp. Lineage explains our normalization process; filing provenance
 separately explains when and where the issuer reported the fact.
+
+## Company Facts
+
+The SEC's entity-wide aggregate of standardized taxonomy facts for one issuer.
+It is a source for consolidated facts, not arbitrary segment or member
+dimensions; dimensional facts require a filing-level XBRL source that exposes
+their complete contexts.
+
+## Extracted filing fact
+
+A source record whose Company Facts value has been joined to its filing's
+Submissions metadata, but has not yet been classified against the issuer's
+fiscal calendar. It preserves the raw filing labels and provenance without
+pretending those labels describe every comparative period in the filing.
+
+## Concept map
+
+An immutable, versioned policy that maps a raw taxonomy tag to one canonical
+concept, statement, period type, and unit policy. A correction creates a new
+version; it never silently changes the meaning of an existing ingestion batch.
+
+## Filing fiscal label
+
+The SEC Company Facts `fy` and `fp` values describing the filing context in
+which a fact appeared. They are retained as source metadata but never used by
+themselves to classify the fact's Statement period, because one filing can
+contain current, comparative, quarterly, and year-to-date facts.
