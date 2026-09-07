@@ -108,3 +108,15 @@ The SEC Company Facts `fy` and `fp` values describing the filing context in
 which a fact appeared. They are retained as source metadata but never used by
 themselves to classify the fact's Statement period, because one filing can
 contain current, comparative, quarterly, and year-to-date facts.
+
+## Issuer fiscal calendar policy
+
+An immutable, versioned record of one issuer's exact fiscal-year starts and
+quarter ends. It is the authority for classifying fact geometry, including
+52/53-week years and deliberate fiscal-year-end changes.
+
+## Fiscal year definition
+
+One fiscal year's canonical start and four ordered quarter ends. These exact
+dates define annual, standalone-quarter, year-to-date, and instant Statement
+periods without relying on filing fiscal labels or fixed day-count guesses.
