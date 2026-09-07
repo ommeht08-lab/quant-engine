@@ -14,11 +14,17 @@
   --rp-positive: #48c9aa;
   --rp-interface: var(--font-outfit, "Outfit"), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   grid-template-columns: 15.5rem minmax(0, 1fr);
   background: var(--rp-canvas);
   color: var(--rp-text);
   font-family: var(--rp-interface);
+}
+
+.prototypeShell :where(a, button):focus-visible {
+  outline: 2px solid var(--rp-cobalt);
+  outline-offset: 3px;
 }
 
 .prototypeShell button,
@@ -33,6 +39,7 @@
   z-index: 20;
   display: flex;
   height: 100vh;
+  height: 100dvh;
   flex-direction: column;
   border-right: 1px solid var(--rp-line);
   background: var(--rp-surface);
@@ -154,7 +161,7 @@
 
 .navCopy strong {
   color: inherit;
-  font-size: 0.79rem;
+  font-size: 0.84rem;
   font-weight: 600;
   line-height: 1.15;
 }
@@ -163,7 +170,7 @@
   margin-top: 0.2rem;
   overflow: hidden;
   color: var(--rp-dim);
-  font-size: 0.61rem;
+  font-size: 0.64rem;
   font-weight: 500;
   line-height: 1.15;
   text-overflow: ellipsis;
@@ -192,13 +199,13 @@
 .navItem:hover {
   background: var(--rp-surface-soft);
   color: var(--rp-text);
-  transform: translateX(2px);
 }
 
 .activeNavItem {
   border-color: rgba(98, 135, 255, 0.34);
   background: var(--rp-cobalt-soft);
   color: var(--rp-cobalt-deep);
+  cursor: default;
 }
 
 .activeNavItem::before {
@@ -307,22 +314,23 @@
   margin-left: auto;
 }
 
-.searchField {
+.evidenceLink {
   display: flex;
-  width: min(22rem, 28vw);
   min-height: 2.55rem;
   align-items: center;
-  gap: 0.65rem;
-  border: 1px solid var(--rp-line-strong);
-  border-radius: 10px;
-  background: var(--rp-surface);
-  padding: 0.55rem 0.72rem;
-  color: var(--rp-dim);
+  gap: 0.5rem;
+  padding: 0.55rem 0.45rem;
+  color: var(--rp-slate);
   font-size: 0.72rem;
-  box-shadow: 0 8px 22px -16px rgba(0, 0, 0, 0.8);
+  font-weight: 600;
+  transition-property: color;
 }
 
-.searchField svg,
+.evidenceLink:hover {
+  color: var(--rp-text);
+}
+
+.evidenceLink svg,
 .sourceLink svg,
 .cutoffBlock button svg {
   width: 1rem;
@@ -333,15 +341,14 @@
   stroke-width: 1.6;
 }
 
-.searchField kbd {
-  margin-left: auto;
-  border: 1px solid var(--rp-line);
-  border-radius: 5px;
-  background: var(--rp-surface-soft);
-  padding: 0.14rem 0.33rem;
-  color: var(--rp-slate);
-  font-family: var(--utility);
-  font-size: 0.57rem;
+.evidenceLink svg:last-child {
+  width: 0.82rem;
+  height: 0.82rem;
+  transition: transform 180ms ease;
+}
+
+.evidenceLink:hover svg:last-child {
+  transform: translateX(2px);
 }
 
 .workspaceLink {
@@ -369,12 +376,17 @@
 
 .main {
   width: min(100%, 93rem);
+  min-height: calc(100vh - 4.55rem);
+  min-height: calc(100dvh - 4.55rem);
   margin: 0 auto;
   padding: 1.35rem clamp(1.25rem, 3vw, 2.8rem) 2.5rem;
+  display: flex;
+  flex-direction: column;
 }
 
 .prototypeNotice {
   display: inline-flex;
+  align-self: flex-start;
   align-items: center;
   min-height: 1.8rem;
   border: 1px solid rgba(98, 135, 255, 0.32);
@@ -390,7 +402,13 @@
 
 .viewContent {
   min-height: calc(100vh - 10.5rem);
-  animation: viewIn 180ms ease both;
+  min-height: calc(100dvh - 10.5rem);
+  flex: 1;
+  animation: viewIn 140ms ease-out both;
+}
+
+.navigationScrim {
+  display: none;
 }
 
 .caseIntro {
@@ -1417,8 +1435,8 @@
 }
 
 @keyframes viewIn {
-  from { opacity: 0; transform: translateY(5px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { opacity: 0.45; }
+  to { opacity: 1; }
 }
 
 @media (max-width: 1040px) {
@@ -1511,12 +1529,23 @@
   }
 
   .breadcrumb,
-  .searchField,
+  .evidenceLink,
   .workspaceLink {
     display: none;
   }
 
+  .navigationScrim {
+    position: fixed;
+    inset: 4rem 0 0;
+    z-index: 19;
+    display: block;
+    border: 0;
+    background: rgba(2, 6, 13, 0.68);
+    animation: scrimIn 160ms ease-out both;
+  }
+
   .main {
+    min-height: calc(100dvh - 4rem);
     padding: 1rem 1rem 2rem;
   }
 

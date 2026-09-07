@@ -71,6 +71,16 @@ body {
   font-family: var(--body);
 }
 
+/* The public research experience owns the full viewport, including the
+   browser's elastic overscroll area. Without this route-aware canvas the
+   light workspace background flashes below the dark shell at the bottom
+   of a page, which makes page navigation feel like two stacked apps. */
+html:has([data-research-shell]),
+body:has([data-research-shell]) {
+  background: #070b14;
+  overscroll-behavior-y: none;
+}
+
 ::selection {
   background: rgba(49, 95, 229, 0.18);
   color: var(--paper);

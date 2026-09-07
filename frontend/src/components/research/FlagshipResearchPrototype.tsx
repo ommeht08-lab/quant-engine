@@ -457,7 +457,7 @@ export default function FlagshipResearchPrototype({
   const activeLabel = WORKFLOW.find((item) => item.id === view)?.label ?? "Overview";
 
   return (
-    <div className={styles.prototypeShell}>
+    <div className={styles.prototypeShell} data-research-shell>
       <aside className={`${styles.sidebar} ${mobileNavigationOpen ? styles.sidebarOpen : ""}`} aria-hidden={selectedFact ? true : undefined}>
         <div className={styles.brand}><span className={styles.brandMark} aria-hidden="true">VE</span><span><strong>Valuation Engine</strong><small>Research system</small></span></div>
         <p className={styles.navEyebrow}>Research workflow</p>
@@ -466,9 +466,13 @@ export default function FlagshipResearchPrototype({
             <Link
               key={item.id}
               href={item.href}
+              prefetch
               aria-current={item.id === view ? "page" : undefined}
               className={item.id === view ? styles.activeNavItem : styles.navItem}
-              onClick={() => setMobileNavigationOpen(false)}
+              onClick={(event) => {
+                setMobileNavigationOpen(false);
+                if (item.id === view) event.preventDefault();
+              }}
             >
               <span className={styles.navIcon}><WorkflowIcon name={item.id} /></span>
               <span className={styles.navCopy}><strong>{item.label}</strong><small>{item.description}</small></span>
@@ -479,12 +483,28 @@ export default function FlagshipResearchPrototype({
         <div className={styles.sidebarStatus}><span className={styles.verifiedDot} aria-hidden="true" /><div><strong>Fixture artifact loaded</strong><small>{researchCase.artifactVersion}</small></div></div>
       </aside>
 
+      {mobileNavigationOpen && (
+        <button
+          type="button"
+          className={styles.navigationScrim}
+          aria-label="Close research navigation"
+          onClick={() => setMobileNavigationOpen(false)}
+        />
+      )}
+
       <div className={styles.workspace} aria-hidden={selectedFact ? true : undefined}>
         <header className={styles.utilityBar}>
           <button type="button" className={styles.menuButton} aria-label="Toggle research navigation" aria-expanded={mobileNavigationOpen} onClick={() => setMobileNavigationOpen((open) => !open)}><span /><span /><span /></button>
           <div className={styles.mobileBrand}>Valuation Engine</div>
           <div className={styles.breadcrumb}><span>Research</span><b>/</b><span>{researchCase.ticker}</span><b>/</b>{activeLabel}</div>
-          <div className={styles.utilityActions}><div className={styles.searchField} aria-hidden="true"><SearchIcon /><span>Search company or filing</span><kbd>⌘ K</kbd></div><Link className={styles.workspaceLink} href="/workspace">Open workspace</Link></div>
+          <div className={styles.utilityActions}>
+            <Link className={styles.evidenceLink} href="/research/aapl/evidence" prefetch>
+              <SearchIcon />
+              <span>Inspect evidence</span>
+              <ArrowIcon />
+            </Link>
+            <Link className={styles.workspaceLink} href="/workspace" prefetch>Open workspace</Link>
+          </div>
         </header>
 
         <main className={styles.main}>
@@ -494,7 +514,7 @@ export default function FlagshipResearchPrototype({
           </div>
           <footer className={styles.footer}>
             <span>{researchCase.artifactVersion}</span>
-            {view === "methodology" ? <Link href="/research/aapl">Return to overview <ArrowIcon /></Link> : <Link href="/methodology">Methodology & limitations <ArrowIcon /></Link>}
+            {view === "methodology" ? <Link href="/research/aapl" prefetch>Return to overview <ArrowIcon /></Link> : <Link href="/methodology" prefetch>Methodology & limitations <ArrowIcon /></Link>}
           </footer>
         </main>
       </div>
