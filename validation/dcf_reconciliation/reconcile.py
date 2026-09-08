@@ -384,7 +384,17 @@ def overall_verdict(assembled: dict) -> dict:
     }
 
 
-def main():
+def main(output_dir: Path = HERE):
+    """Run reconciliation and write its five artifacts to ``output_dir``.
+
+    The command-line entrypoint keeps writing the checked-in evidence under
+    ``validation/dcf_reconciliation``.  Tests and other callers can provide an
+    isolated directory so exercising the complete workflow never mutates the
+    repository's tracked evidence.
+    """
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
     assembled = run_reconciliation()
     verdict = overall_verdict(assembled)
 
@@ -407,24 +417,24 @@ def main():
         "verdict": verdict,
     }
 
-    codebase_outputs_path = HERE / "codebase_outputs.json"
+    codebase_outputs_path = output_dir / "codebase_outputs.json"
     with open(codebase_outputs_path, "w", encoding="utf-8") as f:
         json.dump(assembled["codebase_outputs"], f, indent=2, sort_keys=True, default=_json_default)
         f.write("\n")
 
-    results_path = HERE / "reconciliation_results.json"
+    results_path = output_dir / "reconciliation_results.json"
     with open(results_path, "w", encoding="utf-8") as f:
         json.dump(results_payload, f, indent=2, sort_keys=True, default=_json_default)
         f.write("\n")
 
     from validation.dcf_reconciliation.report import build_report_markdown
-    report_path = HERE / "reconciliation_report.md"
+    report_path = output_dir / "reconciliation_report.md"
     report_text = build_report_markdown(results_payload)
     with open(report_path, "w", encoding="utf-8") as f:
         f.write(report_text)
 
     from validation.dcf_reconciliation.workbook_builder import build_reconciliation_workbook
-    xlsx_path = HERE / "dcf_reconciliation.xlsx"
+    xlsx_path = output_dir / "dcf_reconciliation.xlsx"
     build_reconciliation_workbook(results_payload, str(xlsx_path))
 
     manifest = {
@@ -443,7 +453,7 @@ def main():
             "dcf_reconciliation.xlsx": _sha256_file(xlsx_path),
         },
     }
-    manifest_path = HERE / "reconciliation_manifest.json"
+    manifest_path = output_dir / "reconciliation_manifest.json"
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, sort_keys=True, default=_json_default)
         f.write("\n")

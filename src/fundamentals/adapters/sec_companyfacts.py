@@ -22,7 +22,9 @@ from ..types import FactLineage, StatementKind, normalize_cik
 SOURCE_ADAPTER = "sec_companyfacts"
 _ACCESSION_PATTERN = re.compile(r"^\d{10}-\d{2}-\d{6}$")
 _DOCUMENT_PATTERN = re.compile(r"^[A-Za-z0-9_.-]+$")
-_SUPPORTED_FORMS = frozenset(("10-K", "10-K/A", "10-Q", "10-Q/A"))
+_SUPPORTED_FORMS = frozenset(
+    ("10-K", "10-K/A", "10-Q", "10-Q/A", "10-KT", "10-KT/A", "10-QT", "10-QT/A")
+)
 _SUBMISSION_COLUMNS = (
     "accessionNumber",
     "filingDate",

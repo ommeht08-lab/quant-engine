@@ -21,6 +21,7 @@ export interface ScenarioResult {
   // null when this scenario's (clamped) assumptions aren't economically
   // valid for the model — see `is_valid`/`invalid_reason`, never NaN/Infinity.
   intrinsic_value_per_share: number | null;
+  implies_negative_equity_value: boolean;
   is_valid: boolean;
   invalid_reason: string | null;
 }
@@ -281,6 +282,11 @@ export default function ValuationSpectrum({
                   Terminal g. <b>{formatPercent(scenarios[displayedKey].assumptions.terminal_growth_rate)}</b>
                 </span>
               </div>
+              {scenarios[displayedKey].implies_negative_equity_value && (
+                <p className="instrument-readout-note">
+                  Negative modeled equity value is a distress signal, not a literal tradable share-price floor.
+                </p>
+              )}
             </>
           ) : (
             <>

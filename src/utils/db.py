@@ -25,6 +25,19 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
+DB_CONNECT_TIMEOUT_SECONDS = 10
+DB_STATEMENT_TIMEOUT_MS = 15_000
+
+
+def _connect(database_url: str):
+    """Open a bounded telemetry connection so a database stall cannot block a run indefinitely."""
+    return psycopg2.connect(
+        database_url,
+        application_name="valuation-engine-telemetry",
+        connect_timeout=DB_CONNECT_TIMEOUT_SECONDS,
+        options=f"-c statement_timeout={DB_STATEMENT_TIMEOUT_MS}",
+    )
+
 
 def _to_native_float(value: Optional[float]) -> Optional[float]:
     """
@@ -122,7 +135,7 @@ def ensure_schema() -> None:
     database_url = _get_database_url()
     conn = None
     try:
-        conn = psycopg2.connect(database_url)
+        conn = _connect(database_url)
         with conn.cursor() as cur:
             cur.execute(CREATE_TABLE_SQL)
             cur.execute(ALTER_TABLE_ADD_ALTMAN_Z_SQL)
@@ -184,7 +197,7 @@ def log_trade(
 
     conn = None
     try:
-        conn = psycopg2.connect(database_url)
+        conn = _connect(database_url)
         with conn.cursor() as cur:
             cur.execute(
                 INSERT_SQL,
@@ -249,7 +262,7 @@ def log_backtest_curve(
 
     conn = None
     try:
-        conn = psycopg2.connect(database_url)
+        conn = _connect(database_url)
         with conn.cursor() as cur:
             cur.execute(TRUNCATE_BACKTEST_CURVE_SQL)
             cur.executemany(

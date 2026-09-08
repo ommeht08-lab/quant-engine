@@ -40,8 +40,12 @@ CREATE TABLE IF NOT EXISTS fundamentals_ingestion_batches (
     ingestion_batch_id TEXT PRIMARY KEY,
     source_adapter TEXT NOT NULL,
     concept_map_version TEXT NOT NULL,
+    fiscal_calendar_version TEXT NOT NULL,
     ingested_at TIMESTAMPTZ NOT NULL,
-    UNIQUE (ingestion_batch_id, source_adapter, concept_map_version, ingested_at)
+    UNIQUE (
+        ingestion_batch_id, source_adapter, concept_map_version,
+        fiscal_calendar_version, ingested_at
+    )
 );
 """
 
@@ -73,12 +77,15 @@ CREATE TABLE IF NOT EXISTS fundamentals_facts (
     source_adapter TEXT NOT NULL,
     source_document_url TEXT NOT NULL,
     concept_map_version TEXT NOT NULL,
+    fiscal_calendar_version TEXT NOT NULL,
     ingestion_batch_id TEXT NOT NULL,
     ingested_at TIMESTAMPTZ NOT NULL,
     FOREIGN KEY (
-        ingestion_batch_id, source_adapter, concept_map_version, ingested_at
+        ingestion_batch_id, source_adapter, concept_map_version,
+        fiscal_calendar_version, ingested_at
     ) REFERENCES fundamentals_ingestion_batches (
-        ingestion_batch_id, source_adapter, concept_map_version, ingested_at
+        ingestion_batch_id, source_adapter, concept_map_version,
+        fiscal_calendar_version, ingested_at
     ),
     CHECK (
         (
@@ -99,7 +106,7 @@ CREATE TABLE IF NOT EXISTS fundamentals_facts (
         )
     ),
     UNIQUE NULLS NOT DISTINCT (
-        cik, source_adapter, concept_map_version, statement_kind,
+        cik, source_adapter, concept_map_version, fiscal_calendar_version, statement_kind,
         canonical_concept, raw_tag, taxonomy, period_start, period_end,
         unit, currency, dimensions, accession_number
     )
@@ -109,7 +116,8 @@ CREATE TABLE IF NOT EXISTS fundamentals_facts (
 CREATE_PIT_INDEX_SQL = """
 CREATE INDEX IF NOT EXISTS fundamentals_facts_pit_idx
 ON fundamentals_facts (
-    cik, source_adapter, concept_map_version, eligible_at, ingested_at, period_end DESC
+    cik, source_adapter, concept_map_version, fiscal_calendar_version,
+    eligible_at, ingested_at, period_end DESC
 );
 """
 
@@ -124,7 +132,7 @@ RETURNS trigger
 LANGUAGE plpgsql
 AS $function$
 BEGIN
-    RAISE EXCEPTION 'fundamentals_facts is append-only; publish a new concept-map version';
+    RAISE EXCEPTION 'fundamentals_facts is append-only; publish a new policy version';
 END;
 $function$;
 """
@@ -160,15 +168,15 @@ $block$;
 
 INSERT_BATCH_SQL = """
 INSERT INTO fundamentals_ingestion_batches (
-    ingestion_batch_id, source_adapter, concept_map_version, ingested_at
+    ingestion_batch_id, source_adapter, concept_map_version, fiscal_calendar_version, ingested_at
 )
-VALUES (%s, %s, %s, %s)
+VALUES (%s, %s, %s, %s, %s)
 ON CONFLICT DO NOTHING
 RETURNING ingestion_batch_id;
 """
 
 SELECT_BATCH_SQL = """
-SELECT ingestion_batch_id, source_adapter, concept_map_version, ingested_at
+SELECT ingestion_batch_id, source_adapter, concept_map_version, fiscal_calendar_version, ingested_at
 FROM fundamentals_ingestion_batches
 WHERE ingestion_batch_id = %s;
 """
@@ -197,6 +205,7 @@ _INSERT_COLUMNS = (
     "source_adapter",
     "source_document_url",
     "concept_map_version",
+    "fiscal_calendar_version",
     "ingestion_batch_id",
     "ingested_at",
 )
@@ -214,6 +223,7 @@ FROM fundamentals_facts
 WHERE cik = %s
   AND source_adapter = %s
   AND concept_map_version = %s
+  AND fiscal_calendar_version = %s
   AND statement_kind = %s
   AND canonical_concept = %s
   AND raw_tag = %s
@@ -242,6 +252,7 @@ WITH eligible AS (
       AND canonical_concept = ANY(%s)
       AND source_adapter = %s
       AND concept_map_version = %s
+      AND fiscal_calendar_version = %s
       AND eligible_at <= %s
       AND ingested_at <= %s
 ), bounded AS (
@@ -341,6 +352,7 @@ def _fact_to_row(fact: FinancialFact) -> tuple:
         fact.lineage.source_adapter,
         fact.lineage.source_document_url,
         fact.lineage.concept_map_version,
+        fact.lineage.fiscal_calendar_version,
         fact.lineage.ingestion_batch_id,
         fact.lineage.ingested_at,
     )
@@ -374,6 +386,7 @@ def _row_to_fact(row: tuple) -> FinancialFact:
         source_adapter,
         source_document_url,
         concept_map_version,
+        fiscal_calendar_version,
         ingestion_batch_id,
         ingested_at,
     ) = row
@@ -418,6 +431,7 @@ def _row_to_fact(row: tuple) -> FinancialFact:
             source_adapter=source_adapter,
             source_document_url=source_document_url,
             concept_map_version=concept_map_version,
+            fiscal_calendar_version=fiscal_calendar_version,
             ingestion_batch_id=ingestion_batch_id,
             ingested_at=ingested_at,
         ),
@@ -429,6 +443,7 @@ def _existing_lookup_params(fact: FinancialFact) -> tuple:
         fact.identity.context.entity_cik,
         fact.lineage.source_adapter,
         fact.lineage.concept_map_version,
+        fact.lineage.fiscal_calendar_version,
         fact.statement_kind.value,
         fact.identity.concept,
         fact.raw_tag,
@@ -455,11 +470,18 @@ def _same_source_fact(existing: FinancialFact, incoming: FinancialFact) -> bool:
         and existing.lineage.source_adapter == incoming.lineage.source_adapter
         and existing.lineage.source_document_url == incoming.lineage.source_document_url
         and existing.lineage.concept_map_version == incoming.lineage.concept_map_version
+        and existing.lineage.fiscal_calendar_version
+        == incoming.lineage.fiscal_calendar_version
     )
 
 
 def ensure_schema(conn) -> None:
-    """Create the append-only schema from an offline publish connection."""
+    """Create the current pre-production schema from an offline publish connection.
+
+    This is schema creation, not a migration engine. The fundamentals store has
+    not yet been wired to production; a populated experimental database created
+    from an older schema must be recreated before publishing.
+    """
     with conn.cursor() as cursor:
         cursor.execute(CREATE_INGESTION_BATCH_TABLE_SQL)
         cursor.execute(CREATE_TABLE_SQL)
@@ -485,12 +507,15 @@ def append_facts(
             fact.lineage.ingestion_batch_id,
             fact.lineage.source_adapter,
             fact.lineage.concept_map_version,
+            fact.lineage.fiscal_calendar_version,
             fact.lineage.ingested_at,
         )
         for fact in facts
     }
     if len(batch_keys) != 1:
-        raise ValueError("append_facts requires one source, mapping version, batch ID, and ingestion time.")
+        raise ValueError(
+            "append_facts requires one source, mapping version, calendar version, batch ID, and ingestion time."
+        )
 
     owns_connection = conn is None
     connection = conn
@@ -578,6 +603,7 @@ class PostgresFundamentalsRepository:
                         list(query.concepts),
                         query.source_adapter,
                         query.concept_map_version,
+                        query.fiscal_calendar_version,
                         query.knowledge_cutoff,
                         query.data_vintage_cutoff,
                         query.max_periods_per_statement,

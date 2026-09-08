@@ -502,6 +502,21 @@ class TestHedgeContractNonFungibility:
         assert exposure.other_contracts_market_value == pytest.approx(50_800.0)
         assert exposure.total_market_value == pytest.approx(54_400.0)
 
+    def test_similarly_prefixed_etf_option_is_not_spy_hedge_exposure(self):
+        spyg_put = make_position(
+            "SPYG260101P00090000", qty=12, market_value=2_400.0, current_price=2.0,
+            asset_class=AssetClass.US_OPTION,
+        )
+
+        exposure = engine._existing_spy_hedge_exposure(
+            {"SPYG260101P00090000": spyg_put},
+            selected_contract_symbol="SPY260101P00580000",
+        )
+
+        assert exposure.matching_contract_qty == 0
+        assert exposure.other_contracts == {}
+        assert exposure.total_market_value == 0
+
     def test_hedge_budget_is_reduced_by_total_existing_spy_put_market_value(self, monkeypatch):
         """
         The hedge budget must account for BOTH existing (matching and

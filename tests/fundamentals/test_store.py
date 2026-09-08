@@ -39,6 +39,7 @@ def _query(**overrides):
         "concepts": ("revenue",),
         "source_adapter": "sec_edgar",
         "concept_map_version": "sec-v1",
+        "fiscal_calendar_version": "fixture-calendar-v1",
         "max_periods_per_statement": 5,
     }
     values.update(overrides)
@@ -171,6 +172,7 @@ class TestPostgresFundamentalsRepository:
                 list(query.concepts),
                 query.source_adapter,
                 query.concept_map_version,
+                query.fiscal_calendar_version,
                 query.knowledge_cutoff,
                 query.data_vintage_cutoff,
                 query.max_periods_per_statement,
@@ -231,7 +233,7 @@ class TestAppendFacts:
             lambda *args, **kwargs: pytest.fail("invalid batch must not connect"),
         )
 
-        with pytest.raises(ValueError, match="one source, mapping version, batch ID"):
+        with pytest.raises(ValueError, match="one source, mapping version, calendar version, batch ID"):
             append_facts((_fact(batch_id="a"), _fact(batch_id="b")), database_url="unused")
 
     def test_creates_schema_and_commits_one_atomic_batch(self):
@@ -263,7 +265,10 @@ class TestAppendFacts:
         connection = _FakeConnection(
             one_rows=(
                 None,
-                ("batch-001", "sec_edgar", "sec-v1", fact.lineage.ingested_at),
+                (
+                    "batch-001", "sec_edgar", "sec-v1", "fixture-calendar-v1",
+                    fact.lineage.ingested_at,
+                ),
                 None,
                 _database_row(fact),
             )
@@ -286,7 +291,10 @@ class TestAppendFacts:
         connection = _FakeConnection(
             one_rows=(
                 None,
-                ("batch-001", "sec_edgar", "sec-v1", fact.lineage.ingested_at),
+                (
+                    "batch-001", "sec_edgar", "sec-v1", "fixture-calendar-v1",
+                    fact.lineage.ingested_at,
+                ),
                 None,
                 tuple(conflicting_row),
             )
@@ -307,6 +315,7 @@ class TestAppendFacts:
                     "batch-001",
                     "sec_edgar",
                     "sec-v1",
+                    "fixture-calendar-v1",
                     fact.lineage.ingested_at - dt.timedelta(days=1),
                 ),
             )

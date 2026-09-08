@@ -99,10 +99,10 @@ class StatementPeriod:
     """
 
     fiscal_year: int
-    fiscal_period: str  # "Q1" | "Q2" | "Q3" | "Q4" | "FY" | "Q2YTD" | "Q3YTD" | "COVER"
+    fiscal_period: str  # "Q1" | "Q2" | "Q3" | "Q4" | "FY" | "Q2YTD" | "Q3YTD" | "TRANSITION" | "COVER"
     period_start: Optional[date]
     period_end: date
-    periodicity: Optional[str]  # "annual" | "quarterly" | "ytd" | None (None for COVER)
+    periodicity: Optional[str]  # "annual" | "quarterly" | "ytd" | "transition" | None (COVER)
 
 
 @dataclass(frozen=True)
@@ -148,6 +148,7 @@ class FactLineage:
     concept_map_version: str
     ingestion_batch_id: str
     ingested_at: datetime
+    fiscal_calendar_version: Optional[str] = None
 
     def __post_init__(self) -> None:
         for field_name in (
@@ -161,6 +162,11 @@ class FactLineage:
                 raise ValueError(f"FactLineage.{field_name} must be a non-empty string.")
         if not is_aware(self.ingested_at):
             raise ValueError("FactLineage.ingested_at must be timezone-aware.")
+        if self.fiscal_calendar_version is not None and (
+            not isinstance(self.fiscal_calendar_version, str)
+            or not self.fiscal_calendar_version.strip()
+        ):
+            raise ValueError("FactLineage.fiscal_calendar_version must be non-empty text if provided.")
 
 
 @dataclass(frozen=True)
@@ -185,6 +191,10 @@ class FinancialFact:
     lineage: FactLineage
 
     def __post_init__(self) -> None:
+        if self.lineage.fiscal_calendar_version is None:
+            raise ValueError(
+                "FinancialFact.lineage.fiscal_calendar_version must identify the policy used to classify it."
+            )
         if (
             self.identity.period_start != self.period.period_start
             or self.identity.period_end != self.period.period_end

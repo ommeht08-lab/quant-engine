@@ -89,6 +89,9 @@ class TestConcurrencyGuard:
 
 
 class TestExecutionJobGatedOnTests:
+    def test_workflow_uses_read_only_github_token_permissions(self):
+        assert "permissions:\n  contents: read" in _read_workflow()
+
     def test_test_job_exists(self):
         block = _job_block(_read_workflow(), "test")
         assert "pytest" in block
@@ -130,6 +133,9 @@ class TestGeneralTestsWorkflowUnaffected:
 
     def test_tests_workflow_has_no_production_secrets(self):
         assert "secrets." not in TESTS_WORKFLOW_PATH.read_text()
+
+    def test_tests_workflow_uses_read_only_github_token_permissions(self):
+        assert "permissions:\n  contents: read" in TESTS_WORKFLOW_PATH.read_text()
 
 
 class TestFundamentalsPostgresIntegration:

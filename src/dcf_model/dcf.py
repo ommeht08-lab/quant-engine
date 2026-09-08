@@ -55,6 +55,18 @@ MAX_REVENUE_GROWTH_RATE = 0.25
 MIN_DISCOUNT_RATE = 0.05
 MAX_DISCOUNT_RATE = 0.20
 
+
+@dataclass(frozen=True)
+class WACCComputation:
+    """The model-derived rate and the bounded rate actually used for discounting."""
+
+    computed_rate: float
+    applied_rate: float
+
+    @property
+    def was_clamped(self) -> bool:
+        return self.computed_rate != self.applied_rate
+
 # Economic bounds for EXPLICITLY supplied (not historically-derived)
 # revenue growth / operating margin / terminal growth — the range a
 # caller (e.g. the dashboard's assumption sliders, or a direct API
@@ -424,7 +436,7 @@ def _validate_capital_inputs(inputs: dict) -> None:
 # 1. WACC
 # --------------------------------------------------------------------------
 
-def calculate_wacc(
+def _calculate_wacc_computation(
     current_price: Optional[float],
     shares_outstanding: Optional[float],
     total_debt: Optional[float],
@@ -433,7 +445,7 @@ def calculate_wacc(
     market_risk_premium: float = DEFAULT_MARKET_RISK_PREMIUM,
     cost_of_debt: Optional[float] = None,
     tax_rate: float = DEFAULT_TAX_RATE,
-) -> float:
+) -> WACCComputation:
     """
     Estimate the Weighted Average Cost of Capital.
 
@@ -481,8 +493,8 @@ def calculate_wacc(
             A present value must be in [0, 1).
 
     Returns:
-        WACC as a decimal (e.g. 0.081 for 8.1%), clamped to
-        [MIN_DISCOUNT_RATE, MAX_DISCOUNT_RATE].
+        Both the computed WACC and the rate bounded to
+        [MIN_DISCOUNT_RATE, MAX_DISCOUNT_RATE] for model use.
 
     Raises:
         ValueError: in any of the following cases — this function never
@@ -623,7 +635,36 @@ def calculate_wacc(
     except (ArithmeticError, OverflowError) as exc:
         raise ValueError(f"WACC computation overflowed during arithmetic: {exc}") from exc
 
-    return max(MIN_DISCOUNT_RATE, min(MAX_DISCOUNT_RATE, wacc))
+    applied_wacc = max(MIN_DISCOUNT_RATE, min(MAX_DISCOUNT_RATE, wacc))
+    return WACCComputation(computed_rate=wacc, applied_rate=applied_wacc)
+
+
+def calculate_wacc(
+    current_price: Optional[float],
+    shares_outstanding: Optional[float],
+    total_debt: Optional[float],
+    beta: Optional[float] = None,
+    risk_free_rate: float = DEFAULT_RISK_FREE_RATE,
+    market_risk_premium: float = DEFAULT_MARKET_RISK_PREMIUM,
+    cost_of_debt: Optional[float] = None,
+    tax_rate: float = DEFAULT_TAX_RATE,
+) -> float:
+    """Return the bounded WACC used by the DCF model.
+
+    ``run_dcf_valuation`` also exposes the pre-clamp rate and whether a
+    model bound was applied. This scalar interface remains stable for
+    callers that only need the discount rate used in valuation math.
+    """
+    return _calculate_wacc_computation(
+        current_price=current_price,
+        shares_outstanding=shares_outstanding,
+        total_debt=total_debt,
+        beta=beta,
+        risk_free_rate=risk_free_rate,
+        market_risk_premium=market_risk_premium,
+        cost_of_debt=cost_of_debt,
+        tax_rate=tax_rate,
+    ).applied_rate
 
 
 # --------------------------------------------------------------------------
@@ -1314,7 +1355,7 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
                 operating_margin * 100,
             )
 
-    wacc = calculate_wacc(
+    wacc_computation = _calculate_wacc_computation(
         current_price=inputs["current_price"],
         shares_outstanding=inputs["shares_outstanding"],
         total_debt=inputs["total_debt"],
@@ -1324,6 +1365,7 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
         cost_of_debt=inputs["cost_of_debt"],
         tax_rate=tax_rate,
     )
+    wacc = wacc_computation.applied_rate
 
     fcf_projection = project_free_cash_flows(
         base_revenue=inputs["revenue"],
@@ -1371,6 +1413,8 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
 
     return {
         "wacc": wacc,
+        "wacc_pre_clamp": wacc_computation.computed_rate,
+        "wacc_was_clamped": wacc_computation.was_clamped,
         "revenue_growth_rate": revenue_growth_rate,
         "operating_margin": operating_margin,
         "fcf_projection": fcf_projection,
@@ -1380,6 +1424,7 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
         "enterprise_value": discounting["enterprise_value"],
         "equity_value": equity_value,
         "intrinsic_value_per_share": intrinsic_value_per_share,
+        "implies_negative_equity_value": intrinsic_value_per_share < 0,
         "current_market_price": inputs["current_price"],
         "market_enterprise_value": market_enterprise_value,
         "fcf_yield": fcf_yield,

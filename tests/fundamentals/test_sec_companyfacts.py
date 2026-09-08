@@ -182,6 +182,24 @@ class TestSuccessfulExtraction:
             AMENDMENT_ACCESSION,
         }
 
+    def test_preserves_10kt_for_explicit_calendar_classification(self):
+        submissions = _submission_payload()
+        recent = submissions["filings"]["recent"]
+        recent["form"][0] = "10-KT"
+        recent["reportDate"][0] = "2024-12-31"
+        entry = _duration_entry(
+            start="2024-09-29",
+            end="2024-12-31",
+            form="10-KT",
+        )
+
+        result = _extract(_company_facts([entry]), (submissions,))
+
+        assert result.is_complete
+        assert result.facts[0].form_type == "10-KT"
+        assert result.facts[0].period_start == dt.date(2024, 9, 29)
+        assert result.facts[0].period_end == dt.date(2024, 12, 31)
+
     def test_cover_fact_is_kept_as_cover_source_record(self):
         payload = _company_facts([])
         payload["facts"]["dei"] = {

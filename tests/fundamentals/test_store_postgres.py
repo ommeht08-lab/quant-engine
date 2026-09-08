@@ -7,6 +7,7 @@ is rejected before a connection is attempted.
 
 import datetime as dt
 import os
+from dataclasses import replace
 from decimal import Decimal
 from urllib.parse import urlparse
 
@@ -130,6 +131,7 @@ def _query(**overrides):
         "concepts": ("revenue", "total_assets", "operating_cash_flow", "shares_outstanding"),
         "source_adapter": "sec_edgar",
         "concept_map_version": "sec-v1",
+        "fiscal_calendar_version": "fixture-calendar-v1",
         "max_periods_per_statement": 2,
     }
     values.update(overrides)
@@ -229,6 +231,38 @@ def test_schema_append_idempotence_and_bounded_point_in_time_reads(empty_store):
     assert _row_count() == 14
 
 
+def test_calendar_policy_corrections_coexist_and_are_selected_explicitly(empty_store):
+    original = _fact(
+        StatementKind.INCOME_STATEMENT,
+        "revenue",
+        2023,
+        value="100",
+        batch_id="batch-calendar-v1",
+    )
+    corrected = replace(
+        original,
+        period=replace(original.period, fiscal_year=2024, fiscal_period="Q1"),
+        lineage=replace(
+            original.lineage,
+            fiscal_calendar_version="fixture-calendar-v2",
+            ingestion_batch_id="batch-calendar-v2",
+            ingested_at=original.lineage.ingested_at + dt.timedelta(seconds=1),
+        ),
+    )
+
+    assert append_facts((original,), database_url=DATABASE_URL) == 1
+    assert append_facts((corrected,), database_url=DATABASE_URL) == 1
+    assert _row_count() == 2
+
+    repository = PostgresFundamentalsRepository(DATABASE_URL)
+    assert repository.get_facts(_query(fiscal_calendar_version="fixture-calendar-v1")) == (
+        original,
+    )
+    assert repository.get_facts(_query(fiscal_calendar_version="fixture-calendar-v2")) == (
+        corrected,
+    )
+
+
 def test_postgres_enforces_the_read_only_transaction_profile(empty_store):
     connection = psycopg2.connect(DATABASE_URL)
     try:
@@ -243,11 +277,12 @@ def test_postgres_enforces_the_read_only_transaction_profile(empty_store):
                     "dimensions, value, period_end, fiscal_year, fiscal_period, periodicity, "
                     "accession_number, form_type, is_amendment, filed_date, eligible_at, "
                     "source_adapter, source_document_url, concept_map_version, "
+                    "fiscal_calendar_version, "
                     "ingestion_batch_id, ingested_at) "
                     "VALUES ('0001111111', 'balance_sheet', 'x', 'x', 'us-gaap', 'USD', "
                     "'[]'::jsonb, 1, DATE '2024-12-31', 2024, 'FY', 'annual', 'x', '10-K', "
                     "false, DATE '2025-01-01', TIMESTAMPTZ '2025-01-01 00:00:00+00', "
-                    "'fixture', 'fixture://x', 'fixture-v1', 'batch', "
+                    "'fixture', 'fixture://x', 'fixture-v1', 'fixture-calendar-v1', 'batch', "
                     "TIMESTAMPTZ '2025-01-02 00:00:00+00')"
                 )
     finally:

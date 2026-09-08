@@ -85,6 +85,7 @@ class TestScenariosResponseShape:
                 "name",
                 "assumptions",
                 "intrinsic_value_per_share",
+                "implies_negative_equity_value",
                 "is_valid",
                 "invalid_reason",
             }
@@ -139,6 +140,9 @@ class TestExistingFieldsRegression:
 
         assert body["ticker"] == "TEST"
         assert isinstance(body["intrinsic_value_per_share"], float)
+        assert isinstance(body["wacc_pre_clamp"], float)
+        assert isinstance(body["wacc_was_clamped"], bool)
+        assert isinstance(body["implies_negative_equity_value"], bool)
         assert "sensitivity" in body
         assert len(body["sensitivity"]["cells"]) == 5
 

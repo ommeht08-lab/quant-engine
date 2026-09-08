@@ -8,6 +8,7 @@ from src.fundamentals.adapters.sec_companyfacts import SecExtractedFact
 from src.fundamentals.concept_map import FactPeriodType
 from src.fundamentals.fiscal_calendar import (
     FiscalCalendarIssueCode,
+    FiscalTransitionDefinition,
     FiscalYearDefinition,
     IssuerFiscalCalendarPolicy,
     classify_sec_facts,
@@ -38,13 +39,20 @@ FY2024 = FiscalYearDefinition(
         dt.date(2024, 9, 28),
     ),
 )
+TRANSITION_2025 = FiscalTransitionDefinition(
+    fiscal_year=2025,
+    period_start=dt.date(2024, 9, 29),
+    period_end=dt.date(2024, 12, 31),
+    form_type="10-KT",
+)
 
 
-def _policy(*years, cik=CIK, version="aapl-calendar-v1"):
+def _policy(*years, cik=CIK, version="aapl-calendar-v1", transitions=()):
     return IssuerFiscalCalendarPolicy(
         cik=cik,
         version=version,
         fiscal_years=years or (FY2023, FY2024),
+        transitions=transitions,
     )
 
 
@@ -230,6 +238,36 @@ class TestDurationClassification:
         assert period.period_end == dt.date(2025, 12, 31)
         assert period.periodicity == "annual"
 
+    def test_classifies_exact_10kt_stub_without_calling_it_an_ordinary_year(self):
+        fact = _fact(
+            period_start=TRANSITION_2025.period_start,
+            period_end=TRANSITION_2025.period_end,
+            report_date=TRANSITION_2025.period_end,
+            form_type="10-KT",
+        )
+
+        result = classify_sec_facts(
+            (fact,),
+            _policy(FY2024, transitions=(TRANSITION_2025,)),
+        )
+
+        assert result.is_complete
+        assert result.facts[0].period.fiscal_year == 2025
+        assert result.facts[0].period.fiscal_period == "TRANSITION"
+        assert result.facts[0].period.periodicity == "transition"
+
+    def test_transition_form_without_explicit_transition_policy_fails_loudly(self):
+        fact = _fact(
+            period_start=TRANSITION_2025.period_start,
+            period_end=TRANSITION_2025.period_end,
+            report_date=TRANSITION_2025.period_end,
+            form_type="10-KT",
+        )
+
+        result = classify_sec_facts((fact,), _policy(FY2024))
+
+        _assert_issue(result, FiscalCalendarIssueCode.UNRECOGNIZED_FILING_PERIOD)
+
 
 class TestInstantAndCoverClassification:
     @pytest.mark.parametrize(
@@ -297,7 +335,9 @@ class TestConversionIntegrity:
         assert fact.provenance.form_type == "10-K/A"
         assert fact.provenance.is_amendment
         assert fact.provenance.accepted_at == source.accepted_at
-        assert fact.lineage is source.lineage
+        assert fact.lineage.source_adapter == source.lineage.source_adapter
+        assert fact.lineage.concept_map_version == source.lineage.concept_map_version
+        assert fact.lineage.fiscal_calendar_version == "aapl-calendar-v1"
         assert result.calendar_version == "aapl-calendar-v1"
 
     def test_output_is_deterministic_for_reversed_input(self):
@@ -428,3 +468,16 @@ class TestFiscalCalendarPolicyIntegrity:
         later_2024 = replace(FY2024, fiscal_year=2024)
         with pytest.raises(ValueError, match="increase"):
             _policy(earlier_2025, later_2024)
+
+    def test_transition_must_not_overlap_an_ordinary_fiscal_year(self):
+        overlapping = replace(
+            TRANSITION_2025,
+            fiscal_year=2024,
+            period_start=dt.date(2024, 6, 1),
+        )
+        with pytest.raises(ValueError, match="unique|overlap"):
+            _policy(FY2024, transitions=(overlapping,))
+
+    def test_transition_form_is_explicit(self):
+        with pytest.raises(ValueError, match="form_type"):
+            replace(TRANSITION_2025, form_type="10-K")
