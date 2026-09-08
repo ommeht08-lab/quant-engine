@@ -31,6 +31,7 @@ function formatCurrency(value: number): string {
 }
 
 function returnSince(start: number, current: number): string {
+  if (start === 0) return "—";
   const pct = ((current - start) / start) * 100;
   return `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`;
 }
@@ -203,7 +204,13 @@ export default function BacktestChart() {
         </div>
       )}
 
-      {!isLoading && !error && data && data.length > 0 && <BacktestMetricsGrid data={data} />}
+      {!isLoading && !error && data && data.length === 1 && (
+        <div className="status-warning mb-6" role="status">
+          Performance metrics need at least two observations. The single stored point is shown below.
+        </div>
+      )}
+
+      {!isLoading && !error && data && data.length > 1 && <BacktestMetricsGrid data={data} />}
 
       {!isLoading && !error && data && data.length > 0 && (
         <div className="h-80 w-full">

@@ -1,4 +1,5 @@
 import datetime as dt
+from dataclasses import replace
 
 import pytest
 
@@ -34,6 +35,7 @@ def _query(**overrides):
         "concepts": ("revenue", "total_assets", "operating_cash_flow", "shares_outstanding"),
         "source_adapter": "sec_edgar",
         "concept_map_version": "sec-v1",
+        "fiscal_calendar_version": "fixture-calendar-v1",
         "max_periods_per_statement": 8,
     }
     values.update(overrides)
@@ -148,6 +150,10 @@ class TestFundamentalsQuery:
         with pytest.raises(ValueError):
             _query(max_periods_per_statement=value)
 
+    def test_calendar_version_must_be_explicit(self):
+        with pytest.raises(ValueError, match="fiscal_calendar_version"):
+            _query(fiscal_calendar_version="")
+
 
 class TestInMemoryFundamentalsRepository:
     def test_filters_by_every_time_and_lineage_dimension(self):
@@ -177,6 +183,15 @@ class TestInMemoryFundamentalsRepository:
             2023,
             lineage=_lineage(concept_map_version="sec-v2"),
         )
+        wrong_calendar = _fact(
+            StatementKind.INCOME_STATEMENT,
+            "revenue",
+            2023,
+            lineage=replace(
+                _lineage(ingestion_batch_id="batch-calendar-v2"),
+                fiscal_calendar_version="fixture-calendar-v2",
+            ),
+        )
         unrequested = _fact(StatementKind.INCOME_STATEMENT, "net_income", 2023)
 
         repository = InMemoryFundamentalsRepository(
@@ -187,6 +202,7 @@ class TestInMemoryFundamentalsRepository:
                 future_ingestion,
                 wrong_source,
                 wrong_mapping,
+                wrong_calendar,
                 unrequested,
             )
         )

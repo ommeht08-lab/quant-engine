@@ -38,6 +38,7 @@ def make_lineage(
     concept_map_version: str = "fixture-v1",
     ingestion_batch_id: str = "fixture-batch-001",
     ingested_at: datetime = DEFAULT_TEST_INGESTED_AT,
+    fiscal_calendar_version: str = "fixture-calendar-v1",
 ) -> FactLineage:
     """Build deterministic dataset lineage for a normalized fixture fact."""
     return FactLineage(
@@ -46,6 +47,7 @@ def make_lineage(
         concept_map_version=concept_map_version,
         ingestion_batch_id=ingestion_batch_id,
         ingested_at=ingested_at,
+        fiscal_calendar_version=fiscal_calendar_version,
     )
 
 

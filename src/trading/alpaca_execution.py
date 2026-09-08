@@ -191,6 +191,7 @@ import datetime
 import logging
 import math
 import os
+import re
 import sys
 import time
 from dataclasses import dataclass, replace
@@ -198,6 +199,7 @@ from decimal import Decimal, ROUND_DOWN
 from pathlib import Path
 from typing import Dict, List, Optional
 from urllib.parse import urlparse
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
 
@@ -240,6 +242,12 @@ from src.valuation.technical import calculate_rsi
 logger = logging.getLogger(__name__)
 
 PAPER_TRADING_HOSTNAME = "paper-api.alpaca.markets"
+US_MARKET_TIMEZONE = ZoneInfo("America/New_York")
+
+
+def _us_market_date() -> datetime.date:
+    """Current US-market calendar date, independent of the process host timezone."""
+    return datetime.datetime.now(US_MARKET_TIMEZONE).date()
 
 MIN_BETA_FLOOR = 0.5  # floor beta at this level to prevent overallocating to low-beta anomalies
 MIN_ORDER_NOTIONAL_USD = 1.00  # Alpaca's own minimum notional order size
@@ -670,7 +678,7 @@ def run_todays_scan(
         `refresh_sector_median_cache`).
     """
     assumptions = assumptions or DCFAssumptions()
-    today = datetime.date.today().isoformat()
+    today = _us_market_date().isoformat()
 
     # Shared macro input, fetched once for the whole scan (not once per
     # ticker) — see compute_valuation's docstring.
@@ -1398,7 +1406,7 @@ def print_execution_report(
     mode = "DRY RUN" if dry_run else "LIVE (paper)"
 
     print("=" * 88)
-    print(f"ALPACA AUTONOMOUS EXECUTION — {mode} — {datetime.date.today().isoformat()}")
+    print(f"ALPACA AUTONOMOUS EXECUTION — {mode} — {_us_market_date().isoformat()}")
     print("=" * 88)
 
     print(f"\nScanned {len(analyses)} tickers; {valid_count} passed the sector-relative filter and entry gates.")
@@ -1463,7 +1471,7 @@ def _select_atm_put_contract(trading_client: TradingClient, spy_price: float, da
         fails or no tradable contract is found within the search window
         — a missing contract skips the hedge rather than crashing the run.
     """
-    target_expiry = datetime.date.today() + datetime.timedelta(days=days_to_expiry)
+    target_expiry = _us_market_date() + datetime.timedelta(days=days_to_expiry)
     window = datetime.timedelta(days=HEDGE_EXPIRY_SEARCH_WINDOW_DAYS)
 
     try:
@@ -1541,11 +1549,9 @@ def _existing_spy_hedge_exposure(
     exposure separately rather than silently treating its raw contract
     count as equivalent protection.
 
-    This project only ever buys options via `execute_spy_var_hedge` (SPY
-    puts) — no other code path creates an option position — so any
-    `US_OPTION`-class position whose symbol starts with
-    `HEDGE_UNDERLYING_SYMBOL` is, by construction, a previously-bought
-    hedge contract from an earlier run.
+    Only option symbols whose parsed OCC root is exactly SPY count as
+    existing hedge exposure; similarly-prefixed ETF roots such as SPYG
+    and SPYV are unrelated positions.
     """
     matching_qty = 0.0
     matching_market_value = 0.0
@@ -1556,7 +1562,8 @@ def _existing_spy_hedge_exposure(
         for symbol, position in existing_positions.items():
             if getattr(position, "asset_class", AssetClass.US_EQUITY) != AssetClass.US_OPTION:
                 continue
-            if not symbol.startswith(HEDGE_UNDERLYING_SYMBOL):
+            root_match = re.match(r"^([A-Z]{1,6})\d{6}[CP]\d{8}$", symbol)
+            if root_match is None or root_match.group(1) != HEDGE_UNDERLYING_SYMBOL:
                 continue
             try:
                 qty = float(position.qty)
@@ -1682,7 +1689,7 @@ def execute_spy_var_hedge(
         return
 
     actual_days_to_expiry = (
-        datetime.date.fromisoformat(str(contract.expiration_date)) - datetime.date.today()
+        datetime.date.fromisoformat(str(contract.expiration_date)) - _us_market_date()
     ).days
     if actual_days_to_expiry <= 0:
         logger.warning(
@@ -2165,8 +2172,15 @@ def main() -> None:
         rebalance_equity = equity_before
         rebalance_buying_power = None
     else:
-        positions_for_rebalance = get_current_positions(trading_client)
-        refreshed_account = trading_client.get_account()
+        try:
+            positions_for_rebalance = get_current_positions(trading_client)
+            refreshed_account = trading_client.get_account()
+        except APIError as exc:
+            logger.error(
+                "Could not refresh Alpaca state after liquidations; stopping before submitting rebalance orders: %s",
+                exc,
+            )
+            return
         rebalance_equity = float(refreshed_account.equity)
         rebalance_buying_power = float(refreshed_account.buying_power)
 
@@ -2177,7 +2191,14 @@ def main() -> None:
 
     equity_after = None
     if not effective_dry_run:
-        equity_after = float(trading_client.get_account().equity)
+        try:
+            equity_after = float(trading_client.get_account().equity)
+        except APIError as exc:
+            logger.error(
+                "Could not refresh Alpaca equity after rebalance orders; stopping before post-fill checks: %s",
+                exc,
+            )
+            return
 
     target_weights = calculate_inverse_beta_weights(top_picks)
     print_execution_report(
@@ -2192,7 +2213,14 @@ def main() -> None:
     if effective_dry_run:
         post_fill_positions = positions_for_rebalance
     else:
-        post_fill_positions = get_current_positions(trading_client)
+        try:
+            post_fill_positions = get_current_positions(trading_client)
+        except APIError as exc:
+            logger.error(
+                "Could not refresh Alpaca positions after rebalance orders; stopping post-fill processing: %s",
+                exc,
+            )
+            return
         # Refresh open-order state immediately before the corrective-trim
         # phase — ground truth from Alpaca, not the in-memory
         # approximation carried over from the liquidate/rebalance phases

@@ -487,6 +487,7 @@ class ScenarioResultModel(BaseModel):
     name: str
     assumptions: ScenarioAssumptionsModel
     intrinsic_value_per_share: Optional[float]
+    implies_negative_equity_value: bool
     is_valid: bool
     invalid_reason: Optional[str]
 
@@ -524,9 +525,12 @@ class EvaluationResponse(BaseModel):
     ticker: str
     current_price: Optional[float]
     wacc: float
+    wacc_pre_clamp: float
+    wacc_was_clamped: bool
     enterprise_value: float
     equity_value: float
     intrinsic_value_per_share: float
+    implies_negative_equity_value: bool
     projected_free_cash_flows: List[FreeCashFlowYear]
     assumptions: dict
     sector: str
@@ -623,6 +627,10 @@ def _scenario_result_to_model(scenario: ScenarioResult) -> ScenarioResultModel:
             terminal_growth_rate=scenario.assumptions.terminal_growth_rate,
         ),
         intrinsic_value_per_share=scenario.intrinsic_value_per_share,
+        implies_negative_equity_value=(
+            scenario.intrinsic_value_per_share is not None
+            and scenario.intrinsic_value_per_share < 0
+        ),
         is_valid=scenario.is_valid,
         invalid_reason=scenario.invalid_reason,
     )
@@ -834,9 +842,12 @@ def evaluate_ticker(
         ticker=financial_data["ticker"],
         current_price=current_price,
         wacc=result["wacc"],
+        wacc_pre_clamp=result["wacc_pre_clamp"],
+        wacc_was_clamped=result["wacc_was_clamped"],
         enterprise_value=result["enterprise_value"],
         equity_value=result["equity_value"],
         intrinsic_value_per_share=intrinsic_value,
+        implies_negative_equity_value=result["implies_negative_equity_value"],
         projected_free_cash_flows=projected_fcf,
         assumptions={
             # The ACTUAL values used for the projection — never the raw

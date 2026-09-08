@@ -34,6 +34,7 @@ class FundamentalsQuery:
     concepts: Tuple[str, ...]
     source_adapter: str
     concept_map_version: str
+    fiscal_calendar_version: str
     max_periods_per_statement: int = 8
 
     def __post_init__(self) -> None:
@@ -51,6 +52,9 @@ class FundamentalsQuery:
 
         _require_nonempty_text("FundamentalsQuery.source_adapter", self.source_adapter)
         _require_nonempty_text("FundamentalsQuery.concept_map_version", self.concept_map_version)
+        _require_nonempty_text(
+            "FundamentalsQuery.fiscal_calendar_version", self.fiscal_calendar_version
+        )
 
         if isinstance(self.concepts, str):
             raise ValueError("FundamentalsQuery.concepts must be a tuple of concept names, not a string.")
@@ -182,6 +186,7 @@ class InMemoryFundamentalsRepository:
             and fact.lineage.ingested_at <= query.data_vintage_cutoff
             and fact.lineage.source_adapter == query.source_adapter
             and fact.lineage.concept_map_version == query.concept_map_version
+            and fact.lineage.fiscal_calendar_version == query.fiscal_calendar_version
         )
         allowed_periods = _bounded_periods(eligible, query.max_periods_per_statement)
         bounded = (

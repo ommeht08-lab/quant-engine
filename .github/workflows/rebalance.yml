@@ -25,6 +25,9 @@ name: Daily Portfolio Rebalance
           - dry-run
           - execute
 
+permissions:
+  contents: read
+
 # Only one rebalance run (of any trigger) may be in flight at a time.
 # Without this, two overlapping manual runs could each independently
 # liquidate/rebalance/hedge against the same account concurrently — the

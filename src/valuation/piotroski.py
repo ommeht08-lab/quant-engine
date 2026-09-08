@@ -49,7 +49,6 @@ from src.data_ingestion.fetch_financials import (
 from src.dcf_model.dcf import _get_row_value
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 NET_INCOME_ROWS = ["Net Income", "NetIncome", "Net Income Common Stockholders"]
 TOTAL_ASSETS_ROWS = ["Total Assets"]

@@ -120,3 +120,13 @@ quarter ends. It is the authority for classifying fact geometry, including
 One fiscal year's canonical start and four ordered quarter ends. These exact
 dates define annual, standalone-quarter, year-to-date, and instant Statement
 periods without relying on filing fiscal labels or fixed day-count guesses.
+
+## Fiscal transition period
+
+An exact, issuer-authorized stub period reported while changing fiscal year-end.
+It is classified as `TRANSITION`, never relabeled as an ordinary quarter or year.
+
+## Fiscal calendar version
+
+The immutable identity of the issuer fiscal calendar policy used to classify a
+stored fact. A correction creates new lineage; it never rewrites prior facts.

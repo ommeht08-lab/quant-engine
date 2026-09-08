@@ -24,7 +24,6 @@ from src.data_ingestion.fetch_financials import get_ticker_object
 from src.utils.cache import cached
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 RSI_HISTORY_CACHE_TTL_SECONDS = 3600  # 1 hour
 RSI_HISTORY_PERIOD = "3mo"  # ~63 trading days — comfortably covers the 60-day minimum

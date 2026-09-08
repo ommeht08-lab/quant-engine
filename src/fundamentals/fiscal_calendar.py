@@ -7,7 +7,7 @@ from SEC filing labels, month/day heuristics, or duration-length tolerances.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from enum import Enum
 from typing import Dict, Iterable, Optional, Tuple
@@ -62,12 +62,35 @@ class FiscalYearDefinition:
 
 
 @dataclass(frozen=True)
+class FiscalTransitionDefinition:
+    """Exact stub-period geometry and the SEC transition form that reports it."""
+
+    fiscal_year: int
+    period_start: date
+    period_end: date
+    form_type: str
+
+    def __post_init__(self) -> None:
+        if isinstance(self.fiscal_year, bool) or not isinstance(self.fiscal_year, int):
+            raise ValueError("FiscalTransitionDefinition.fiscal_year must be an integer.")
+        if self.fiscal_year <= 0:
+            raise ValueError("FiscalTransitionDefinition.fiscal_year must be positive.")
+        if not _is_plain_date(self.period_start) or not _is_plain_date(self.period_end):
+            raise ValueError("Fiscal transition boundaries must be dates.")
+        if self.period_start > self.period_end:
+            raise ValueError("A fiscal transition must start on or before its period end.")
+        if self.form_type not in ("10-KT", "10-QT"):
+            raise ValueError("FiscalTransitionDefinition.form_type must be '10-KT' or '10-QT'.")
+
+
+@dataclass(frozen=True)
 class IssuerFiscalCalendarPolicy:
     """Versioned exact fiscal calendars for one CIK."""
 
     cik: str
     version: str
     fiscal_years: Tuple[FiscalYearDefinition, ...]
+    transitions: Tuple[FiscalTransitionDefinition, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "cik", normalize_cik(self.cik))
@@ -89,13 +112,27 @@ class IssuerFiscalCalendarPolicy:
         if len(years) != len(set(years)):
             raise ValueError("Fiscal year numbers must be unique within one policy.")
 
-        chronological = tuple(sorted(fiscal_years, key=lambda item: item.period_start))
-        if [item.fiscal_year for item in chronological] != sorted(years):
+        try:
+            transitions = tuple(self.transitions)
+        except TypeError:
+            raise ValueError("IssuerFiscalCalendarPolicy.transitions must be a collection.") from None
+        if any(not isinstance(item, FiscalTransitionDefinition) for item in transitions):
+            raise ValueError(
+                "IssuerFiscalCalendarPolicy.transitions must contain FiscalTransitionDefinition values."
+            )
+        all_definitions = fiscal_years + transitions
+        all_years = [item.fiscal_year for item in all_definitions]
+        if len(all_years) != len(set(all_years)):
+            raise ValueError("Fiscal year numbers must be unique within one policy.")
+
+        chronological = tuple(sorted(all_definitions, key=lambda item: item.period_start))
+        if [item.fiscal_year for item in chronological] != sorted(all_years):
             raise ValueError("Fiscal year numbers must increase with their calendar dates.")
         for previous, current in zip(chronological, chronological[1:]):
             if current.period_start <= previous.period_end:
                 raise ValueError("Fiscal year definitions must not overlap.")
         object.__setattr__(self, "fiscal_years", tuple(sorted(fiscal_years, key=lambda item: item.fiscal_year)))
+        object.__setattr__(self, "transitions", tuple(sorted(transitions, key=lambda item: item.fiscal_year)))
 
 
 class FiscalCalendarIssueCode(str, Enum):
@@ -143,6 +180,7 @@ class _PeriodMetadata:
     fiscal_year: int
     fiscal_period: str
     periodicity: str
+    expected_base_form: Optional[str] = None
 
 
 def _is_plain_date(value: object) -> bool:
@@ -191,12 +229,21 @@ def _calendar_indexes(
         )
         instant_periods.update(
             {
-                q1_end: _PeriodMetadata(definition.fiscal_year, "Q1", "quarterly"),
-                q2_end: _PeriodMetadata(definition.fiscal_year, "Q2", "quarterly"),
-                q3_end: _PeriodMetadata(definition.fiscal_year, "Q3", "quarterly"),
-                q4_end: _PeriodMetadata(definition.fiscal_year, "FY", "annual"),
+                q1_end: _PeriodMetadata(definition.fiscal_year, "Q1", "quarterly", "10-Q"),
+                q2_end: _PeriodMetadata(definition.fiscal_year, "Q2", "quarterly", "10-Q"),
+                q3_end: _PeriodMetadata(definition.fiscal_year, "Q3", "quarterly", "10-Q"),
+                q4_end: _PeriodMetadata(definition.fiscal_year, "FY", "annual", "10-K"),
             }
         )
+    for transition in policy.transitions:
+        metadata = _PeriodMetadata(
+            transition.fiscal_year,
+            "TRANSITION",
+            "transition",
+            transition.form_type,
+        )
+        duration_periods[(transition.period_start, transition.period_end)] = metadata
+        instant_periods[transition.period_end] = metadata
     return duration_periods, instant_periods
 
 
@@ -261,7 +308,9 @@ def _validate_source_shape(fact: SecExtractedFact) -> Optional[str]:
         return "Extracted fact report_date must be a date."
     if not _is_plain_date(fact.filed_date):
         return "Extracted fact filed_date must be a date."
-    if fact.form_type not in ("10-K", "10-K/A", "10-Q", "10-Q/A"):
+    if fact.form_type not in (
+        "10-K", "10-K/A", "10-Q", "10-Q/A", "10-KT", "10-KT/A", "10-QT", "10-QT/A"
+    ):
         return "Extracted fact has an unsupported filing form."
     if not isinstance(fact.is_amendment, bool):
         return "Extracted fact is_amendment must be boolean."
@@ -282,23 +331,11 @@ def _validate_filing_period(
             f"Filing report date {fact.report_date} is absent from the issuer fiscal calendar.",
         )
     base_form = fact.form_type[:-2] if fact.form_type.endswith("/A") else fact.form_type
-    if base_form == "10-K" and filing_period.fiscal_period != "FY":
+    if filing_period.expected_base_form != base_form:
         return (
             None,
             FiscalCalendarIssueCode.FORM_PERIOD_MISMATCH,
-            f"Form {fact.form_type} report date does not identify a fiscal year end.",
-        )
-    if base_form == "10-Q" and filing_period.fiscal_period not in ("Q1", "Q2", "Q3"):
-        return (
-            None,
-            FiscalCalendarIssueCode.FORM_PERIOD_MISMATCH,
-            f"Form {fact.form_type} report date does not identify Q1, Q2, or Q3.",
-        )
-    if base_form not in ("10-K", "10-Q"):
-        return (
-            None,
-            FiscalCalendarIssueCode.INVALID_FACT,
-            f"Unsupported extracted filing form {fact.form_type!r}.",
+            f"Form {fact.form_type} does not match the fiscal-calendar period at its report date.",
         )
     return filing_period, None, None
 
@@ -332,7 +369,11 @@ def _statement_period(
     )
 
 
-def _to_financial_fact(fact: SecExtractedFact, period: StatementPeriod) -> FinancialFact:
+def _to_financial_fact(
+    fact: SecExtractedFact,
+    period: StatementPeriod,
+    calendar_version: str,
+) -> FinancialFact:
     return FinancialFact(
         statement_kind=fact.statement_kind,
         period=period,
@@ -354,7 +395,7 @@ def _to_financial_fact(fact: SecExtractedFact, period: StatementPeriod) -> Finan
             filed_date=fact.filed_date,
             accepted_at=fact.accepted_at,
         ),
-        lineage=fact.lineage,
+        lineage=replace(fact.lineage, fiscal_calendar_version=calendar_version),
     )
 
 
@@ -416,7 +457,7 @@ def classify_sec_facts(
                 "Fact period geometry is absent from the issuer fiscal calendar.",
                 fact,
             )
-        converted.append(_to_financial_fact(fact, period))
+        converted.append(_to_financial_fact(fact, period, policy.version))
 
     return FiscalCalendarClassificationResult(
         cik=policy.cik,

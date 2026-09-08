@@ -1263,12 +1263,12 @@ def test_gitignore_exceptions_name_exactly_the_three_required_paths():
 #     archived Phase 2B evidence remains immutable during regeneration
 # ---------------------------------------------------------------------------
 
-def test_original_validation_directory_and_archive_unchanged_by_regeneration():
+def test_original_validation_directory_and_archive_unchanged_by_regeneration(tmp_path):
     before_dir = _sha256_dir(INDEPENDENT_DIR)
     before_archive = _sha256_dir(ARCHIVE_DIR)
 
     from validation.dcf_reconciliation import reconcile as reconcile_module
-    reconcile_module.main()
+    reconcile_module.main(output_dir=tmp_path)
 
     after_dir = _sha256_dir(INDEPENDENT_DIR)
     after_archive = _sha256_dir(ARCHIVE_DIR)
@@ -1282,16 +1282,16 @@ def test_original_validation_directory_and_archive_unchanged_by_regeneration():
     assert _sha256_file(V2_WORKBOOK_PATH) == EXPECTED_V2_WORKBOOK_SHA256
 
 
-def test_rerunning_reconcile_produces_byte_identical_output():
+def test_rerunning_reconcile_produces_byte_identical_output(tmp_path):
     """Deterministic regeneration: two consecutive runs against an unchanged
     repository must produce byte-identical artifacts."""
     from validation.dcf_reconciliation import reconcile as reconcile_module
     tracked = ["codebase_outputs.json", "reconciliation_results.json",
                "reconciliation_report.md", "dcf_reconciliation.xlsx", "reconciliation_manifest.json"]
-    reconcile_module.main()
-    first = {name: _sha256_file(RECONCILIATION_DIR / name) for name in tracked}
-    reconcile_module.main()
-    second = {name: _sha256_file(RECONCILIATION_DIR / name) for name in tracked}
+    reconcile_module.main(output_dir=tmp_path)
+    first = {name: _sha256_file(tmp_path / name) for name in tracked}
+    reconcile_module.main(output_dir=tmp_path)
+    second = {name: _sha256_file(tmp_path / name) for name in tracked}
     assert first == second
 
 

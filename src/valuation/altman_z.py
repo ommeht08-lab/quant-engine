@@ -36,7 +36,6 @@ from src.data_ingestion.fetch_financials import (
 from src.dcf_model.dcf import _get_row_value, _most_recent_column
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 
 def calculate_altman_z(ticker_symbol: str) -> Optional[float]:

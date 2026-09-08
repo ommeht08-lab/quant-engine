@@ -503,6 +503,33 @@ class TestCalculateWaccBoundaryHardening:
         wacc = calculate_wacc(current_price=100.0, shares_outstanding=1000.0, total_debt=500.0, beta=1.2)
         assert dcf.MIN_DISCOUNT_RATE <= wacc <= dcf.MAX_DISCOUNT_RATE
 
+    def test_run_valuation_exposes_a_floor_clamp_without_changing_model_math(self):
+        financial_data = _synthetic_financial_data()
+        financial_data["beta"] = 0.0
+        result = run_dcf_valuation(
+            financial_data,
+            DCFAssumptions(
+                revenue_growth_rate=0.01,
+                operating_margin=0.15,
+                risk_free_rate=0.01,
+                market_risk_premium=0.01,
+                terminal_growth_rate=0.0,
+            ),
+        )
+
+        assert result["wacc_pre_clamp"] < dcf.MIN_DISCOUNT_RATE
+        assert result["wacc"] == dcf.MIN_DISCOUNT_RATE
+        assert result["wacc_was_clamped"] is True
+
+    def test_run_valuation_reports_when_wacc_was_not_clamped(self):
+        result = run_dcf_valuation(
+            _synthetic_financial_data(),
+            DCFAssumptions(revenue_growth_rate=0.05, operating_margin=0.15),
+        )
+
+        assert result["wacc_pre_clamp"] == pytest.approx(result["wacc"])
+        assert result["wacc_was_clamped"] is False
+
     @pytest.mark.parametrize("bad_value", ADVERSARIAL_NUMERIC_VALUES)
     def test_current_price_rejects_adversarial_values(self, bad_value):
         with pytest.raises(ValueError, match="current_price"):

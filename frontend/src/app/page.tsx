@@ -20,9 +20,12 @@ interface EvaluationResponse {
   ticker: string;
   current_price: number | null;
   wacc: number;
+  wacc_pre_clamp: number;
+  wacc_was_clamped: boolean;
   enterprise_value: number;
   equity_value: number;
   intrinsic_value_per_share: number;
+  implies_negative_equity_value: boolean;
   projected_free_cash_flows: FreeCashFlowYear[];
   assumptions: {
     revenue_growth_rate: number;
@@ -194,6 +197,26 @@ export default function Home() {
           <p className="previous-result-notice" role="status">
             Showing the previous result — the last refresh above did not complete.
           </p>
+        )}
+
+        {result && result.wacc_was_clamped && (
+          <div className="status-warning mb-6" role="status">
+            <strong className="block text-[var(--paper)]">Discount-rate bound applied</strong>
+            <span className="mt-1 block">
+              The model computed {(result.wacc_pre_clamp * 100).toFixed(2)}% WACC and used the
+              permitted {(result.wacc * 100).toFixed(2)}% bound for this valuation.
+            </span>
+          </div>
+        )}
+
+        {result && result.implies_negative_equity_value && (
+          <div className="status-warning mb-6" role="status">
+            <strong className="block text-[var(--paper)]">Model implies negative equity value</strong>
+            <span className="mt-1 block">
+              This is an analytical distress signal produced by the projected cash flows and
+              capital structure—not a literal forecast that a share can trade below zero.
+            </span>
+          </div>
         )}
 
         {result && (
