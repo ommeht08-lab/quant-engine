@@ -99,10 +99,17 @@ listed stop/go gate at the end of each stage is real.
    **Current bounded status:** secure downloader, complete-or-error extraction, filing-time
    cutoff selection, exact issuer-calendar classification, standalone-quarter/TTM assembly,
    append-only publishing seam, expanded aggregate concept policy, and offline
-   three-statement reconciliation are implemented and tested. A controlled Apple FY2024
-   live run also completed without publishing, including exact YTD-to-quarter cash-flow
-   conversion and linked Q2-Q4 statement reconciliation. Broader calendar coverage,
-   repeatable orchestration, and valuation/API integration remain.
+   three-statement reconciliation are implemented and tested. Apple now has exact,
+   filing-backed fiscal 2020-fiscal 2024 calendar coverage, including its 53-week fiscal
+   2023, plus a typed repository-to-valuation snapshot that exposes 17 aligned TTM periods
+   and 13 like-for-like year-over-year comparisons in a controlled live run. This prevents
+   one strong Q4 from being annualized as though it represented four quarters. A versioned
+   SEC DCF composition policy now keeps current price, current shares, beta, sector, and the
+   risk-free rate separate from SEC statements; derives forecast growth from the median of
+   four recent comparable TTM observations; and can run an offline typed shadow comparison
+   against the legacy Yahoo-statement path. Repeatable scheduled publishing, wider issuer
+   coverage, reviewed shadow tolerances, and valuation/API cutover remain. No live request
+   path consumes the SEC snapshot yet.
 2. **Survivorship-bias-free historical universe.** The backtest universe must include
    companies that were later delisted, acquired, or renamed — a universe built by looking
    at "the S&P 500 today" and projecting it backward is systematically biased toward

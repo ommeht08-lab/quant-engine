@@ -16,14 +16,34 @@ def test_bounded_catalog_contains_exact_verified_issuer_calendars():
 
     assert catalog.supported_ciks == ("0000104169", "0000320193", "0000789019")
     apple = catalog.entry_for("320193")
-    definition = apple.policy.fiscal_years[0]
-    assert definition.period_start == dt.date(2023, 10, 1)
-    assert definition.quarter_ends == (
+    assert apple.policy.version == "sec-filing-calendar-v2-fy2020-fy2024"
+    assert tuple(definition.fiscal_year for definition in apple.policy.fiscal_years) == (
+        2020,
+        2021,
+        2022,
+        2023,
+        2024,
+    )
+    assert apple.policy.fiscal_years[0].period_start == dt.date(2019, 9, 29)
+    assert apple.policy.fiscal_years[0].quarter_ends == (
+        dt.date(2019, 12, 28),
+        dt.date(2020, 3, 28),
+        dt.date(2020, 6, 27),
+        dt.date(2020, 9, 26),
+    )
+    assert apple.policy.fiscal_years[3].quarter_ends == (
+        dt.date(2022, 12, 31),
+        dt.date(2023, 4, 1),
+        dt.date(2023, 7, 1),
+        dt.date(2023, 9, 30),
+    )
+    assert apple.policy.fiscal_years[-1].quarter_ends == (
         dt.date(2023, 12, 30),
         dt.date(2024, 3, 30),
         dt.date(2024, 6, 29),
         dt.date(2024, 9, 28),
     )
+    assert len(apple.evidence_urls) == 20
     assert all(url.startswith("https://www.sec.gov/Archives/") for url in apple.evidence_urls)
 
 

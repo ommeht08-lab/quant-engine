@@ -8,10 +8,12 @@ Track A scope.
 **Current production-facing data sources are yfinance (financial statements,
 prices, shares, beta, sector, news, macro indices) and Alpaca (paper trading
 account/positions/orders/option chain).** An offline SEC EDGAR Company Facts
-foundation now downloads, normalizes, exact-calendar classifies, selects, and
-reconciles a bounded point-in-time dataset. It is not yet connected to the live
-valuation or API paths. A controlled live Apple FY2024 download was validated on
-2026-09-08 without publishing or retaining the downloaded payload.
+path now downloads, normalizes, exact-calendar classifies, selects, reconciles,
+and converts a bounded point-in-time dataset into a typed valuation-fundamentals
+snapshot. An offline composition module can combine that snapshot with typed
+market-only observations and compare its DCF result against the legacy path, but
+it is not connected to the live valuation or API paths. Controlled Apple
+validations were run without publishing or retaining downloaded payloads.
 
 ## 1. Financial statement fields (yfinance)
 
@@ -75,7 +77,7 @@ valuation and for the backtester's conservative approximations, but not for
 rigorous point-in-time historical research — this is exactly the gap Track B item 1
 (point-in-time SEC/XBRL fundamentals) is scoped to close.
 
-## 2. SEC Company Facts foundation (offline, not production-integrated)
+## 2. SEC Company Facts and valuation-fundamentals snapshot (offline)
 
 The SEC boundary uses Company Facts plus current and referenced historical
 Submissions documents. It requires an identifying SEC user agent, bounds retries,
@@ -83,15 +85,16 @@ payload size, accepted content types, and request pacing, and refuses partial is
 downloads. Filing acceptance time is the knowledge cutoff; future filings are
 excluded before consistency checks.
 
-The current exact-calendar catalog is intentionally bounded to fiscal 2024 for
-Apple, Microsoft, and Walmart. Facts outside the catalog's coverage are never
-reclassified through SEC `fy`/`fp` labels or duration guesses. The versioned
-concept policy covers conservative statement aggregates, and standalone Q4 is
-derived only as an exact annual residual. Standalone Q2 and Q3 cash flows are
-derived from exact six- and nine-month YTD differences when issuers do not report
-those quarters directly. A publishing seam can append one complete classified
-batch atomically and idempotently, but no live database or production workflow is
-enabled by this foundation.
+The exact-calendar catalog covers Apple fiscal 2020 through fiscal 2024 and
+fiscal 2024 for Microsoft and Walmart. Apple's coverage uses 20 official SEC
+10-Q/10-K filing documents and preserves its 53-week fiscal 2023 exactly. Facts
+outside an issuer policy's coverage are never reclassified through SEC `fy`/`fp`
+labels or duration guesses. The versioned concept policy covers conservative
+statement aggregates, and standalone Q4 is derived only as an exact annual
+residual. Standalone Q2 and Q3 cash flows are derived from exact six- and
+nine-month YTD differences when issuers do not report those quarters directly.
+A publishing seam can append one complete classified batch atomically and
+idempotently, but no live database or production workflow is enabled here.
 
 The controlled Apple run fetched Company Facts plus current and historical
 Submissions, extracted and classified 136 cutoff-eligible facts, assembled
@@ -102,9 +105,27 @@ used for SEC request identification is intentionally not stored in the repositor
 A subsequent integration run assembled all nine required duration concepts and
 linked Q2 through Q4 to exact balance-sheet snapshots. Historical free cash flow
 was $20.694 billion, $26.707 billion, and $23.903 billion for those quarters.
-Q1 remains intentionally unlinked in this one-year calendar window because its
-beginning-cash snapshot belongs to the prior fiscal-year policy. These are
+Q1 remained intentionally unlinked in that original one-year run because its
+beginning-cash snapshot belonged to the prior fiscal-year policy. These are
 historical reconciliations, not forecasts and not inputs to the live DCF yet.
+
+The first production-integration seam is
+[`valuation_snapshot.py`](../src/fundamentals/valuation_snapshot.py). It reads
+bounded repository candidates, keeps the central point-in-time selector
+authoritative, assembles exact quarterly values, aligns revenue, operating
+income, operating cash flow, and capital expenditures into TTM periods, and
+requires at least one like-for-like revenue comparison ending four fiscal
+quarters apart. Missing or incompatible statement/balance inputs refuse the
+whole snapshot; the module never fills a missing SEC field from yfinance.
+
+A controlled Apple FY2020-FY2024 run on 2026-09-09 classified 1,317 eligible
+facts, produced 80 standalone-quarter values and 68 concept-level TTM values,
+and aligned 17 valuation TTM periods with 13 year-over-year comparisons. The
+latest fiscal-2024 snapshot reported $391.035 billion TTM revenue, $108.807
+billion free cash flow, and 2.022% comparable TTM revenue growth. The balance
+position contained $29.943 billion cash and cash equivalents and $96.662 billion
+of current plus noncurrent term debt. The latter is deliberately named
+`reported_term_debt`: it does not claim to include every form of indebtedness.
 
 Capital expenditures in this SEC domain use a positive-spend convention, so
 historical free cash flow is `operating_cash_flow - capital_expenditures`. This is
@@ -116,11 +137,23 @@ deliberately different from the negative-outflow yfinance convention above.
 |---|---|---|---|---|---|
 | Current price | `Ticker.fast_info["last_price"]`, fallback `Ticker.info["currentPrice"]`/`["regularMarketPrice"]` | float | USD/share | n/a (live quote) | WACC market cap, DCF market EV, Altman X4, all live valuations |
 | Historical daily close | `Ticker.history(...)["Close"]` | float | USD/share | **Split-adjusted through today** | VaR log returns, RSI, 200-SMA trend filter, point-in-time price lookups |
-| Shares outstanding (current) | `Ticker.fast_info["shares_outstanding"]`, fallback `Ticker.info["sharesOutstanding"]` | float | shares | n/a | WACC, DCF, Altman X4, current-basis fallback for historical shares |
+| Shares outstanding (current) | `Ticker.fast_info["shares"]`, fallback `Ticker.info["sharesOutstanding"]` | float | shares | n/a | WACC, DCF, Altman X4, current-basis fallback for historical shares |
 | Shares outstanding (historical) | `Ticker.get_shares_full(start, end)` | float | shares | **Not** split-adjusted — scaled by `_cumulative_split_factor_since` to match split-adjusted price basis | Point-in-time DCF (backtester only) |
 | Beta | `Ticker.info["beta"]` (levered equity beta) | float | unitless | n/a | WACC CAPM, inverse-beta position sizing |
 | Sector (GICS) | `Ticker.info["sector"]` | string | n/a (category) | n/a — defaults to `"Unknown"` if unavailable | Sector-relative filter, Altman sector-exclusion list, sector-cap position sizing |
 | Splits | `Ticker.splits` | Series (date → ratio) | ratio (e.g. `10.0` for 10:1) | n/a | Historical share count reconstruction |
+
+When the SEC snapshot is eventually composed into the live DCF, yfinance is
+limited to market observations that Company Facts does not supply on a live
+basis: current price, current shares outstanding, levered beta, and sector.
+Treasury yield remains a separate macro-market observation. Financial-statement
+fields must come from the SEC snapshot as one source or the valuation must refuse;
+there is no field-by-field yfinance fallback.
+
+The offline SEC candidate records the risk-free rate as a separate market
+observation with its own adapter identity. The current implementation obtains
+the 10-Year Treasury proxy from Yahoo's `^TNX`; it is not treated as an issuer
+financial-statement field.
 
 **Point-in-time availability**: current price/close history is genuinely
 point-in-time correct (a historical close on a given date is that date's actual
@@ -188,7 +221,7 @@ strategy_value, spy_value for `backtest_curve`.
 
 | Planned field | Planned source | Status |
 |---|---|---|
-| Point-in-time financial statements | SEC EDGAR / XBRL | **Foundation implemented and one bounded Apple live run validated; production integration incomplete.** Broader issuer/year calendar coverage and valuation/API integration remain. |
+| Point-in-time financial statements | SEC EDGAR / XBRL | **Foundation, Apple multi-year snapshot, SEC-to-DCF composition, and offline shadow comparison implemented.** Scheduled publishing, broader issuers, reviewed comparison tolerances, and live cutover remain. |
 | Survivorship-corrected historical universe | TBD (e.g. a maintained historical index-membership dataset) | **Not implemented.** Track B item 2. |
 | Corporate-actions feed (splits/spin-offs/ticker changes) beyond `Ticker.splits` | TBD | **Not implemented** beyond the existing split-only handling. Track B item 3. |
 | Realistic transaction cost / slippage model | TBD | **Not implemented.** Track B item 6. |

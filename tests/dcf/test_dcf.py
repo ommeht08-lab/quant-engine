@@ -92,6 +92,29 @@ class TestTaxRateOverridePrecedence:
         implied_tax_rate = 1 - (nopat_y1 / ebit_y1)
         assert implied_tax_rate == pytest.approx(DEFAULT_TAX_RATE, abs=1e-9)
 
+    def test_explicit_cost_of_debt_override_wins_over_statement_derived_rate(self):
+        financial_data = _synthetic_financial_data()
+        financial_data["balance_sheet"].loc["Total Debt"] = 100.0
+        financial_data["income_statement"].loc["Interest Expense"] = 50.0
+        assumptions = DCFAssumptions(
+            revenue_growth_rate=0.05,
+            operating_margin=0.15,
+            cost_of_debt=0.01,
+        )
+
+        result = run_dcf_valuation(financial_data, assumptions)
+        expected = calculate_wacc(
+            current_price=50.0,
+            shares_outstanding=100.0,
+            total_debt=100.0,
+            beta=1.0,
+            cost_of_debt=0.01,
+            tax_rate=0.30,
+        )
+
+        assert result["wacc"] == pytest.approx(expected)
+        assert result["cost_of_debt"] == pytest.approx(0.01)
+
 
 class TestNWCCalculation:
     def test_change_in_nwc_uses_revenue_delta_not_gross_revenue(self):
@@ -151,6 +174,10 @@ class TestAssumptionValidation:
         DCFAssumptions(tax_rate=0.0)  # allowed
         with pytest.raises(ValueError):
             DCFAssumptions(tax_rate=1.0)  # exclusive upper bound
+
+    def test_negative_cost_of_debt_rejected(self):
+        with pytest.raises(ValueError, match="cost_of_debt"):
+            DCFAssumptions(cost_of_debt=-0.01)
 
     def test_non_finite_growth_rate_rejected(self):
         with pytest.raises(ValueError):
@@ -444,7 +471,7 @@ class TestBooleanAndNonnumericRejectedAtProjectFCF:
 class TestBooleanAndNonnumericRejectedAtDCFAssumptions:
     @pytest.mark.parametrize(
         "field_name",
-        ["tax_rate", "risk_free_rate", "market_risk_premium", "da_pct_revenue", "capex_pct_revenue", "nwc_pct_revenue_change"],
+        ["tax_rate", "cost_of_debt", "risk_free_rate", "market_risk_premium", "da_pct_revenue", "capex_pct_revenue", "nwc_pct_revenue_change"],
     )
     @pytest.mark.parametrize("bad_value", ADVERSARIAL_NUMERIC_VALUES)
     def test_field_rejects_adversarial_values(self, field_name, bad_value):
