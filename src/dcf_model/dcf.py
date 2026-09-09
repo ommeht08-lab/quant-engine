@@ -1167,6 +1167,7 @@ class DCFAssumptions:
     terminal_growth_rate: float = 0.025
     projection_years: int = 5
     tax_rate: Optional[float] = None  # None => derive from financials, else DEFAULT_TAX_RATE
+    cost_of_debt: Optional[float] = None  # None => derive from financials, else default
     risk_free_rate: float = DEFAULT_RISK_FREE_RATE
     market_risk_premium: float = DEFAULT_MARKET_RISK_PREMIUM
     da_pct_revenue: float = DEFAULT_DA_PCT_REVENUE
@@ -1207,14 +1208,18 @@ class DCFAssumptions:
 
         # Optional fields: `None` has its own meaning ("derive from
         # historicals" for revenue_growth_rate/operating_margin; "derive
-        # from financials, else DEFAULT_TAX_RATE" for tax_rate) and must
-        # pass through untouched — anything else must be a genuine
-        # finite, non-bool number.
+        # from financials, else DEFAULT_TAX_RATE" for tax_rate; "derive
+        # from financials, else DEFAULT_COST_OF_DEBT" for cost_of_debt)
+        # and must pass through untouched — anything else must be a
+        # genuine finite, non-bool number.
         self.revenue_growth_rate = _require_finite_numeric_or_none(
             self.revenue_growth_rate, "revenue_growth_rate"
         )
         self.operating_margin = _require_finite_numeric_or_none(self.operating_margin, "operating_margin")
         self.tax_rate = _require_finite_numeric_or_none(self.tax_rate, "tax_rate")
+        self.cost_of_debt = _require_finite_numeric_or_none(
+            self.cost_of_debt, "cost_of_debt"
+        )
 
         # Required (never legitimately `None`) fields — even though the
         # dataclass itself doesn't enforce that at runtime, a caller
@@ -1233,6 +1238,10 @@ class DCFAssumptions:
 
         if self.tax_rate is not None and not (0 <= self.tax_rate < 1):
             raise ValueError(f"tax_rate must be in [0, 1) if set, got {self.tax_rate}.")
+        if self.cost_of_debt is not None and self.cost_of_debt < 0:
+            raise ValueError(
+                f"cost_of_debt must be non-negative if set, got {self.cost_of_debt}."
+            )
 
         if self.revenue_growth_rate is not None and not (
             MIN_EXPLICIT_REVENUE_GROWTH_RATE <= self.revenue_growth_rate <= MAX_EXPLICIT_REVENUE_GROWTH_RATE
@@ -1274,7 +1283,8 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
         fcf_projection (DataFrame), terminal_value, pv_fcf,
         pv_terminal_value, enterprise_value, equity_value,
         intrinsic_value_per_share, current_market_price, total_debt,
-        cash_and_equivalents, shares_outstanding, base_revenue, tax_rate.
+        cash_and_equivalents, shares_outstanding, base_revenue, tax_rate,
+        cost_of_debt.
 
         `revenue_growth_rate` and `operating_margin` reflect whatever was
         actually used for the projection: the explicit value from
@@ -1290,9 +1300,9 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
         them directly instead of re-parsing `financial_data` a second time.
 
         `base_revenue` is the trailing revenue `fcf_projection` was built
-        from, and `tax_rate` is the RESOLVED rate actually used (explicit
-        override, statement-derived, or the default fallback — never
-        `None`) — surfaced together so a caller that needs to re-project
+        from; `tax_rate` and `cost_of_debt` are the RESOLVED rates actually
+        used (explicit override, statement-derived, or the default fallback
+        — never `None`) — surfaced together so a caller that needs to re-project
         FCF under different growth/margin assumptions while holding every
         other input fixed (e.g. `src.dcf_model.scenarios`) has everything
         `project_free_cash_flows` needs without re-parsing `financial_data`.
@@ -1355,6 +1365,11 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
                 operating_margin * 100,
             )
 
+    resolved_cost_of_debt = (
+        assumptions.cost_of_debt
+        if assumptions.cost_of_debt is not None
+        else inputs["cost_of_debt"]
+    )
     wacc_computation = _calculate_wacc_computation(
         current_price=inputs["current_price"],
         shares_outstanding=inputs["shares_outstanding"],
@@ -1362,7 +1377,7 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
         beta=inputs["beta"],
         risk_free_rate=assumptions.risk_free_rate,
         market_risk_premium=assumptions.market_risk_premium,
-        cost_of_debt=inputs["cost_of_debt"],
+        cost_of_debt=resolved_cost_of_debt,
         tax_rate=tax_rate,
     )
     wacc = wacc_computation.applied_rate
@@ -1433,6 +1448,11 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
         "shares_outstanding": inputs["shares_outstanding"],
         "base_revenue": inputs["revenue"],
         "tax_rate": tax_rate,
+        "cost_of_debt": (
+            resolved_cost_of_debt
+            if resolved_cost_of_debt is not None
+            else DEFAULT_COST_OF_DEBT
+        ),
     }
 
 

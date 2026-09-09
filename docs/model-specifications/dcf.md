@@ -203,7 +203,7 @@ not the DCF pipeline itself.
 | `tax_rate` | decimal, [0, 1) | derived from Pretax Income / Tax Provision, or caller override, or `DEFAULT_TAX_RATE = 21%` | A present value outside `[0, 1)` raises `ValueError` (Track A Phase 1.5D); only a genuinely missing (`None`) tax rate falls back to the default |
 | `risk_free_rate` | decimal, annual | caller; live callers pass `src/utils/macro.py`'s 10Y Treasury yield | Default constant `DEFAULT_RISK_FREE_RATE = 4%`; no missing-data fallback on `calculate_wacc` itself. No sign bound — a negative risk-free rate can be legitimate. |
 | `market_risk_premium` | decimal | caller (default `DEFAULT_MARKET_RISK_PREMIUM = 5.5%`) | |
-| `cost_of_debt` | decimal | derived (`|interest_expense| / total_debt`) or `DEFAULT_COST_OF_DEBT = 5%` | A present value must be non-negative — raises `ValueError` otherwise (Track A Phase 1.5D) |
+| `cost_of_debt` | decimal | caller override, else derived (`|interest_expense| / total_debt`), else `DEFAULT_COST_OF_DEBT = 5%` | A present value must be non-negative — raises `ValueError` otherwise (Track A Phase 1.5D) |
 | `total_debt` | USD | derived from balance sheet | Missing (`None`) treated as 0; a present value must be non-negative — raises `ValueError` otherwise (Track A Phase 1.5D) |
 | `da_pct_revenue`, `capex_pct_revenue`, `nwc_pct_revenue_change` | decimal, % of revenue | caller (defaults 3%, 4%, 1%) | |
 | `projection_years` | integer, ≥ 1 | caller (default 5) | |
@@ -333,7 +333,7 @@ count), and is now rejected the same way rather than silently accepted.
 | Function | Fields | Missing (`None`) | Present but malformed / economically invalid |
 |---|---|---|---|
 | `project_free_cash_flows` | `base_revenue`, `revenue_growth_rate`, `operating_margin`, `tax_rate`, `da_pct_revenue`, `capex_pct_revenue`, `nwc_pct_revenue_change`, `years` | Not accepted — all required | Raises `ValueError` |
-| `DCFAssumptions.__post_init__` | `revenue_growth_rate`, `operating_margin`, `tax_rate` | `None` = "derive from historicals" (preserved) | Raises `ValueError` at construction time |
+| `DCFAssumptions.__post_init__` | `revenue_growth_rate`, `operating_margin`, `tax_rate`, `cost_of_debt` | `None` = "derive from historicals" or use the documented fallback (preserved) | Raises `ValueError` at construction time |
 | `DCFAssumptions.__post_init__` | `risk_free_rate`, `market_risk_premium`, `da_pct_revenue`, `capex_pct_revenue`, `nwc_pct_revenue_change`, `projection_years`, `terminal_growth_rate` | Not accepted — all required (never legitimately `None`) | Raises `ValueError` at construction time |
 | `calculate_wacc` | `current_price`, `shares_outstanding` | Not accepted — required | Raises `ValueError` — including a present value that is `<= 0` (Phase 1.5D; a zero/negative price or share count is economically meaningless, not just a type problem) |
 | `calculate_wacc` | `risk_free_rate`, `market_risk_premium` | **No missing-data fallback on this function** — raises `ValueError` the same as a malformed value | Raises `ValueError` for type/finiteness only — **no sign bound**; a negative risk-free rate or premium is not rejected |
@@ -392,6 +392,15 @@ is the caller's responsibility, implemented in
 [`src/backtesting/historical_tester.py`](../../src/backtesting/historical_tester.py)
 (`_columns_on_or_before`) — see
 [`docs/model-specifications/backtesting.md`](backtesting.md).
+
+The offline SEC path now provides a typed
+[`ValuationFundamentalsSnapshot`](../../src/fundamentals/valuation_snapshot.py)
+with exact knowledge/data-vintage cutoffs and comparable TTM histories. The
+offline [`valuation_integration.py`](../../src/fundamentals/valuation_integration.py)
+module converts it into the existing DCF's input shape under an explicit,
+versioned policy and can compare it against the legacy result. The live endpoint
+does not call this module. That deliberate gap prevents a partial cutover from
+silently mixing SEC and yfinance statement fields.
 
 ## Known simplifications
 

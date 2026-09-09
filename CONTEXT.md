@@ -165,6 +165,36 @@ from a reported standalone quarter and never inferred from elapsed days.
 The exact sum of four consecutive compatible standalone quarters ending at a
 specified fiscal-quarter boundary.
 
+## Comparable trailing period
+
+A pair of trailing-twelve-month periods ending exactly four fiscal quarters
+apart. It compares like-for-like seasonal windows instead of annualizing one
+quarter's growth.
+
+## Valuation fundamentals snapshot
+
+One reproducible, SEC-derived set of historical trailing periods and ending
+balances for an issuer at exact knowledge and data-vintage cutoffs. It excludes
+market observations and forecast assumptions so sources cannot be silently mixed.
+
+## Valuation market observations
+
+The current price, current shares outstanding, levered beta, sector, and
+risk-free rate observed for a valuation at a stated instant. They contain no
+financial-statement values and remain separate from a Valuation fundamentals snapshot.
+
+## SEC DCF composition policy
+
+The versioned rules that combine a Valuation fundamentals snapshot with Valuation
+market observations and explicit forecast assumptions. The policy never repairs a
+missing SEC statement value with a market-data provider's statement value.
+
+## Shadow valuation comparison
+
+An offline, non-customer-facing comparison of the SEC-backed candidate valuation
+with the legacy statement-source valuation using the same market observations.
+It measures differences but does not authorize a live-source cutover.
+
 ## Linked three-statement period
 
 One historical standalone quarter whose total assets equal total liabilities

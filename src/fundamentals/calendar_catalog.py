@@ -79,22 +79,15 @@ class FiscalCalendarCatalog:
 def _entry(
     *,
     cik: str,
-    fiscal_year: int,
-    period_start: date,
-    quarter_ends: Tuple[date, date, date, date],
+    version: str,
+    fiscal_years: Iterable[FiscalYearDefinition],
     evidence_urls: Iterable[str],
 ) -> FiscalCalendarCatalogEntry:
     return FiscalCalendarCatalogEntry(
         policy=IssuerFiscalCalendarPolicy(
             cik=cik,
-            version=f"sec-filing-calendar-v1-fy{fiscal_year}",
-            fiscal_years=(
-                FiscalYearDefinition(
-                    fiscal_year=fiscal_year,
-                    period_start=period_start,
-                    quarter_ends=quarter_ends,
-                ),
-            ),
+            version=version,
+            fiscal_years=tuple(fiscal_years),
         ),
         evidence_urls=tuple(evidence_urls),
     )
@@ -107,15 +100,76 @@ SEC_FISCAL_CALENDAR_CATALOG_V1 = FiscalCalendarCatalog(
     entries=(
         _entry(
             cik="0000320193",
-            fiscal_year=2024,
-            period_start=date(2023, 10, 1),
-            quarter_ends=(
-                date(2023, 12, 30),
-                date(2024, 3, 30),
-                date(2024, 6, 29),
-                date(2024, 9, 28),
+            version="sec-filing-calendar-v2-fy2020-fy2024",
+            fiscal_years=(
+                FiscalYearDefinition(
+                    fiscal_year=2020,
+                    period_start=date(2019, 9, 29),
+                    quarter_ends=(
+                        date(2019, 12, 28),
+                        date(2020, 3, 28),
+                        date(2020, 6, 27),
+                        date(2020, 9, 26),
+                    ),
+                ),
+                FiscalYearDefinition(
+                    fiscal_year=2021,
+                    period_start=date(2020, 9, 27),
+                    quarter_ends=(
+                        date(2020, 12, 26),
+                        date(2021, 3, 27),
+                        date(2021, 6, 26),
+                        date(2021, 9, 25),
+                    ),
+                ),
+                FiscalYearDefinition(
+                    fiscal_year=2022,
+                    period_start=date(2021, 9, 26),
+                    quarter_ends=(
+                        date(2021, 12, 25),
+                        date(2022, 3, 26),
+                        date(2022, 6, 25),
+                        date(2022, 9, 24),
+                    ),
+                ),
+                FiscalYearDefinition(
+                    fiscal_year=2023,
+                    period_start=date(2022, 9, 25),
+                    quarter_ends=(
+                        date(2022, 12, 31),
+                        date(2023, 4, 1),
+                        date(2023, 7, 1),
+                        date(2023, 9, 30),
+                    ),
+                ),
+                FiscalYearDefinition(
+                    fiscal_year=2024,
+                    period_start=date(2023, 10, 1),
+                    quarter_ends=(
+                        date(2023, 12, 30),
+                        date(2024, 3, 30),
+                        date(2024, 6, 29),
+                        date(2024, 9, 28),
+                    ),
+                ),
             ),
             evidence_urls=(
+                "https://www.sec.gov/Archives/edgar/data/320193/000032019320000010/a10-qq1202012282019.htm",
+                "https://www.sec.gov/Archives/edgar/data/320193/000032019320000052/a10-qq220203282020.htm",
+                "https://www.sec.gov/Archives/edgar/data/320193/000032019320000062/aapl-20200627.htm",
+                "https://www.sec.gov/Archives/edgar/data/320193/000032019320000096/aapl-20200926.htm",
+                "https://www.sec.gov/Archives/edgar/data/320193/000032019321000010/aapl-20201226.htm",
+                "https://www.sec.gov/Archives/edgar/data/320193/000032019321000056/aapl-20210327.htm",
+                "https://www.sec.gov/Archives/edgar/data/320193/000032019321000065/aapl-20210626.htm",
+                "https://www.sec.gov/Archives/edgar/data/320193/000032019321000105/aapl-20210925.htm",
+                "https://www.sec.gov/Archives/edgar/data/320193/000032019322000007/aapl-20211225.htm",
+                "https://www.sec.gov/Archives/edgar/data/320193/000032019322000059/aapl-20220326.htm",
+                "https://www.sec.gov/Archives/edgar/data/320193/000032019322000070/aapl-20220625.htm",
+                "https://www.sec.gov/Archives/edgar/data/320193/000032019322000108/aapl-20220924.htm",
+                "https://www.sec.gov/Archives/edgar/data/320193/000032019323000006/aapl-20221231.htm",
+                "https://www.sec.gov/Archives/edgar/data/320193/000032019323000064/aapl-20230401.htm",
+                "https://www.sec.gov/Archives/edgar/data/320193/000032019323000077/aapl-20230701.htm",
+                "https://www.sec.gov/Archives/edgar/data/320193/000032019323000106/aapl-20230930.htm",
                 "https://www.sec.gov/Archives/edgar/data/320193/000032019324000006/aapl-20231230.htm",
                 "https://www.sec.gov/Archives/edgar/data/320193/000032019324000069/aapl-20240330.htm",
                 "https://www.sec.gov/Archives/edgar/data/320193/000032019324000081/aapl-20240629.htm",
@@ -124,13 +178,18 @@ SEC_FISCAL_CALENDAR_CATALOG_V1 = FiscalCalendarCatalog(
         ),
         _entry(
             cik="0000789019",
-            fiscal_year=2024,
-            period_start=date(2023, 7, 1),
-            quarter_ends=(
-                date(2023, 9, 30),
-                date(2023, 12, 31),
-                date(2024, 3, 31),
-                date(2024, 6, 30),
+            version="sec-filing-calendar-v1-fy2024",
+            fiscal_years=(
+                FiscalYearDefinition(
+                    fiscal_year=2024,
+                    period_start=date(2023, 7, 1),
+                    quarter_ends=(
+                        date(2023, 9, 30),
+                        date(2023, 12, 31),
+                        date(2024, 3, 31),
+                        date(2024, 6, 30),
+                    ),
+                ),
             ),
             evidence_urls=(
                 "https://www.sec.gov/Archives/edgar/data/789019/000095017023054855/msft-20230930.htm",
@@ -141,13 +200,18 @@ SEC_FISCAL_CALENDAR_CATALOG_V1 = FiscalCalendarCatalog(
         ),
         _entry(
             cik="0000104169",
-            fiscal_year=2024,
-            period_start=date(2023, 2, 1),
-            quarter_ends=(
-                date(2023, 4, 30),
-                date(2023, 7, 31),
-                date(2023, 10, 31),
-                date(2024, 1, 31),
+            version="sec-filing-calendar-v1-fy2024",
+            fiscal_years=(
+                FiscalYearDefinition(
+                    fiscal_year=2024,
+                    period_start=date(2023, 2, 1),
+                    quarter_ends=(
+                        date(2023, 4, 30),
+                        date(2023, 7, 31),
+                        date(2023, 10, 31),
+                        date(2024, 1, 31),
+                    ),
+                ),
             ),
             evidence_urls=(
                 "https://www.sec.gov/Archives/edgar/data/104169/000010416923000052/wmt-20230430.htm",
