@@ -5,12 +5,13 @@ and its known quirks — centralized here rather than re-derived from reading ea
 call site, per [`docs/model-development-roadmap.md`](model-development-roadmap.md)'s
 Track A scope.
 
-**Current data sources are yfinance (financial statements, prices, shares, beta,
-sector, news, macro indices) and Alpaca (paper trading account/positions/orders/
-option chain).** SEC EDGAR/XBRL is a **planned, not implemented**, future data
-source for Track B point-in-time fundamentals (roadmap item 1) — no code in this
-repository currently reads from SEC EDGAR or XBRL. Nothing in this table describes
-a planned source as though it were already wired in.
+**Current production-facing data sources are yfinance (financial statements,
+prices, shares, beta, sector, news, macro indices) and Alpaca (paper trading
+account/positions/orders/option chain).** An offline SEC EDGAR Company Facts
+foundation now downloads, normalizes, exact-calendar classifies, selects, and
+reconciles a bounded point-in-time dataset. It is not yet connected to the live
+valuation or API paths. A controlled live Apple FY2024 download was validated on
+2026-09-08 without publishing or retaining the downloaded payload.
 
 ## 1. Financial statement fields (yfinance)
 
@@ -74,7 +75,42 @@ valuation and for the backtester's conservative approximations, but not for
 rigorous point-in-time historical research — this is exactly the gap Track B item 1
 (point-in-time SEC/XBRL fundamentals) is scoped to close.
 
-## 2. Price, shares, beta, and sector (yfinance)
+## 2. SEC Company Facts foundation (offline, not production-integrated)
+
+The SEC boundary uses Company Facts plus current and referenced historical
+Submissions documents. It requires an identifying SEC user agent, bounds retries,
+payload size, accepted content types, and request pacing, and refuses partial issuer
+downloads. Filing acceptance time is the knowledge cutoff; future filings are
+excluded before consistency checks.
+
+The current exact-calendar catalog is intentionally bounded to fiscal 2024 for
+Apple, Microsoft, and Walmart. Facts outside the catalog's coverage are never
+reclassified through SEC `fy`/`fp` labels or duration guesses. The versioned
+concept policy covers conservative statement aggregates, and standalone Q4 is
+derived only as an exact annual residual. Standalone Q2 and Q3 cash flows are
+derived from exact six- and nine-month YTD differences when issuers do not report
+those quarters directly. A publishing seam can append one complete classified
+batch atomically and idempotently, but no live database or production workflow is
+enabled by this foundation.
+
+The controlled Apple run fetched Company Facts plus current and historical
+Submissions, extracted and classified 136 cutoff-eligible facts, assembled
+reported Q1 through Q3 revenue, derived Q4, and reconciled trailing-twelve-month
+revenue to the reported full-year total of $391.035 billion. The contact address
+used for SEC request identification is intentionally not stored in the repository.
+
+A subsequent integration run assembled all nine required duration concepts and
+linked Q2 through Q4 to exact balance-sheet snapshots. Historical free cash flow
+was $20.694 billion, $26.707 billion, and $23.903 billion for those quarters.
+Q1 remains intentionally unlinked in this one-year calendar window because its
+beginning-cash snapshot belongs to the prior fiscal-year policy. These are
+historical reconciliations, not forecasts and not inputs to the live DCF yet.
+
+Capital expenditures in this SEC domain use a positive-spend convention, so
+historical free cash flow is `operating_cash_flow - capital_expenditures`. This is
+deliberately different from the negative-outflow yfinance convention above.
+
+## 3. Price, shares, beta, and sector (yfinance)
 
 | Canonical field | Source | Type | Unit | Adjusted? | Downstream consumers |
 |---|---|---|---|---|---|
@@ -99,7 +135,7 @@ recent bar (an unsettled/incomplete session) — every price-history consumer dr
 trusting the final row blindly. `get_current_price`/`get_shares_outstanding`/
 `get_beta` each degrade to `None` on any fetch failure rather than raising.
 
-## 3. Macro indicators (yfinance)
+## 4. Macro indicators (yfinance)
 
 | Canonical field | Source ticker | Type | Unit | Frequency | Downstream consumers |
 |---|---|---|---|---|---|
@@ -116,13 +152,13 @@ a caller does not override `calculate_wacc`'s parameter at all); see `L-011` in 
 limitations register for why these two independently-configured constants being
 close but not identical is a tracked inconsistency, not a bug.
 
-## 4. News headlines (yfinance)
+## 5. News headlines (yfinance)
 
 | Canonical field | Source | Type | Notes |
 |---|---|---|---|
 | Recent headlines | `Ticker.news` | list of `{title, publisher, link, published_at}` | Up to `RECENT_HEADLINE_COUNT = 5`, most recent first. Supplementary qualitative context (`src.valuation.macro_sentiment`) — **not** a scored input to the DCF or Conviction Score pipeline. Degrades to an empty list on any failure. |
 
-## 5. Trading/brokerage fields (Alpaca)
+## 6. Trading/brokerage fields (Alpaca)
 
 | Canonical field | Source | Type | Notes |
 |---|---|---|---|
@@ -138,7 +174,7 @@ see [`docs/security-threat-model.md`](security-threat-model.md) and
 [`src/trading/alpaca_execution.py:310`](../src/trading/alpaca_execution.py). This
 is telemetry/execution data, not research/backtesting input.
 
-## 6. Database fields (Supabase/Postgres, written by this project)
+## 7. Database fields (Supabase/Postgres, written by this project)
 
 `trade_logs` and `backtest_curve`, written by `src/utils/db.py`
 ([`db.py:39-93`](../src/utils/db.py)) — these are this project's own **output**
@@ -148,11 +184,11 @@ beta, conviction_score, altman_z_score, var_95/cvar_95 (portfolio-level, populat
 only on the synthetic `"RISK_SNAPSHOT"` row) for `trade_logs`; date,
 strategy_value, spy_value for `backtest_curve`.
 
-## 7. Planned (not implemented) data sources
+## 8. Planned or incomplete data sources
 
 | Planned field | Planned source | Status |
 |---|---|---|
-| Point-in-time financial statements | SEC EDGAR / XBRL | **Not implemented.** Track B item 1. No code in this repository reads from SEC EDGAR or XBRL as of this writing. |
+| Point-in-time financial statements | SEC EDGAR / XBRL | **Foundation implemented and one bounded Apple live run validated; production integration incomplete.** Broader issuer/year calendar coverage and valuation/API integration remain. |
 | Survivorship-corrected historical universe | TBD (e.g. a maintained historical index-membership dataset) | **Not implemented.** Track B item 2. |
 | Corporate-actions feed (splits/spin-offs/ticker changes) beyond `Ticker.splits` | TBD | **Not implemented** beyond the existing split-only handling. Track B item 3. |
 | Realistic transaction cost / slippage model | TBD | **Not implemented.** Track B item 6. |
