@@ -89,6 +89,12 @@ It is a source for consolidated facts, not arbitrary segment or member
 dimensions; dimensional facts require a filing-level XBRL source that exposes
 their complete contexts.
 
+## SEC issuer payload bundle
+
+One complete, unclassified download for an issuer: its Company Facts document,
+current Submissions document, and every referenced historical Submissions page.
+If any required document is unavailable or invalid, no bundle exists.
+
 ## Extracted filing fact
 
 A source record whose Company Facts value has been joined to its filing's
@@ -130,3 +136,51 @@ It is classified as `TRANSITION`, never relabeled as an ordinary quarter or year
 
 The immutable identity of the issuer fiscal calendar policy used to classify a
 stored fact. A correction creates new lineage; it never rewrites prior facts.
+
+## Fiscal calendar coverage window
+
+The exact span of issuer periods supported by one calendar policy. Facts before
+the window are outside the requested history; facts after it make the policy stale.
+A cover fact from a filing whose report date predates the window is also outside
+coverage, even when its cover date falls just after the next fiscal year begins.
+
+## Reported standalone quarter
+
+One exact fiscal-quarter value stated directly by the issuer, rather than a
+year-to-date cumulative value or a value inferred from elapsed days.
+
+## Derived fourth quarter
+
+The exact residual of a compatible full-year value less reported standalone
+Q1, Q2, and Q3 values. It is never treated as directly reported by the issuer.
+
+## Derived interim quarter
+
+An exact standalone Q2 or Q3 produced by subtracting the preceding cumulative
+fiscal-year-to-date value from the current cumulative value. It is distinct
+from a reported standalone quarter and never inferred from elapsed days.
+
+## Trailing twelve months
+
+The exact sum of four consecutive compatible standalone quarters ending at a
+specified fiscal-quarter boundary.
+
+## Linked three-statement period
+
+One historical standalone quarter whose total assets equal total liabilities
+plus total equity (including noncontrolling interests), whose cash-flow sections
+sum, and whose same-basis cash rollforward reconciles exactly. It is an offline
+verified input, not a forecast or a valuation.
+
+## Linked three-statement history
+
+A point-in-time sequence containing only historical quarters whose statement
+inputs, balance snapshots, lineage, and accounting links all reconcile. One
+failed quarter refuses the entire sequence rather than returning partial history.
+
+## Operating cash conversion adjustments
+
+The explicit residual between operating cash flow and net income plus
+depreciation and amortization. It keeps the initial linkage honest without
+pretending the engine has separately modeled every non-cash and working-capital
+line item.

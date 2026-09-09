@@ -1,11 +1,10 @@
 # Model Development Roadmap
 
-Status: living document, defining direction rather than reporting completed work. As of
-this writing, none of the Track B performance-research infrastructure described below has
-been built — the codebase currently has a DCF valuation engine, a Monte Carlo VaR module,
-a point-in-time-aware backtester, and a paper-trading execution engine, all covered by the
-existing test suite, but none of Track B's data-integrity or validation infrastructure yet
-exists. This document is the plan and the gate, not a status report of things already done.
+Status: living document, defining direction and recording bounded foundations without
+mistaking them for completed production integration. The codebase has a DCF valuation
+engine, Monte Carlo VaR, a point-in-time-aware backtester, paper-trading execution, and an
+offline SEC point-in-time fundamentals foundation. The SEC path is not yet connected to
+the live valuation/API paths, and the remaining Track B gates still apply.
 
 ## Purpose and non-negotiable framing
 
@@ -97,6 +96,13 @@ listed stop/go gate at the end of each stage is real.
    point-in-time filing-lag protection for the data sources it currently uses; this item
    extends the same discipline to SEC EDGAR/XBRL once that becomes the fundamentals
    source, per the SEC EDGAR API reference in this project's handoff history.
+   **Current bounded status:** secure downloader, complete-or-error extraction, filing-time
+   cutoff selection, exact issuer-calendar classification, standalone-quarter/TTM assembly,
+   append-only publishing seam, expanded aggregate concept policy, and offline
+   three-statement reconciliation are implemented and tested. A controlled Apple FY2024
+   live run also completed without publishing, including exact YTD-to-quarter cash-flow
+   conversion and linked Q2-Q4 statement reconciliation. Broader calendar coverage,
+   repeatable orchestration, and valuation/API integration remain.
 2. **Survivorship-bias-free historical universe.** The backtest universe must include
    companies that were later delisted, acquired, or renamed — a universe built by looking
    at "the S&P 500 today" and projecting it backward is systematically biased toward

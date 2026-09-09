@@ -11,6 +11,7 @@ from src.fundamentals.adapters.sec_companyfacts import (
 )
 from src.fundamentals.concept_map import (
     SEC_CONCEPT_MAP_V1,
+    SEC_CONCEPT_MAP_V2,
     ConceptMap,
     ConceptRule,
     FactPeriodType,
@@ -160,6 +161,133 @@ class TestSuccessfulExtraction:
             dt.date(2024, 9, 28),
         ]
         assert all(fact.filing_fiscal_year == 2024 for fact in result.facts)
+
+    def test_period_floor_excludes_older_history_before_full_extraction(self):
+        older = _duration_entry(
+            value=383_285_000_000,
+            start="2022-09-25",
+            end="2023-09-30",
+        )
+
+        result = _extract(
+            _company_facts([older, _duration_entry()]),
+            period_end_floor=dt.date(2024, 1, 1),
+        )
+
+        assert result.is_complete
+        assert [fact.period_end for fact in result.facts] == [dt.date(2024, 9, 28)]
+
+    def test_old_unreferenced_submission_metadata_cannot_block_a_bounded_window(self):
+        old_accession = "0000912057-00-023442"
+        submissions = _submission_payload()
+        recent = submissions["filings"]["recent"]
+        recent["accessionNumber"].append(old_accession)
+        recent["filingDate"].append("2000-06-19")
+        recent["acceptanceDateTime"].append("2000-06-19T12:00:00Z")
+        recent["reportDate"].append("2000-03-31")
+        recent["form"].append("10-Q")
+        recent["primaryDocument"].append("")
+        old_fact = _duration_entry(
+            accession=old_accession,
+            value=1,
+            start="2000-01-01",
+            end="2000-03-31",
+            form="10-Q",
+            filed="2000-06-19",
+            fy=2000,
+            fp="Q1",
+        )
+
+        result = _extract(
+            _company_facts([old_fact, _duration_entry()]),
+            (submissions,),
+            period_end_floor=dt.date(2023, 10, 1),
+        )
+
+        assert result.is_complete
+        assert [fact.provenance_accession_number for fact in result.facts] == [ACCESSION]
+
+    def test_cover_fact_from_prior_fiscal_year_is_outside_the_calendar_window(self):
+        prior_accession = "0000320193-23-000106"
+        submissions = _submission_payload()
+        recent = submissions["filings"]["recent"]
+        recent["accessionNumber"].append(prior_accession)
+        recent["filingDate"].append("2023-11-03")
+        recent["acceptanceDateTime"].append("2023-11-02T18:08:27Z")
+        recent["reportDate"].append("2023-09-30")
+        recent["form"].append("10-K")
+        recent["primaryDocument"].append("")
+        company_facts = _company_facts()
+        company_facts["facts"]["dei"] = {
+            "EntityCommonStockSharesOutstanding": {
+                "units": {
+                    "shares": [
+                        {
+                            "end": "2023-10-20",
+                            "val": 15_552_752_000,
+                            "accn": prior_accession,
+                            "fy": 2023,
+                            "fp": "FY",
+                            "form": "10-K",
+                            "filed": "2023-11-03",
+                        }
+                    ]
+                }
+            }
+        }
+
+        result = _extract(
+            company_facts,
+            (submissions,),
+            period_end_floor=dt.date(2023, 10, 1),
+        )
+
+        assert result.is_complete
+        assert [fact.provenance_accession_number for fact in result.facts] == [ACCESSION]
+
+    def test_future_synonym_conflict_is_excluded_before_consistency_checks(self):
+        original = _duration_entry()
+        future_a = _duration_entry(
+            accession=AMENDMENT_ACCESSION,
+            value=400_000_000_000,
+            form="10-K/A",
+            filed="2024-11-08",
+        )
+        future_b = _duration_entry(
+            accession=AMENDMENT_ACCESSION,
+            value=401_000_000_000,
+            form="10-K/A",
+            filed="2024-11-08",
+        )
+
+        result = _extract(
+            _company_facts([original, future_a, future_b]),
+            (_submission_payload(amendment=True),),
+            knowledge_cutoff=dt.datetime(2024, 11, 5, tzinfo=dt.timezone.utc),
+        )
+
+        assert result.is_complete
+        assert len(result.facts) == 1
+        assert result.facts[0].provenance_accession_number == ACCESSION
+
+    def test_future_filing_document_metadata_is_excluded_before_validation(self):
+        submissions = _submission_payload(amendment=True)
+        submissions["filings"]["recent"]["primaryDocument"][1] = ""
+        future = _duration_entry(
+            accession=AMENDMENT_ACCESSION,
+            value=400_000_000_000,
+            form="10-K/A",
+            filed="2024-11-08",
+        )
+
+        result = _extract(
+            _company_facts([_duration_entry(), future]),
+            (submissions,),
+            knowledge_cutoff=dt.datetime(2024, 11, 5, tzinfo=dt.timezone.utc),
+        )
+
+        assert result.is_complete
+        assert [fact.provenance_accession_number for fact in result.facts] == [ACCESSION]
 
     def test_preserves_amendment_as_a_separate_source_record(self):
         original = _duration_entry()
@@ -318,6 +446,15 @@ class TestFailClosedValidation:
             SecIngestionIssueCode.CONFLICTING_SUBMISSION_METADATA,
         )
 
+    def test_relevant_submission_still_requires_a_valid_primary_document(self):
+        submissions = _submission_payload()
+        submissions["filings"]["recent"]["primaryDocument"][0] = ""
+
+        _assert_issue(
+            _extract(submissions=(submissions,)),
+            SecIngestionIssueCode.INVALID_PAYLOAD,
+        )
+
     def test_different_submission_column_lengths_are_refused(self):
         submissions = _submission_payload()
         submissions["filings"]["recent"]["form"].append("10-Q")
@@ -416,6 +553,16 @@ class TestFailClosedValidation:
             SecIngestionIssueCode.INVALID_PAYLOAD,
         )
 
+    @pytest.mark.parametrize(
+        "period_end_floor",
+        ("2024-01-01", dt.datetime(2024, 1, 1, tzinfo=dt.timezone.utc)),
+    )
+    def test_period_end_floor_must_be_a_plain_date(self, period_end_floor):
+        _assert_issue(
+            _extract(period_end_floor=period_end_floor),
+            SecIngestionIssueCode.INVALID_PAYLOAD,
+        )
+
     def test_submissions_must_be_iterable(self):
         _assert_issue(
             _extract(submissions=1),
@@ -493,3 +640,50 @@ class TestConceptMapIntegrity:
         assert SEC_CONCEPT_MAP_V1.rule_for(
             "dei", "RevenueFromContractWithCustomerExcludingAssessedTax"
         ) is None
+
+    def test_v2_extends_v1_without_mutating_its_lineage(self):
+        assert SEC_CONCEPT_MAP_V1.version == "sec-companyfacts-v1"
+        assert SEC_CONCEPT_MAP_V1.rule_for("us-gaap", "Assets") is None
+        assert set(SEC_CONCEPT_MAP_V1.rules).issubset(SEC_CONCEPT_MAP_V2.rules)
+        assert SEC_CONCEPT_MAP_V2.version == "sec-companyfacts-v2"
+
+    @pytest.mark.parametrize(
+        ("raw_tag", "canonical_concept", "statement_kind"),
+        (
+            ("GrossProfit", "gross_profit", StatementKind.INCOME_STATEMENT),
+            ("Assets", "total_assets", StatementKind.BALANCE_SHEET),
+            ("Liabilities", "total_liabilities", StatementKind.BALANCE_SHEET),
+            (
+                "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+                "total_equity",
+                StatementKind.BALANCE_SHEET,
+            ),
+            (
+                "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+                "cash_and_restricted_cash",
+                StatementKind.BALANCE_SHEET,
+            ),
+            (
+                "NetCashProvidedByUsedInInvestingActivities",
+                "investing_cash_flow",
+                StatementKind.CASH_FLOW,
+            ),
+            (
+                "NetCashProvidedByUsedInFinancingActivities",
+                "financing_cash_flow",
+                StatementKind.CASH_FLOW,
+            ),
+            (
+                "EffectOfExchangeRateOnCashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+                "exchange_rate_effect",
+                StatementKind.CASH_FLOW,
+            ),
+        ),
+    )
+    def test_v2_adds_linked_statement_aggregates(
+        self, raw_tag, canonical_concept, statement_kind
+    ):
+        rule = SEC_CONCEPT_MAP_V2.rule_for("us-gaap", raw_tag)
+
+        assert rule.canonical_concept == canonical_concept
+        assert rule.statement_kind is statement_kind

@@ -238,3 +238,98 @@ SEC_CONCEPT_MAP_V1 = ConceptMap(
         ),
     ),
 )
+
+
+# Version 2 extends the immutable first policy with high-confidence aggregate
+# lines needed to reconcile the three primary financial statements. Version 1
+# remains available so facts already published under it keep exact lineage.
+SEC_CONCEPT_MAP_V2 = ConceptMap(
+    version="sec-companyfacts-v2",
+    rules=SEC_CONCEPT_MAP_V1.rules
+    + (
+        _rule(
+            "GrossProfit",
+            "gross_profit",
+            StatementKind.INCOME_STATEMENT,
+            FactPeriodType.DURATION,
+        ),
+        _rule(
+            "CostOfRevenue",
+            "cost_of_revenue",
+            StatementKind.INCOME_STATEMENT,
+            FactPeriodType.DURATION,
+        ),
+        _rule(
+            "CostOfGoodsAndServicesSold",
+            "cost_of_revenue",
+            StatementKind.INCOME_STATEMENT,
+            FactPeriodType.DURATION,
+        ),
+        _rule(
+            "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+            "pretax_income",
+            StatementKind.INCOME_STATEMENT,
+            FactPeriodType.DURATION,
+        ),
+        _rule(
+            "Assets",
+            "total_assets",
+            StatementKind.BALANCE_SHEET,
+            FactPeriodType.INSTANT,
+        ),
+        _rule(
+            "AssetsCurrent",
+            "current_assets",
+            StatementKind.BALANCE_SHEET,
+            FactPeriodType.INSTANT,
+        ),
+        _rule(
+            "Liabilities",
+            "total_liabilities",
+            StatementKind.BALANCE_SHEET,
+            FactPeriodType.INSTANT,
+        ),
+        _rule(
+            "LiabilitiesCurrent",
+            "current_liabilities",
+            StatementKind.BALANCE_SHEET,
+            FactPeriodType.INSTANT,
+        ),
+        _rule(
+            "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",
+            "total_equity",
+            StatementKind.BALANCE_SHEET,
+            FactPeriodType.INSTANT,
+        ),
+        _rule(
+            "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+            "cash_and_restricted_cash",
+            StatementKind.BALANCE_SHEET,
+            FactPeriodType.INSTANT,
+        ),
+        _rule(
+            "NetCashProvidedByUsedInInvestingActivities",
+            "investing_cash_flow",
+            StatementKind.CASH_FLOW,
+            FactPeriodType.DURATION,
+        ),
+        _rule(
+            "NetCashProvidedByUsedInFinancingActivities",
+            "financing_cash_flow",
+            StatementKind.CASH_FLOW,
+            FactPeriodType.DURATION,
+        ),
+        _rule(
+            "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalentsPeriodIncreaseDecreaseIncludingExchangeRateEffect",
+            "net_change_in_cash",
+            StatementKind.CASH_FLOW,
+            FactPeriodType.DURATION,
+        ),
+        _rule(
+            "EffectOfExchangeRateOnCashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+            "exchange_rate_effect",
+            StatementKind.CASH_FLOW,
+            FactPeriodType.DURATION,
+        ),
+    ),
+)

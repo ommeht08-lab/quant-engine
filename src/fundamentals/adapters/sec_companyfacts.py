@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from enum import Enum
-from typing import Any, Dict, Iterable, Mapping, Optional, Sequence, Tuple
+from typing import Any, Dict, FrozenSet, Iterable, Mapping, Optional, Sequence, Set, Tuple
 from urllib.parse import quote
 
 from ..concept_map import ConceptMap, ConceptRule, FactPeriodType
@@ -46,6 +46,7 @@ class SecIngestionIssueCode(str, Enum):
     FILING_METADATA_MISMATCH = "filing_metadata_mismatch"
     SYNONYM_CONFLICT = "synonym_conflict"
     NO_MAPPED_FACTS = "no_mapped_facts"
+    NO_ELIGIBLE_FACTS = "no_eligible_facts"
 
 
 @dataclass(frozen=True)
@@ -236,9 +237,15 @@ def _columnar_submission_rows(payload: Mapping[str, Any]) -> Iterable[Mapping[st
 
 
 def _submission_metadata(
-    payloads: Iterable[Mapping[str, Any]], expected_cik: str
-) -> Dict[str, _SubmissionMetadata]:
+    payloads: Iterable[Mapping[str, Any]],
+    expected_cik: str,
+    relevant_accessions: FrozenSet[str],
+    knowledge_cutoff: Optional[datetime] = None,
+    filing_report_date_floor: Optional[date] = None,
+) -> Tuple[Dict[str, _SubmissionMetadata], FrozenSet[str], FrozenSet[str]]:
     result: Dict[str, _SubmissionMetadata] = {}
+    future_accessions: Set[str] = set()
+    outside_window_accessions: Set[str] = set()
     try:
         payload_iterator = iter(payloads)
     except TypeError:
@@ -264,13 +271,41 @@ def _submission_metadata(
                 )
         for row in _columnar_submission_rows(payload):
             accession = row["accessionNumber"]
-            if not isinstance(accession, str) or not _ACCESSION_PATTERN.fullmatch(accession):
+            if not isinstance(accession, str) or accession not in relevant_accessions:
+                continue
+            if not _ACCESSION_PATTERN.fullmatch(accession):
                 _fail(SecIngestionIssueCode.INVALID_PAYLOAD, "Submissions contains an invalid accession number.")
             form = row["form"]
             if not isinstance(form, str):
                 _fail(SecIngestionIssueCode.INVALID_PAYLOAD, f"Form for {accession} must be text.")
             if form not in _SUPPORTED_FORMS:
                 continue
+            accepted_at = _parse_datetime(row["acceptanceDateTime"], "acceptanceDateTime")
+            if knowledge_cutoff is not None and accepted_at > knowledge_cutoff:
+                if accession in result or accession in outside_window_accessions:
+                    _fail(
+                        SecIngestionIssueCode.CONFLICTING_SUBMISSION_METADATA,
+                        f"Submission metadata conflicts for accession {accession}.",
+                        accession_number=accession,
+                    )
+                future_accessions.add(accession)
+                continue
+            report_date = _parse_date(row["reportDate"], "reportDate")
+            if filing_report_date_floor is not None and report_date < filing_report_date_floor:
+                if accession in result or accession in future_accessions:
+                    _fail(
+                        SecIngestionIssueCode.CONFLICTING_SUBMISSION_METADATA,
+                        f"Submission metadata conflicts for accession {accession}.",
+                        accession_number=accession,
+                    )
+                outside_window_accessions.add(accession)
+                continue
+            if accession in future_accessions or accession in outside_window_accessions:
+                _fail(
+                    SecIngestionIssueCode.CONFLICTING_SUBMISSION_METADATA,
+                    f"Submission metadata conflicts for accession {accession}.",
+                    accession_number=accession,
+                )
             document = row["primaryDocument"]
             if not isinstance(document, str) or not _DOCUMENT_PATTERN.fullmatch(document):
                 _fail(
@@ -280,8 +315,8 @@ def _submission_metadata(
             metadata = _SubmissionMetadata(
                 accession_number=accession,
                 filed_date=_parse_date(row["filingDate"], "filingDate"),
-                accepted_at=_parse_datetime(row["acceptanceDateTime"], "acceptanceDateTime"),
-                report_date=_parse_date(row["reportDate"], "reportDate"),
+                accepted_at=accepted_at,
+                report_date=report_date,
                 form_type=form,
                 primary_document=document,
             )
@@ -292,7 +327,7 @@ def _submission_metadata(
                     f"Submission metadata conflicts for accession {accession}.",
                     accession_number=accession,
                 )
-    return result
+    return result, frozenset(future_accessions), frozenset(outside_window_accessions)
 
 
 def _source_document_url(cik: str, metadata: _SubmissionMetadata) -> str:
@@ -505,13 +540,29 @@ def extract_sec_company_facts(
     concept_map: ConceptMap,
     ingestion_batch_id: str,
     ingested_at: datetime,
+    knowledge_cutoff: Optional[datetime] = None,
+    period_end_floor: Optional[date] = None,
 ) -> SecExtractionResult:
-    """Join and validate SEC payloads; any issue refuses the whole extraction."""
+    """Join SEC payloads, excluding future filings before fact consistency checks."""
 
     normalized_cik = normalize_cik(expected_cik)
     try:
         if not isinstance(ingested_at, datetime) or not is_aware(ingested_at):
             _fail(SecIngestionIssueCode.INVALID_PAYLOAD, "ingested_at must be timezone-aware.")
+        if knowledge_cutoff is not None and (
+            not isinstance(knowledge_cutoff, datetime) or not is_aware(knowledge_cutoff)
+        ):
+            _fail(
+                SecIngestionIssueCode.INVALID_PAYLOAD,
+                "knowledge_cutoff must be timezone-aware when present.",
+            )
+        if period_end_floor is not None and (
+            not isinstance(period_end_floor, date) or isinstance(period_end_floor, datetime)
+        ):
+            _fail(
+                SecIngestionIssueCode.INVALID_PAYLOAD,
+                "period_end_floor must be a date when present.",
+            )
         if not isinstance(ingestion_batch_id, str) or not ingestion_batch_id.strip():
             _fail(SecIngestionIssueCode.INVALID_PAYLOAD, "ingestion_batch_id must be non-empty.")
         if not isinstance(company_facts, Mapping):
@@ -535,8 +586,7 @@ def extract_sec_company_facts(
         if not isinstance(fact_namespaces, Mapping):
             _fail(SecIngestionIssueCode.INVALID_PAYLOAD, "Company Facts facts must be an object.")
 
-        metadata = _submission_metadata(submissions, normalized_cik)
-        extracted = []
+        mapped_entries = []
         for rule in concept_map.rules:
             namespace = fact_namespaces.get(rule.taxonomy)
             if namespace is None:
@@ -571,20 +621,58 @@ def extract_sec_company_facts(
                             SecIngestionIssueCode.INVALID_PAYLOAD,
                             f"Each {rule.raw_tag}/{unit} entry must be an object.",
                         )
-                    fact = _extract_entry(
-                        entry=entry,
-                        rule=rule,
-                        unit=unit,
-                        cik=normalized_cik,
-                        entity_name=entity_name,
-                        metadata_by_accession=metadata,
-                        concept_map=concept_map,
-                        ingestion_batch_id=ingestion_batch_id,
-                        ingested_at=ingested_at,
-                    )
-                    if fact is not None:
-                        extracted.append(fact)
+                    raw_period_end = entry.get("end")
+                    if period_end_floor is not None and isinstance(raw_period_end, str):
+                        try:
+                            parsed_period_end = date.fromisoformat(raw_period_end)
+                        except ValueError:
+                            parsed_period_end = None
+                        if parsed_period_end is not None and parsed_period_end < period_end_floor:
+                            continue
+                    mapped_entries.append((rule, unit, entry))
+
+        relevant_accessions = frozenset(
+            entry.get("accn")
+            for _rule, _unit, entry in mapped_entries
+            if isinstance(entry.get("form"), str)
+            and entry.get("form") in _SUPPORTED_FORMS
+            and isinstance(entry.get("accn"), str)
+        )
+        metadata, future_accessions, outside_window_accessions = _submission_metadata(
+            submissions,
+            normalized_cik,
+            relevant_accessions,
+            knowledge_cutoff,
+            period_end_floor,
+        )
+        extracted = []
+        excluded_future_count = 0
+        for rule, unit, entry in mapped_entries:
+            accession = entry.get("accn")
+            if accession in future_accessions:
+                excluded_future_count += 1
+                continue
+            if accession in outside_window_accessions:
+                continue
+            fact = _extract_entry(
+                entry=entry,
+                rule=rule,
+                unit=unit,
+                cik=normalized_cik,
+                entity_name=entity_name,
+                metadata_by_accession=metadata,
+                concept_map=concept_map,
+                ingestion_batch_id=ingestion_batch_id,
+                ingested_at=ingested_at,
+            )
+            if fact is not None:
+                extracted.append(fact)
         if not extracted:
+            if excluded_future_count:
+                _fail(
+                    SecIngestionIssueCode.NO_ELIGIBLE_FACTS,
+                    "Company Facts payload contains no supported facts public by the knowledge cutoff.",
+                )
             _fail(
                 SecIngestionIssueCode.NO_MAPPED_FACTS,
                 "Company Facts payload contains no supported mapped facts.",
