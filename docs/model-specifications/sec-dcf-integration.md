@@ -14,9 +14,9 @@ SEC snapshot and already-fetched market observations. The module performs no
 network or database I/O.
 
 It returns either complete prepared inputs or a typed refusal. Complete inputs
-can then be run beside legacy Yahoo-statement inputs to produce a typed shadow
-report. A shadow report is diagnostic evidence, not permission to change the
-customer-facing source.
+can then be run beside an explicitly period-aligned Yahoo TTM statement bundle
+to produce a typed shadow report. A shadow report is diagnostic evidence, not
+permission to change the customer-facing source.
 
 ## Source policy
 
@@ -87,12 +87,53 @@ The module does not expose provider/database exception text.
 ## Shadow comparison
 
 Both sides use the same current price, current shares, beta, sector, risk-free
-rate, market-risk premium, terminal growth rate, and projection length. The
-candidate side uses only SEC statement fields and its explicit policy. The legacy
-side retains Yahoo statement fields solely for comparison.
+rate, growth, operating margin, tax rate, cost of debt, capital-expenditure
+ratio, market-risk premium, terminal growth rate, and projection length. Holding
+forecast policy constant isolates differences in the aligned statement-source
+amounts rather than mixing a source change with an assumption change.
+
+The candidate side uses the SEC TTM statement fields and exact SEC balance date.
+The diagnostic side uses Yahoo's TTM income statement and cash flow plus its
+quarter-end balance sheet. Yahoo normalizes Apple's June 27, 2026 fiscal close
+to a June 30, 2026 column. Policy `apple-sec-yahoo-fy2026-q3-v1` records that
+mapping explicitly. The comparison never chooses the nearest date: a missing,
+duplicate, or different column refuses the run. It also refuses a ticker
+mismatch, a future observation, missing/non-finite required rows, positive
+Yahoo CapEx, or negative cash/debt.
 
 The report records candidate and legacy values plus absolute and relative
 differences for base revenue, growth, operating margin, tax rate, cost of debt,
 cash, debt, WACC, enterprise value, equity value, and intrinsic value per share.
-No comparison threshold is yet declared. Tolerances must be reviewed from real
-shadow samples before any live cutover.
+
+Policy `sec-dcf-shadow-gate-v1` defines the first review gate. Rate assumptions
+use absolute percentage-point limits; financial amounts and valuation outputs
+use relative limits. A result needs at least five reports from five distinct
+Yahoo statement-observation dates spanning at least four distinct SEC TTM period ends, so
+repeatedly sampling one unchanged provider statement can never approve cutover.
+Insufficient evidence and threshold failure are separate typed outcomes, and
+neither changes the live endpoint.
+
+The initial limits are:
+
+- 5% relative difference for base revenue;
+- 3 percentage points for revenue growth and tax rate;
+- 2 percentage points for operating margin;
+- 1 percentage point for cost of debt and WACC;
+- 10% relative difference for cash, debt, enterprise value, equity value, and
+  intrinsic value per share.
+
+The first read-only Apple observation on 2026-09-09 compared SEC TTM inputs with
+Yahoo annual inputs and was intentionally rejected as non-comparable: its 12.2%
+revenue difference and 77.4% per-share valuation difference largely reflected
+different period bases. That observation is retained as the reason alignment is
+mandatory, but it is not eligible gate evidence. Only aligned Yahoo TTM reports
+can now reach the shadow gate.
+
+The replacement read-only observation on the same date used the explicit
+June 27-to-June 30 mapping. SEC and Yahoo TTM revenue, cash, growth, margin, tax,
+and cost-of-debt assumptions matched exactly. Yahoo total debt was 2.37% higher,
+and intrinsic value per share differed by approximately 0.056%; both were within
+the declared limits, with no metric breach. The gate still returned
+`insufficient_evidence` because this is only one report for one SEC period end.
+The live source remains unchanged while multiple quarter-end samples are
+collected.

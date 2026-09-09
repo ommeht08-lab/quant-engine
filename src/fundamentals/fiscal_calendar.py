@@ -62,6 +62,51 @@ class FiscalYearDefinition:
 
 
 @dataclass(frozen=True)
+class OpenFiscalYearDefinition:
+    """Exact boundaries filed so far for an issuer's unfinished fiscal year.
+
+    An open year deliberately contains only completed quarter ends. It can
+    classify those filed quarters, but it cannot classify Q4 or an annual
+    period until an official filing closes the year.
+    """
+
+    fiscal_year: int
+    period_start: date
+    quarter_ends: Tuple[date, ...]
+
+    def __post_init__(self) -> None:
+        if isinstance(self.fiscal_year, bool) or not isinstance(self.fiscal_year, int):
+            raise ValueError("OpenFiscalYearDefinition.fiscal_year must be an integer.")
+        if self.fiscal_year <= 0:
+            raise ValueError("OpenFiscalYearDefinition.fiscal_year must be positive.")
+        if not _is_plain_date(self.period_start):
+            raise ValueError("OpenFiscalYearDefinition.period_start must be a date.")
+        try:
+            quarter_ends = tuple(self.quarter_ends)
+        except TypeError:
+            raise ValueError(
+                "OpenFiscalYearDefinition.quarter_ends must contain one to three dates."
+            ) from None
+        if not 1 <= len(quarter_ends) <= 3 or any(
+            not _is_plain_date(value) for value in quarter_ends
+        ):
+            raise ValueError(
+                "OpenFiscalYearDefinition.quarter_ends must contain one to three dates."
+            )
+        if self.period_start > quarter_ends[0]:
+            raise ValueError("An open fiscal year must start on or before its first quarter end.")
+        if any(left >= right for left, right in zip(quarter_ends, quarter_ends[1:])):
+            raise ValueError("Open fiscal quarter ends must be strictly increasing.")
+        object.__setattr__(self, "quarter_ends", quarter_ends)
+
+    @property
+    def period_end(self) -> date:
+        """Last completed quarter end; never an inferred fiscal-year end."""
+
+        return self.quarter_ends[-1]
+
+
+@dataclass(frozen=True)
 class FiscalTransitionDefinition:
     """Exact stub-period geometry and the SEC transition form that reports it."""
 
@@ -91,6 +136,7 @@ class IssuerFiscalCalendarPolicy:
     version: str
     fiscal_years: Tuple[FiscalYearDefinition, ...]
     transitions: Tuple[FiscalTransitionDefinition, ...] = ()
+    open_fiscal_years: Tuple[OpenFiscalYearDefinition, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "cik", normalize_cik(self.cik))
@@ -120,7 +166,21 @@ class IssuerFiscalCalendarPolicy:
             raise ValueError(
                 "IssuerFiscalCalendarPolicy.transitions must contain FiscalTransitionDefinition values."
             )
-        all_definitions = fiscal_years + transitions
+        try:
+            open_fiscal_years = tuple(self.open_fiscal_years)
+        except TypeError:
+            raise ValueError(
+                "IssuerFiscalCalendarPolicy.open_fiscal_years must be a collection."
+            ) from None
+        if any(not isinstance(item, OpenFiscalYearDefinition) for item in open_fiscal_years):
+            raise ValueError(
+                "IssuerFiscalCalendarPolicy.open_fiscal_years must contain "
+                "OpenFiscalYearDefinition values."
+            )
+        if len(open_fiscal_years) > 1:
+            raise ValueError("A fiscal-calendar policy can contain at most one open fiscal year.")
+
+        all_definitions = fiscal_years + transitions + open_fiscal_years
         all_years = [item.fiscal_year for item in all_definitions]
         if len(all_years) != len(set(all_years)):
             raise ValueError("Fiscal year numbers must be unique within one policy.")
@@ -131,8 +191,11 @@ class IssuerFiscalCalendarPolicy:
         for previous, current in zip(chronological, chronological[1:]):
             if current.period_start <= previous.period_end:
                 raise ValueError("Fiscal year definitions must not overlap.")
+        if open_fiscal_years and chronological[-1] is not open_fiscal_years[0]:
+            raise ValueError("An open fiscal year must be the latest definition in a policy.")
         object.__setattr__(self, "fiscal_years", tuple(sorted(fiscal_years, key=lambda item: item.fiscal_year)))
         object.__setattr__(self, "transitions", tuple(sorted(transitions, key=lambda item: item.fiscal_year)))
+        object.__setattr__(self, "open_fiscal_years", open_fiscal_years)
 
 
 class FiscalCalendarIssueCode(str, Enum):
@@ -235,6 +298,24 @@ def _calendar_indexes(
                 q4_end: _PeriodMetadata(definition.fiscal_year, "FY", "annual", "10-K"),
             }
         )
+    for definition in policy.open_fiscal_years:
+        previous_end: Optional[date] = None
+        for quarter_index, quarter_end in enumerate(definition.quarter_ends, start=1):
+            quarter_start = (
+                definition.period_start if previous_end is None else previous_end + one_day
+            )
+            fiscal_period = f"Q{quarter_index}"
+            duration_periods[(quarter_start, quarter_end)] = _PeriodMetadata(
+                definition.fiscal_year, fiscal_period, "quarterly"
+            )
+            if quarter_index > 1:
+                duration_periods[(definition.period_start, quarter_end)] = _PeriodMetadata(
+                    definition.fiscal_year, f"{fiscal_period}YTD", "ytd"
+                )
+            instant_periods[quarter_end] = _PeriodMetadata(
+                definition.fiscal_year, fiscal_period, "quarterly", "10-Q"
+            )
+            previous_end = quarter_end
     for transition in policy.transitions:
         metadata = _PeriodMetadata(
             transition.fiscal_year,

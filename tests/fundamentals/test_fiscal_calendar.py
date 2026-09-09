@@ -11,6 +11,7 @@ from src.fundamentals.fiscal_calendar import (
     FiscalTransitionDefinition,
     FiscalYearDefinition,
     IssuerFiscalCalendarPolicy,
+    OpenFiscalYearDefinition,
     classify_sec_facts,
 )
 from src.fundamentals.types import FactLineage, StatementKind
@@ -45,14 +46,30 @@ TRANSITION_2025 = FiscalTransitionDefinition(
     period_end=dt.date(2024, 12, 31),
     form_type="10-KT",
 )
+OPEN_FY2025 = OpenFiscalYearDefinition(
+    fiscal_year=2025,
+    period_start=dt.date(2024, 9, 29),
+    quarter_ends=(
+        dt.date(2024, 12, 28),
+        dt.date(2025, 3, 29),
+        dt.date(2025, 6, 28),
+    ),
+)
 
 
-def _policy(*years, cik=CIK, version="aapl-calendar-v1", transitions=()):
+def _policy(
+    *years,
+    cik=CIK,
+    version="aapl-calendar-v1",
+    transitions=(),
+    open_fiscal_years=(),
+):
     return IssuerFiscalCalendarPolicy(
         cik=cik,
         version=version,
         fiscal_years=years or (FY2023, FY2024),
         transitions=transitions,
+        open_fiscal_years=open_fiscal_years,
     )
 
 
@@ -265,6 +282,51 @@ class TestDurationClassification:
         )
 
         result = classify_sec_facts((fact,), _policy(FY2024))
+
+        _assert_issue(result, FiscalCalendarIssueCode.UNRECOGNIZED_FILING_PERIOD)
+
+    @pytest.mark.parametrize(
+        ("period_start", "period_end", "fiscal_period", "periodicity"),
+        (
+            (dt.date(2024, 9, 29), dt.date(2024, 12, 28), "Q1", "quarterly"),
+            (dt.date(2024, 12, 29), dt.date(2025, 3, 29), "Q2", "quarterly"),
+            (dt.date(2024, 9, 29), dt.date(2025, 3, 29), "Q2YTD", "ytd"),
+            (dt.date(2025, 3, 30), dt.date(2025, 6, 28), "Q3", "quarterly"),
+            (dt.date(2024, 9, 29), dt.date(2025, 6, 28), "Q3YTD", "ytd"),
+        ),
+    )
+    def test_open_year_classifies_only_completed_periods(
+        self, period_start, period_end, fiscal_period, periodicity
+    ):
+        fact = _fact(
+            period_start=period_start,
+            period_end=period_end,
+            report_date=period_end,
+            form_type="10-Q",
+        )
+
+        result = classify_sec_facts(
+            (fact,),
+            _policy(FY2024, open_fiscal_years=(OPEN_FY2025,)),
+        )
+
+        assert result.is_complete
+        assert result.facts[0].period.fiscal_year == 2025
+        assert result.facts[0].period.fiscal_period == fiscal_period
+        assert result.facts[0].period.periodicity == periodicity
+
+    def test_open_year_never_invents_a_fourth_quarter_or_annual_period(self):
+        unfiled_annual = _fact(
+            period_start=OPEN_FY2025.period_start,
+            period_end=dt.date(2025, 9, 27),
+            report_date=dt.date(2025, 9, 27),
+            form_type="10-K",
+        )
+
+        result = classify_sec_facts(
+            (unfiled_annual,),
+            _policy(FY2024, open_fiscal_years=(OPEN_FY2025,)),
+        )
 
         _assert_issue(result, FiscalCalendarIssueCode.UNRECOGNIZED_FILING_PERIOD)
 
@@ -481,3 +543,31 @@ class TestFiscalCalendarPolicyIntegrity:
     def test_transition_form_is_explicit(self):
         with pytest.raises(ValueError, match="form_type"):
             replace(TRANSITION_2025, form_type="10-K")
+
+    @pytest.mark.parametrize("quarter_ends", ((), OPEN_FY2025.quarter_ends + (dt.date(2025, 9, 27),)))
+    def test_open_year_requires_one_to_three_completed_quarter_ends(self, quarter_ends):
+        with pytest.raises(ValueError, match="one to three"):
+            replace(OPEN_FY2025, quarter_ends=quarter_ends)
+
+    def test_policy_allows_only_one_latest_open_year(self):
+        second_open = replace(
+            OPEN_FY2025,
+            fiscal_year=2026,
+            period_start=dt.date(2025, 9, 28),
+            quarter_ends=(dt.date(2025, 12, 27),),
+        )
+        with pytest.raises(ValueError, match="at most one"):
+            _policy(FY2024, open_fiscal_years=(OPEN_FY2025, second_open))
+
+        closed_2026 = FiscalYearDefinition(
+            fiscal_year=2026,
+            period_start=dt.date(2025, 9, 28),
+            quarter_ends=(
+                dt.date(2025, 12, 27),
+                dt.date(2026, 3, 28),
+                dt.date(2026, 6, 27),
+                dt.date(2026, 9, 26),
+            ),
+        )
+        with pytest.raises(ValueError, match="latest"):
+            _policy(FY2024, closed_2026, open_fiscal_years=(OPEN_FY2025,))
