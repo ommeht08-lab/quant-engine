@@ -204,7 +204,11 @@ def run_sec_ingestion_dry_run(
         knowledge_cutoff=knowledge_cutoff,
         period_end_floor=min(
             definition.period_start
-            for definition in (*calendar_policy.fiscal_years, *calendar_policy.transitions)
+            for definition in (
+                *calendar_policy.fiscal_years,
+                *calendar_policy.transitions,
+                *calendar_policy.open_fiscal_years,
+            )
         ),
     )
     if not extraction.is_complete:

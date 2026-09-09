@@ -127,6 +127,12 @@ One fiscal year's canonical start and four ordered quarter ends. These exact
 dates define annual, standalone-quarter, year-to-date, and instant Statement
 periods without relying on filing fiscal labels or fixed day-count guesses.
 
+## Open fiscal year definition
+
+One unfinished fiscal year's canonical start and one to three ordered, already
+filed quarter ends. It classifies only completed quarters and their year-to-date
+periods; it never guesses a future quarter end or creates Q4 or an annual period.
+
 ## Fiscal transition period
 
 An exact, issuer-authorized stub period reported while changing fiscal year-end.
@@ -192,8 +198,28 @@ missing SEC statement value with a market-data provider's statement value.
 ## Shadow valuation comparison
 
 An offline, non-customer-facing comparison of the SEC-backed candidate valuation
-with the legacy statement-source valuation using the same market observations.
-It measures differences but does not authorize a live-source cutover.
+with a diagnostic Yahoo TTM valuation using the same period, market observations,
+and forecast assumptions. It measures statement-source differences but does not
+authorize a live-source cutover.
+
+## Shadow period alignment
+
+An explicit, issuer-specific mapping between one exact SEC period end and the
+normalized date Yahoo uses for statements representing that same fiscal close.
+It is versioned evidence, never a nearest-date or day-count guess.
+
+## Yahoo TTM statement bundle
+
+Yahoo's trailing-twelve-month income statement and cash flow plus its balance
+sheet for one normalized fiscal close, observed at a stated instant. It exists
+only for offline source comparison and can never fill a missing SEC snapshot fact.
+
+## Shadow cutover gate
+
+A versioned set of metric tolerances plus minimum counts of reports, distinct
+statement-observation dates, and distinct SEC base-period ends. Passing it provides review
+evidence only; it never switches the live source by itself, while insufficient
+samples and out-of-range differences remain distinct outcomes.
 
 ## Linked three-statement period
 

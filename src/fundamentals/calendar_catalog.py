@@ -11,7 +11,11 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Iterable, Tuple
 
-from .fiscal_calendar import FiscalYearDefinition, IssuerFiscalCalendarPolicy
+from .fiscal_calendar import (
+    FiscalYearDefinition,
+    IssuerFiscalCalendarPolicy,
+    OpenFiscalYearDefinition,
+)
 from .types import normalize_cik
 
 
@@ -81,6 +85,7 @@ def _entry(
     cik: str,
     version: str,
     fiscal_years: Iterable[FiscalYearDefinition],
+    open_fiscal_years: Iterable[OpenFiscalYearDefinition] = (),
     evidence_urls: Iterable[str],
 ) -> FiscalCalendarCatalogEntry:
     return FiscalCalendarCatalogEntry(
@@ -88,6 +93,7 @@ def _entry(
             cik=cik,
             version=version,
             fiscal_years=tuple(fiscal_years),
+            open_fiscal_years=tuple(open_fiscal_years),
         ),
         evidence_urls=tuple(evidence_urls),
     )
@@ -100,7 +106,7 @@ SEC_FISCAL_CALENDAR_CATALOG_V1 = FiscalCalendarCatalog(
     entries=(
         _entry(
             cik="0000320193",
-            version="sec-filing-calendar-v2-fy2020-fy2024",
+            version="sec-filing-calendar-v3-fy2020-open-fy2026-q3",
             fiscal_years=(
                 FiscalYearDefinition(
                     fiscal_year=2020,
@@ -152,6 +158,27 @@ SEC_FISCAL_CALENDAR_CATALOG_V1 = FiscalCalendarCatalog(
                         date(2024, 9, 28),
                     ),
                 ),
+                FiscalYearDefinition(
+                    fiscal_year=2025,
+                    period_start=date(2024, 9, 29),
+                    quarter_ends=(
+                        date(2024, 12, 28),
+                        date(2025, 3, 29),
+                        date(2025, 6, 28),
+                        date(2025, 9, 27),
+                    ),
+                ),
+            ),
+            open_fiscal_years=(
+                OpenFiscalYearDefinition(
+                    fiscal_year=2026,
+                    period_start=date(2025, 9, 28),
+                    quarter_ends=(
+                        date(2025, 12, 27),
+                        date(2026, 3, 28),
+                        date(2026, 6, 27),
+                    ),
+                ),
             ),
             evidence_urls=(
                 "https://www.sec.gov/Archives/edgar/data/320193/000032019320000010/a10-qq1202012282019.htm",
@@ -174,6 +201,13 @@ SEC_FISCAL_CALENDAR_CATALOG_V1 = FiscalCalendarCatalog(
                 "https://www.sec.gov/Archives/edgar/data/320193/000032019324000069/aapl-20240330.htm",
                 "https://www.sec.gov/Archives/edgar/data/320193/000032019324000081/aapl-20240629.htm",
                 "https://www.sec.gov/Archives/edgar/data/320193/000032019324000123/aapl-20240928.htm",
+                "https://www.sec.gov/Archives/edgar/data/320193/000032019325000008/aapl-20241228.htm",
+                "https://www.sec.gov/Archives/edgar/data/320193/000032019325000057/aapl-20250329.htm",
+                "https://www.sec.gov/Archives/edgar/data/320193/000032019325000073/aapl-20250628.htm",
+                "https://www.sec.gov/Archives/edgar/data/320193/000032019325000079/aapl-20250927.htm",
+                "https://www.sec.gov/Archives/edgar/data/320193/000032019326000006/aapl-20251227.htm",
+                "https://www.sec.gov/Archives/edgar/data/320193/000032019326000013/aapl-20260328.htm",
+                "https://www.sec.gov/Archives/edgar/data/320193/000032019326000020/aapl-20260627.htm",
             ),
         ),
         _entry(
