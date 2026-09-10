@@ -1,11 +1,11 @@
 """
 Group K: CI workflow configuration contract.
 
-`.github/workflows/rebalance.yml` is the manual-only, dry-run-by-default
-LIVE-execution workflow — a failing/reverted-isolation test suite must
-not be able to still fire real orders, and real order submission must
-require an explicit `workflow_dispatch` "execute" selection (there is no
-automatic `schedule` trigger). This is checked via plain text/structural
+`.github/workflows/rebalance.yml` runs the paper strategy autonomously on
+weekday schedules and remains dry-run-by-default when started manually.
+A failing/reverted-isolation test suite must not be able to fire orders,
+and an unscheduled real paper-order run must require an explicit
+`workflow_dispatch` "execute" selection. This is checked via plain text/structural
 parsing (no PyYAML dependency added just for this) since the file's
 shape is simple and stable: two jobs (`test`, `execute_trades`), a
 `needs:` edge between them, and production secrets confined to the
@@ -65,15 +65,10 @@ def _job_block(content: str, job_name: str) -> str:
 
 
 class TestScheduleAndTriggerPreserved:
-    def test_no_automatic_schedule_trigger(self):
-        """Manual-only while security/governance hardening is underway
-        (see the workflow file's own top-of-file comment and
-        docs/security-threat-model.md) — a `schedule:`/`cron:` trigger
-        previously let this workflow submit real paper orders
-        automatically, with no human decision point per run."""
+    def test_weekday_schedule_runs_during_us_market_hours_across_dst(self):
         content = _read_workflow()
-        assert "schedule:" not in content
-        assert "cron:" not in content
+        assert "schedule:" in content
+        assert 'cron: "15 17 * * 1-5"' in content
 
     def test_manual_dispatch_trigger_is_preserved(self):
         content = _read_workflow()
@@ -86,6 +81,18 @@ class TestScheduleAndTriggerPreserved:
     def test_manual_dispatch_offers_an_explicit_execute_option(self):
         content = _read_workflow()
         assert "- execute" in content
+
+    def test_schedule_executes_while_manual_default_remains_dry_run(self):
+        block = _job_block(_read_workflow(), "execute_trades")
+        assert 'github.event_name }}" = "schedule"' in block
+        assert 'github.event.inputs.execute }}" = "execute"' in block
+        assert "python -m src.trading.alpaca_execution --dry-run" in block
+
+    def test_workflow_requires_terminal_completion_receipt(self):
+        block = _job_block(_read_workflow(), "execute_trades")
+        assert "set -o pipefail" in block
+        assert "tee rebalance-report.txt" in block
+        assert "grep -q '^ALPACA_PIPELINE_COMPLETED ' rebalance-report.txt" in block
 
 
 class TestConcurrencyGuard:

@@ -33,4 +33,5 @@ DEFAULT_SP500_TOP_100_TICKERS = [
     "MRVL", "UNP", "DIS", "ETN", "WELL", "DE", "GILD", "T", "QCOM", "CRM",
     "BKNG", "UBER", "COP", "PFE", "DHR", "APP", "LMT", "PLD", "ISRG", "CVS",
     "CB", "BMY", "COF", "SYK", "GLW", "PH", "SPGI", "PGR", "FTNT", "VRTX",
+    "HON",
 ]

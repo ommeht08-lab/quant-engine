@@ -15,7 +15,11 @@ internals (already covered elsewhere). No network, no real credentials,
 no real database.
 """
 
+import logging
 import types
+
+import pytest
+from alpaca.common.exceptions import APIError
 
 from src.backtesting.historical_tester import TickerAnalysis
 from src.risk.monte_carlo import VaRResult
@@ -82,6 +86,7 @@ def _patch_common(monkeypatch, client, *, top_picks, risk_result):
         engine, "run_todays_scan",
         lambda tickers, assumptions=None: (top_picks, {}, [], 0.04),
     )
+    monkeypatch.setattr(engine, "_validate_scan_completion", lambda *args: None)
     refreshed_caches = []
     monkeypatch.setattr(
         engine, "refresh_sector_median_cache",
@@ -95,7 +100,7 @@ def _patch_common(monkeypatch, client, *, top_picks, risk_result):
         lambda *args, **kwargs: hedge_calls.append((args, kwargs)),
     )
 
-    return logged_trades, hedge_calls
+    return logged_trades, hedge_calls, refreshed_caches
 
 
 class TestFullOrchestration:
@@ -128,11 +133,13 @@ class TestFullOrchestration:
             position_snapshots=[snapshot_initial, snapshot_post_liquidation, snapshot_post_fill],
         )
         risk_result = VaRResult(status="ok", var_95=-0.05, cvar_95=-0.08)
-        logged_trades, hedge_calls = _patch_common(monkeypatch, client, top_picks=top_picks, risk_result=risk_result)
-        return client, top_picks, logged_trades, hedge_calls
+        logged_trades, hedge_calls, refreshed_caches = _patch_common(
+            monkeypatch, client, top_picks=top_picks, risk_result=risk_result
+        )
+        return client, top_picks, logged_trades, hedge_calls, refreshed_caches
 
     def test_full_run_liquidates_buys_trims_and_hedges_in_order(self, monkeypatch):
-        client, top_picks, logged_trades, hedge_calls = self._build(monkeypatch)
+        client, top_picks, logged_trades, hedge_calls, refreshed_caches = self._build(monkeypatch)
         monkeypatch.setattr(engine.sys, "argv", ["alpaca_execution.py"])
 
         engine.main()
@@ -161,9 +168,11 @@ class TestFullOrchestration:
         assert "RISK_SNAPSHOT" in actions_logged
         assert actions_logged.count("SELL") >= 2  # CCC liquidation + AAA trim
         assert actions_logged.count("BUY") == 2  # AAA + BBB
+        assert refreshed_caches == [True]
 
-    def test_dry_run_never_submits_any_order(self, monkeypatch):
-        client, top_picks, logged_trades, hedge_calls = self._build(monkeypatch)
+    def test_dry_run_never_submits_orders_or_publishes_sector_medians(self, monkeypatch, caplog):
+        caplog.set_level(logging.INFO, logger="src.trading.alpaca_execution")
+        client, top_picks, logged_trades, hedge_calls, refreshed_caches = self._build(monkeypatch)
         monkeypatch.setattr(engine.sys, "argv", ["alpaca_execution.py", "--dry-run"])
 
         engine.main()
@@ -173,6 +182,30 @@ class TestFullOrchestration:
         # No real trade logging in a dry run (only a real run logs
         # RISK_SNAPSHOT/trades) — see the module docstring.
         assert logged_trades == []
+        assert refreshed_caches == []
+        assert "ALPACA_PIPELINE_COMPLETED mode=dry-run status=complete" in caplog.text
+
+    def test_partial_run_raises_and_never_emits_completion_receipt(self, monkeypatch, caplog):
+        caplog.set_level(logging.INFO, logger="src.trading.alpaca_execution")
+        client, _, _, _, _ = self._build(monkeypatch)
+        monkeypatch.setattr(engine.sys, "argv", ["alpaca_execution.py"])
+
+        original_get_account = client.get_account
+        account_calls = 0
+
+        def fail_second_account_read():
+            nonlocal account_calls
+            account_calls += 1
+            if account_calls == 2:
+                raise APIError("scripted account refresh failure")
+            return original_get_account()
+
+        monkeypatch.setattr(client, "get_account", fail_second_account_read)
+
+        with pytest.raises(RuntimeError, match="Rebalance incomplete"):
+            engine.main()
+
+        assert "ALPACA_PIPELINE_COMPLETED" not in caplog.text
 
 
 class TestMarketClosesMidRun:
@@ -211,7 +244,9 @@ class TestMarketClosesMidRun:
             open_for_calls=3,
         )
         risk_result = VaRResult(status="insufficient_data", message="no data in this test")
-        logged_trades, hedge_calls = _patch_common(monkeypatch, client, top_picks=top_picks, risk_result=risk_result)
+        logged_trades, hedge_calls, _ = _patch_common(
+            monkeypatch, client, top_picks=top_picks, risk_result=risk_result
+        )
         monkeypatch.setattr(engine.sys, "argv", ["alpaca_execution.py"])
 
         engine.main()

@@ -115,7 +115,7 @@ Applied **after** every ticker has already been valued and has already contribut
 to the sector median — never before, and never in a way that changes which tickers
 other tickers are benchmarked against
 (`_entry_gate_failure_reason`, [`alpaca_execution.py:598`](../../src/trading/alpaca_execution.py)).
-Purely a Top-N *eligibility* filter. All four fail safe (reject) on missing/
+Purely a Top-N *eligibility* filter. All five fail safe (reject) on missing/
 unusable data — none of them treats "I couldn't compute this" as "this passed."
 
 ### 3a. Altman Z-Score (distress filter)
@@ -189,6 +189,14 @@ off/oversold state, not while the stock is "hot"). A period of zero average loss
 (uninterrupted gains) returns exactly `100.0`. Requires `period + 1` (15) closes;
 insufficient history or a non-finite result returns `None`, treated as a gate
 failure.
+
+### 3e. Absolute Fair-Value Entry Gate
+
+`price_to_intrinsic < 1.0`. A company at or above its own DCF intrinsic value
+cannot be opened as a new position merely because its ratio is lower than its
+sector median. A missing or non-finite ratio fails safe. This makes entry policy
+consistent with the existing profit-taking rule, which exits a held equity once
+its market price reaches intrinsic value.
 
 ## 4. FCF Yield Blend (live/paper trading only)
 
