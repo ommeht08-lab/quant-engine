@@ -34,6 +34,7 @@ READ_STATEMENT_TIMEOUT_MS = 3000
 PUBLISH_APPLICATION_NAME = "valuation-engine-fundamentals-publish"
 PUBLISH_CONNECT_TIMEOUT_SECONDS = 10
 PUBLISH_STATEMENT_TIMEOUT_MS = 15000
+PUBLISH_PAGE_SIZE = 250
 
 CREATE_INGESTION_BATCH_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS fundamentals_ingestion_batches (
@@ -210,30 +211,21 @@ _INSERT_COLUMNS = (
     "ingested_at",
 )
 
-INSERT_FACT_SQL = f"""
+INSERT_FACTS_SQL = f"""
 INSERT INTO fundamentals_facts ({', '.join(_INSERT_COLUMNS)})
-VALUES ({', '.join(['%s'] * len(_INSERT_COLUMNS))})
+VALUES %s
 ON CONFLICT DO NOTHING
 RETURNING id;
 """
 
-SELECT_EXISTING_FACT_SQL = f"""
+SELECT_EXISTING_FACTS_SQL = f"""
 SELECT {', '.join(_INSERT_COLUMNS)}
 FROM fundamentals_facts
-WHERE cik = %s
+WHERE cik = ANY(%s)
   AND source_adapter = %s
   AND concept_map_version = %s
   AND fiscal_calendar_version = %s
-  AND statement_kind = %s
-  AND canonical_concept = %s
-  AND raw_tag = %s
-  AND taxonomy = %s
-  AND period_start IS NOT DISTINCT FROM %s
-  AND period_end = %s
-  AND unit = %s
-  AND currency IS NOT DISTINCT FROM %s
-  AND dimensions = %s
-  AND accession_number = %s;
+  AND accession_number = ANY(%s);
 """
 
 SELECT_FACTS_SQL = f"""
@@ -438,7 +430,19 @@ def _row_to_fact(row: tuple) -> FinancialFact:
     )
 
 
-def _existing_lookup_params(fact: FinancialFact) -> tuple:
+def _execute_values(cursor, rows):
+    from psycopg2.extras import execute_values
+
+    return execute_values(
+        cursor,
+        INSERT_FACTS_SQL,
+        rows,
+        page_size=PUBLISH_PAGE_SIZE,
+        fetch=True,
+    )
+
+
+def _source_identity_key(fact: FinancialFact) -> tuple:
     return (
         fact.identity.context.entity_cik,
         fact.lineage.source_adapter,
@@ -452,8 +456,19 @@ def _existing_lookup_params(fact: FinancialFact) -> tuple:
         fact.period.period_end,
         fact.identity.unit,
         fact.identity.currency,
-        _json_dimensions(fact.identity.context.dimensions),
+        fact.identity.context.dimensions,
         fact.provenance.accession_number,
+    )
+
+
+def _existing_facts_lookup_params(facts: Tuple[FinancialFact, ...]) -> tuple:
+    sample = facts[0]
+    return (
+        sorted({fact.identity.context.entity_cik for fact in facts}),
+        sample.lineage.source_adapter,
+        sample.lineage.concept_map_version,
+        sample.lineage.fiscal_calendar_version,
+        sorted({fact.provenance.accession_number for fact in facts}),
     )
 
 
@@ -543,15 +558,15 @@ def append_facts(
                     raise FundamentalsPublishError(
                         "an ingestion batch ID already exists with different immutable metadata."
                     )
+            inserted = len(_execute_values(cursor, [_fact_to_row(fact) for fact in facts]))
+            cursor.execute(SELECT_EXISTING_FACTS_SQL, _existing_facts_lookup_params(facts))
+            existing_by_identity = {
+                _source_identity_key(existing): existing
+                for existing in (_row_to_fact(tuple(row)) for row in cursor.fetchall())
+            }
             for fact in facts:
-                cursor.execute(INSERT_FACT_SQL, _fact_to_row(fact))
-                if cursor.fetchone() is not None:
-                    inserted += 1
-                    continue
-
-                cursor.execute(SELECT_EXISTING_FACT_SQL, _existing_lookup_params(fact))
-                existing_row = cursor.fetchone()
-                if existing_row is None or not _same_source_fact(_row_to_fact(existing_row), fact):
+                existing = existing_by_identity.get(_source_identity_key(fact))
+                if existing is None or not _same_source_fact(existing, fact):
                     raise FundamentalsPublishError(
                         "an existing point-in-time fact conflicts with the incoming batch."
                     )
