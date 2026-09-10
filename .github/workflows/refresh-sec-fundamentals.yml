@@ -1,0 +1,81 @@
+name: Refresh SEC fundamentals
+
+# Downloads, validates, and atomically publishes the currently supported
+# Apple SEC fundamentals policy. This is an offline data job only: the live
+# valuation request path remains unchanged and never performs SEC downloads.
+"on":
+  schedule:
+    # GitHub Actions cron uses UTC. Tuesday-Saturday at 03:23 UTC follows
+    # Monday-Friday's SEC filing day after the EDGAR acceptance window closes,
+    # in both US daylight-saving and standard time.
+    - cron: "23 3 * * 2-6"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refresh-sec-fundamentals
+  cancel-in-progress: false
+
+jobs:
+  # Production credentials are deliberately unavailable to tests. The
+  # repository's isolation fixtures also poison inherited credentials and
+  # block external SEC, yfinance, and Postgres access.
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
+
+      - name: Compile SEC fundamentals modules and tests
+        run: python -m compileall -q src/fundamentals tests/fundamentals tests/test_ci_config.py
+
+      - name: Pyflakes SEC fundamentals modules and tests
+        run: pyflakes src/fundamentals tests/fundamentals tests/test_ci_config.py
+
+      - name: Run isolation-safe SEC fundamentals tests
+        run: python -m pytest -q tests/fundamentals tests/test_ci_config.py
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      # This command's import graph needs only the HTTP client and Postgres
+      # driver. It does not install the full trading, valuation, or market-data
+      # dependency set.
+      - name: Install pinned SEC publication dependencies
+        run: >
+          python -m pip install --disable-pip-version-check
+          "requests==2.32.5" "psycopg2-binary==2.9.12"
+
+      - name: Download, validate, and publish Apple SEC fundamentals
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+        run: |
+          knowledge_cutoff="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          batch_id="apple-sec-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          python -m src.fundamentals.sec_pipeline_command \
+            --cik 320193 \
+            --knowledge-cutoff "${knowledge_cutoff}" \
+            --batch-id "${batch_id}" \
+            --publish
