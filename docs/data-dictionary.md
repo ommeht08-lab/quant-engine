@@ -93,8 +93,10 @@ labels or duration guesses. The versioned concept policy covers conservative
 statement aggregates, and standalone Q4 is derived only as an exact annual
 residual. Standalone Q2 and Q3 cash flows are derived from exact six- and
 nine-month YTD differences when issuers do not report those quarters directly.
-A publishing seam can append one complete classified batch atomically and
-idempotently, but no live database or production workflow is enabled here.
+A publishing seam appends one complete classified batch atomically and
+idempotently. An isolated scheduled job publishes the supported Apple policy
+after credential-free tests pass; no live request handler downloads SEC data or
+uses the SEC snapshot yet.
 
 The controlled Apple run fetched Company Facts plus current and historical
 Submissions, extracted and classified 136 cutoff-eligible facts, assembled
@@ -221,7 +223,7 @@ strategy_value, spy_value for `backtest_curve`.
 
 | Planned field | Planned source | Status |
 |---|---|---|
-| Point-in-time financial statements | SEC EDGAR / XBRL | **Foundation, Apple multi-year snapshot, SEC-to-DCF composition, and offline shadow comparison implemented.** Scheduled publishing, broader issuers, reviewed comparison tolerances, and live cutover remain. |
+| Point-in-time financial statements | SEC EDGAR / XBRL | **Foundation, Apple multi-year snapshot, SEC-to-DCF composition, offline shadow comparison, and isolated Apple publication schedule implemented.** Broader issuers, reviewed comparison tolerances, and live cutover remain. |
 | Survivorship-corrected historical universe | TBD (e.g. a maintained historical index-membership dataset) | **Not implemented.** Track B item 2. |
 | Corporate-actions feed (splits/spin-offs/ticker changes) beyond `Ticker.splits` | TBD | **Not implemented** beyond the existing split-only handling. Track B item 3. |
 | Realistic transaction cost / slippage model | TBD | **Not implemented.** Track B item 6. |

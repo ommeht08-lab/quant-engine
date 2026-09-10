@@ -18,6 +18,9 @@ from pathlib import Path
 WORKFLOW_PATH = Path(__file__).resolve().parents[1] / ".github" / "workflows" / "rebalance.yml"
 HEARTBEAT_WORKFLOW_PATH = WORKFLOW_PATH.parent / "database-heartbeat.yml"
 REFRESH_SECTOR_MEDIANS_WORKFLOW_PATH = WORKFLOW_PATH.parent / "refresh-sector-medians.yml"
+REFRESH_SEC_FUNDAMENTALS_WORKFLOW_PATH = (
+    WORKFLOW_PATH.parent / "refresh-sec-fundamentals.yml"
+)
 WORKFLOWS_DIR = WORKFLOW_PATH.parent
 TESTS_WORKFLOW_PATH = WORKFLOWS_DIR / "tests.yml"
 
@@ -28,6 +31,10 @@ def _read_workflow() -> str:
 
 def _read_refresh_sector_medians_workflow() -> str:
     return REFRESH_SECTOR_MEDIANS_WORKFLOW_PATH.read_text()
+
+
+def _read_refresh_sec_fundamentals_workflow() -> str:
+    return REFRESH_SEC_FUNDAMENTALS_WORKFLOW_PATH.read_text()
 
 
 def _job_block(content: str, job_name: str) -> str:
@@ -270,6 +277,73 @@ class TestRefreshSectorMediansWorkflow:
         assert "python -m src.api.publish_sector_medians" in block
 
 
+class TestRefreshSecFundamentalsWorkflow:
+    """The scheduled SEC job remains isolated, bounded, and fail-closed."""
+
+    def test_workflow_file_exists(self):
+        assert REFRESH_SEC_FUNDAMENTALS_WORKFLOW_PATH.is_file()
+
+    def test_runs_after_each_weekday_filing_window_and_can_run_manually(self):
+        content = _read_refresh_sec_fundamentals_workflow()
+        assert 'cron: "23 3 * * 2-6"' in content
+        assert "workflow_dispatch:" in content
+
+    def test_prevents_overlapping_publication_runs(self):
+        content = _read_refresh_sec_fundamentals_workflow()
+        assert "group: refresh-sec-fundamentals" in content
+        assert "cancel-in-progress: false" in content
+
+    def test_uses_read_only_github_permissions(self):
+        assert "permissions:\n  contents: read" in _read_refresh_sec_fundamentals_workflow()
+
+    def test_publish_job_is_gated_on_isolated_tests(self):
+        content = _read_refresh_sec_fundamentals_workflow()
+        test_block = _job_block(content, "test")
+        publish_block = _job_block(content, "publish")
+        assert "secrets." not in test_block
+        assert "tests/fundamentals tests/test_ci_config.py" in test_block
+        assert "needs: test" in publish_block
+
+    def test_publish_job_receives_only_its_two_required_secrets(self):
+        block = _job_block(_read_refresh_sec_fundamentals_workflow(), "publish")
+        assert "secrets.DATABASE_URL" in block
+        assert "secrets.SEC_USER_AGENT" in block
+        assert block.count("secrets.") == 2
+        for forbidden in (
+            "APCA_API_KEY_ID",
+            "APCA_API_SECRET_KEY",
+            "UPSTASH_REDIS_REST_URL",
+            "UPSTASH_REDIS_REST_TOKEN",
+        ):
+            assert forbidden not in block
+
+    def test_publish_job_installs_only_pinned_required_dependencies(self):
+        block = _job_block(_read_refresh_sec_fundamentals_workflow(), "publish")
+        assert "requests==2.32.5" in block
+        assert "psycopg2-binary==2.9.12" in block
+        for forbidden in (
+            "requirements.txt",
+            "requirements-dev.txt",
+            "yfinance",
+            "alpaca-py",
+            "pandas",
+            "numpy",
+            "scipy",
+        ):
+            assert forbidden not in block
+
+    def test_publish_job_uses_explicit_reproducible_run_coordinates(self):
+        block = _job_block(_read_refresh_sec_fundamentals_workflow(), "publish")
+        assert "GITHUB_RUN_ID" in block
+        assert "GITHUB_RUN_ATTEMPT" in block
+        assert "date -u" in block
+        assert "python -m src.fundamentals.sec_pipeline_command" in block
+        assert "--cik 320193" in block
+        assert "--knowledge-cutoff" in block
+        assert "--batch-id" in block
+        assert "--publish" in block
+
+
 # GitHub deprecated the Node 20 runtime these action majors still ran
 # on; every workflow must use the Node24-runtime major instead. Kept as
 # module-level maps (not hardcoded per-test) so there is exactly one
@@ -307,7 +381,13 @@ class TestActionVersionsAreNotDeprecatedNode20Majors:
         # Guards against this test silently checking zero files if the
         # workflows directory ever moves or empties.
         names = {p.name for p in _all_workflow_files()}
-        assert {"tests.yml", "rebalance.yml", "database-heartbeat.yml", "refresh-sector-medians.yml"} <= names
+        assert {
+            "tests.yml",
+            "rebalance.yml",
+            "database-heartbeat.yml",
+            "refresh-sector-medians.yml",
+            "refresh-sec-fundamentals.yml",
+        } <= names
 
     def test_no_workflow_uses_a_deprecated_node20_action_major(self):
         for workflow_path in _all_workflow_files():

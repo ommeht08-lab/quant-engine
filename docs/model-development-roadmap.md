@@ -107,7 +107,8 @@ listed stop/go gate at the end of each stage is real.
    SEC DCF composition policy now keeps current price, current shares, beta, sector, and the
    risk-free rate separate from SEC statements; derives forecast growth from the median of
    four recent comparable TTM observations; and can run an offline typed shadow comparison
-   against the legacy Yahoo-statement path. Repeatable scheduled publishing, wider issuer
+   against the legacy Yahoo-statement path. A credential-isolated scheduled job now
+   publishes the supported Apple policy after each weekday filing window. Wider issuer
    coverage, reviewed shadow tolerances, and valuation/API cutover remain. No live request
    path consumes the SEC snapshot yet.
 2. **Survivorship-bias-free historical universe.** The backtest universe must include
