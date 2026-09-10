@@ -50,7 +50,7 @@ Browser ──(session cookie)──> Next.js app (Vercel)
                                                                                 └──(REST, Upstash token)────> Upstash Redis
 
 GitHub Actions (rebalance.yml) ──(Alpaca/Postgres/Upstash secrets)──> same external services,
-                                  manual-only (workflow_dispatch), dry-run by default (§5.5)
+                                  weekday paper execution; manual dry-run by default (§5.5)
 ```
 
 Trust boundaries an attacker would have to cross, and what currently guards each:
@@ -60,7 +60,7 @@ Trust boundaries an attacker would have to cross, and what currently guards each
 | Browser → Next.js app | Session cookie (HMAC-signed, `httpOnly`, `secure` in production, `sameSite: lax`), enforced by `src/proxy.ts` for every route except `/login`, independently re-checked inside each private API route and the ticker tear-sheet page (defense in depth — see §5.4). |
 | Next.js app → Python FastAPI backend | `VALUATION_API_TOKEN` bearer token, constant-time compared, fails closed if unconfigured/placeholder/too-short (identical requirement enforced on both sides — §5.2). No CORS middleware — the API is never meant to be called by a browser. The backend's own origin (`VALUATION_API_URL`) is shape-validated before every request (`assertSafeValuationApiUrl`, §5.6) — HTTPS required in production, no embedded credentials/fragment/path/query, a bounded `AbortController` timeout. |
 | Next.js app → Alpaca | Exact-hostname/HTTPS validation before any credentialed fetch (`assertSafeAlpacaBaseUrl`, §5.3), mirroring the equivalent Python-side check in `src/trading/alpaca_execution.py`. |
-| GitHub Actions → Alpaca/Postgres/Upstash | Manual `workflow_dispatch` only (no automatic schedule), dry-run by default, real secrets scoped only to the run that explicitly selects `execute` (§5.5). |
+| GitHub Actions → Alpaca/Postgres/Upstash | Weekday schedule on GitHub-hosted infrastructure; manual runs remain dry-run by default and require explicit `execute` for paper orders. Every scheduled/manual order rechecks Alpaca's market clock, and application code accepts only the paper endpoint (§5.5). |
 | Redis cache contents → Python process | JSON-envelope codec with a fixed, validated schema — no executable deserialization of any kind (§5.1). |
 
 ## 3. Attacker scenarios and mitigations
@@ -73,7 +73,7 @@ Trust boundaries an attacker would have to cross, and what currently guards each
 | 4 | Attacker brute-forces `DASHBOARD_PASSWORD` via repeated `/login` submissions. | Upstash-Redis-backed fixed-window throttle (5 attempts / 15 minutes), incremented via a single atomic `EVAL` Lua script (`INCREMENT_WITH_TTL_LUA` in `src/lib/redis.ts` — INCR + conditional EXPIRE as ONE server-side atomic unit, never two separate round trips that could leave a key stuck without a TTL). Keyed by the client's IP, but the RAW IP is never stored or logged — it's normalized and HMAC-SHA256'd (`src/lib/client-identifier.ts`, keyed by a `SESSION_SECRET`-derived, domain-separated subkey) before ever becoming part of the Redis key. A successful login clears its own counter (`resetRateLimitCounter`) so a legitimate operator can't self-lock; a failed attempt never does. In PRODUCTION, an unavailable rate limiter (Redis unconfigured or erroring) fails CLOSED by default (`src/lib/rate-limit-policy.ts`) — login itself is refused with a generic error rather than silently proceeding unthrottled; `LOGIN_RATE_LIMIT_FAIL_OPEN=true` is an explicit, intentionally-named override for an operator who has decided availability outweighs throttling. Outside production, an unavailable rate limiter fails open (local dev doesn't require Upstash). | **One known gap, documented rather than hidden:** the client identifier is read from `x-forwarded-for`, which is only trustworthy because this app is deployed on Vercel (Vercel's edge overwrites this header rather than passing through a client-supplied value) — deploying elsewhere without re-verifying that assumption would let an attacker spoof their own throttle key (though not bypass the fail-closed-in-production policy itself, which doesn't depend on the identifier). Passwords are still compared in constant time regardless of throttle state. |
 | 5 | Attacker crafts a malicious `javascript:`/`data:` URL that ends up in a Yahoo Finance headline's link field, hoping it renders as a clickable, script-executing link on the ticker tear-sheet page. | `safeHeadlineHref` (`src/lib/headline-links.ts`) only renders `http:`/`https:` links as an `<a href>`; anything else renders as inert plain text. | None known — this is a complete allow-list, not a denylist. |
 | 6 | Attacker who can reach the ticker tear-sheet URL directly (e.g. a leaked link, or a bug/regression in `src/proxy.ts`'s route matcher) tries to view trade telemetry without a valid session. | The page independently calls `requireSession()` before querying Postgres/Redis — the same check used by every private API route — rather than relying solely on the proxy layer. | None known beyond the general risk of `SESSION_SECRET` compromise (asset #4 above). |
-| 7 | Compromised or malicious GitHub Actions runner/dependency attempts to submit real (paper) orders on an unreviewed schedule. | The rebalance workflow is `workflow_dispatch`-only (no automatic `schedule` trigger while hardening is underway), dry-run by default, and order submission requires an explicit `execute` selection per run. DB/Redis secrets are scoped out of the job's environment unless `execute` is selected. Alpaca credentials are still needed even for a dry run (it reads real paper-account state) but `load_config()` unconditionally refuses to construct a client against any non-paper hostname. | Real money is never at risk (paper-only is enforced in application code, not just CI config), but a malicious workflow run with `execute` selected could still churn/liquidate the paper account. Standard GitHub Actions supply-chain risk (Action tag pinning rather than SHA pinning) remains open — see §6. |
+| 7 | Compromised or malicious GitHub Actions runner/dependency submits paper orders. | The repository owner explicitly chose autonomous weekday paper execution. The workflow runs only after its isolation-safe suite passes, is concurrency-serialized, and requires the engine's terminal completion receipt. Every order rechecks Alpaca's market clock; `load_config()` accepts only the exact paper hostname. Manual runs remain dry-run by default and need explicit `execute` for orders. | Real money is never at risk, but a compromised workflow/dependency could corrupt the paper account and research record. Standard GitHub Actions supply-chain risk (Action tag pinning rather than SHA pinning) remains open — see §6. |
 | 8 | Dependency confusion / supply-chain compromise via an unpinned `requirements.txt`. | Not mitigated in this pass — see §6 (open item, requires a reviewed, hash-locked dependency pass, deliberately out of scope for this offline-capable batch). | Open. Treat as the top remaining risk in this document until addressed. |
 
 ## 4. Credential roles and least privilege
@@ -116,9 +116,11 @@ Lua-based rate limiter).
    (`frontend/src/lib/headline-links.ts`, tested in `headline-links.test.ts`). Login
    throttling itself is covered in depth by item 6 below (superseding the original,
    non-atomic, always-fail-open version).
-5. **Workflow safety** (`.github/workflows/rebalance.yml`) — manual-only (`workflow_dispatch`,
-   no `schedule` trigger), dry-run by default, real-order execution requires an explicit
-   `execute` input, DB/Redis secrets scoped out of dry runs. See `tests/test_ci_config.py`.
+5. **Workflow safety and autonomous execution** (`.github/workflows/rebalance.yml`) — the
+   weekday schedule runs the paper strategy on GitHub-hosted infrastructure; manual runs
+   remain dry-run by default and require an explicit `execute` input for orders. DB/Redis
+   secrets are scoped out of manual dry runs, tests run without production secrets, and
+   the job requires the engine's terminal completion receipt. See `tests/test_ci_config.py`.
 6. **Atomic, HMAC'd, fail-closed-in-production login rate limiting** (`frontend/src/lib/redis.ts`,
    `frontend/src/lib/client-identifier.ts`, `frontend/src/lib/rate-limit-policy.ts`,
    `frontend/src/app/login/actions.ts`) — see scenario #4 above for the full mechanism. In
@@ -258,9 +260,6 @@ can make:
   full commit SHA. Needs verified upstream SHAs, not fabricated ones.
 - **Credential rotation and database role separation** (§4) — deferred until after this
   hardened configuration is actually deployed, per the project's own stated sequencing.
-- **Disabling the pre-existing remote scheduled workflow.** `origin/main` still contains
-  the old, always-scheduled version of `rebalance.yml`. This is an external GitHub action
-  the repository owner must take manually; this pass does not touch GitHub.
 - **Login-throttle IP-trust assumption** (scenario #4) — `x-forwarded-for` is safe to trust
   on Vercel, not verified for any other hosting target. Narrower than before this corrective
   pass: the production fail-closed default no longer depends on this assumption holding
@@ -282,9 +281,9 @@ Until the items in §6 are resolved, this project should only be operated:
 
 - With a **paper-only** Alpaca key pair (defense in depth beneath the application's own
   hostname enforcement).
-- With the rebalance workflow's automatic schedule **disabled** on GitHub (manual
-  `workflow_dispatch` only, as this branch's `rebalance.yml` already enforces in its own
-  trigger configuration).
+- With the rebalance workflow using only a **paper-account** key pair. The weekday schedule
+  intentionally executes paper orders without a laptop or manual approval; manual starts
+  remain dry-run by default.
 - With `VALUATION_API_TOKEN`, `SESSION_SECRET`, and `DASHBOARD_PASSWORD` all set to
   freshly generated, non-default values before any deployment. The code now actively
   validates this (§5.8) — it fails closed (rejects all requests / refuses to start a

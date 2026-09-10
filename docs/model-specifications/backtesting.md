@@ -30,8 +30,9 @@ and sector-filter pipeline, but diverge after that in three ways that materially
 affect what gets bought and how much of it: the backtester always uses the
 **unblended** DCF-based Conviction Score, never the FCF-Yield blend live trading
 applies (see [`docs/model-specifications/conviction-and-portfolio-rules.md`](conviction-and-portfolio-rules.md)
-§4); the backtester applies **none of the four live entry gates** (Altman Z-Score,
-200-day SMA trend, Piotroski F-Score, RSI micro-dip — see that document's §3); and
+§4); the backtester applies **none of the five live entry gates** (absolute fair
+value, Altman Z-Score, 200-day SMA trend, Piotroski F-Score, RSI micro-dip — see
+that document's §3); and
 the backtester's equity curve is **equal-weighted**, never the inverse-beta,
 position/sector-capped weighting live trading actually sizes positions with (§5).
 A favorable backtest result under this document's methodology is therefore

@@ -238,7 +238,7 @@ refers to — the two are different statistics with the same common name; see
 Separately — and independent of the profitability question entirely — the current
 backtester does not even validate the specific paper-trading strategy
 `src/trading/alpaca_execution.py` runs: it uses the unblended Conviction Score,
-none of the four live entry gates, and equal weighting rather than the live
+none of the five live entry gates, and equal weighting rather than the live
 engine's inverse-beta capped sizing (see that same document's opening note). A
 backtest result today is evidence about the underlying valuation/screening signal,
 not about the deployed strategy as a whole.

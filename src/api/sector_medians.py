@@ -41,8 +41,8 @@ or a sector's sample size is too small to trust.
 This is the SAME cache file `src.trading.alpaca_execution.refresh_sector_median_cache`
 writes to after each live trading scan. That's intentional, not a bug to
 route around: as long as both writers value the full, unscreened
-reference universe (which the trading engine now does — its Altman/
-trend/Piotroski/RSI entry gates apply strictly after every ticker has
+reference universe (which the trading engine now does — its absolute-fair-value/
+Altman/trend/Piotroski/RSI entry gates apply strictly after every ticker has
 been valued, never before) and stamp the same metadata described above,
 "freshest wins" is the correct behavior for a single shared cache, and a
 consumer that cares about provenance can already tell a stale/incompatible

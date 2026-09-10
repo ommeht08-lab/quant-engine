@@ -9,11 +9,15 @@ variable manipulation (`monkeypatch`), never a real `.env`.
 """
 
 import argparse
+import math
+import types
 
 import pytest
 from alpaca.trading.enums import AssetClass
 
+from src.backtesting.historical_tester import TickerAnalysis
 from src.trading import alpaca_execution as engine
+from src.utils.ticker_universe import DEFAULT_SP500_TOP_100_TICKERS
 from tests.conftest import FakeTradingClient, make_position
 
 
@@ -132,6 +136,91 @@ class TestTopNValidation:
         parser.add_argument("--top-n", type=engine._positive_int, default=engine.DEFAULT_TOP_N)
         args = parser.parse_args(["--top-n", "5"])
         assert args.top_n == 5
+
+
+class TestTickerUniverseContract:
+    def test_default_universe_contains_exactly_100_unique_tickers(self):
+        assert len(DEFAULT_SP500_TOP_100_TICKERS) == 100
+        assert len(set(DEFAULT_SP500_TOP_100_TICKERS)) == 100
+
+
+class TestScanCompletionEvidence:
+    def test_exact_ordered_coverage_with_a_usable_valuation_passes(self):
+        requested = ["AAA", "BBB"]
+        analyses = [types.SimpleNamespace(ticker=ticker) for ticker in requested]
+        valuations = [
+            types.SimpleNamespace(ticker="AAA", is_valid=True),
+            types.SimpleNamespace(ticker="BBB", is_valid=False),
+        ]
+
+        engine._validate_scan_completion(requested, analyses, valuations)
+
+    def test_missing_result_fails_closed(self):
+        requested = ["AAA", "BBB"]
+        analyses = [types.SimpleNamespace(ticker="AAA")]
+        valuations = [types.SimpleNamespace(ticker="AAA", is_valid=True)]
+
+        with pytest.raises(RuntimeError, match="exactly one ordered result"):
+            engine._validate_scan_completion(requested, analyses, valuations)
+
+    def test_all_unusable_valuations_fail_as_systemic_data_error(self):
+        requested = ["AAA"]
+        analyses = [types.SimpleNamespace(ticker="AAA")]
+        valuations = [types.SimpleNamespace(ticker="AAA", is_valid=False)]
+
+        with pytest.raises(RuntimeError, match="no usable valuations"):
+            engine._validate_scan_completion(requested, analyses, valuations)
+
+
+class TestAbsoluteFairValueEntryGate:
+    @pytest.mark.parametrize("ratio", [1.0, 1.01, math.inf, math.nan, None])
+    def test_at_or_above_fair_value_or_unusable_ratio_fails_before_other_gates(
+        self, monkeypatch, ratio
+    ):
+        monkeypatch.setattr(
+            engine,
+            "check_trend_filter",
+            lambda ticker: pytest.fail("later gates must not run after fair-value rejection"),
+        )
+
+        reason = engine._entry_gate_failure_reason(
+            "EXPENSIVE", "Technology", z_score=3.0, price_to_intrinsic=ratio
+        )
+
+        assert "absolute fair-value" in reason
+
+    def test_discounted_company_can_continue_through_remaining_gates(self, monkeypatch):
+        monkeypatch.setattr(engine, "check_trend_filter", lambda ticker: True)
+        monkeypatch.setattr(engine, "calculate_f_score", lambda ticker: 7)
+        monkeypatch.setattr(engine, "calculate_rsi", lambda ticker: 40.0)
+
+        reason = engine._entry_gate_failure_reason(
+            "DISCOUNT", "Technology", z_score=3.0, price_to_intrinsic=0.99
+        )
+
+        assert reason is None
+
+    def test_top_pick_selection_defensively_excludes_overvalued_analysis(self):
+        discounted = TickerAnalysis(
+            ticker="DISCOUNT",
+            as_of_date="2026-09-10",
+            sector="Technology",
+            historical_price=90.0,
+            price_to_intrinsic=0.9,
+            sector_median_price_to_intrinsic=1.1,
+            conviction_score=1.0,
+        )
+        overvalued = TickerAnalysis(
+            ticker="EXPENSIVE",
+            as_of_date="2026-09-10",
+            sector="Technology",
+            historical_price=110.0,
+            price_to_intrinsic=1.1,
+            sector_median_price_to_intrinsic=1.2,
+            conviction_score=2.0,
+        )
+
+        assert engine.select_top_picks([overvalued, discounted], top_n=2) == [discounted]
 
 
 class TestMarketClock:

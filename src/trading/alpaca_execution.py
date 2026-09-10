@@ -15,10 +15,13 @@ Entry gates are applied AFTER valuation, never before the sector benchmark
 Every ticker in the universe is valued via `compute_valuation` (Pass 1)
 UNCONDITIONALLY — there is no pre-valuation rejection anymore. Sector
 medians (`calculate_sector_median_price_to_intrinsic`) are computed from
-that full, unscreened, successfully-valued set. Only THEN are four entry
+that full, unscreened, successfully-valued set. Only THEN are five entry
 gates applied, purely to decide Top-N *eligibility*, never to alter the
 sector benchmark other tickers get compared against:
 
+    - Absolute fair-value gate — a company trading at or above its own
+      DCF intrinsic value is ineligible for entry, even when it looks
+      relatively cheaper than its sector.
     - Altman Z-Score distress filter (`src.valuation.altman_z.calculate_altman_z`,
       threshold 1.8) — a credit-health gate. The original manufacturing-
       era formula isn't sector-appropriate for Financial Services,
@@ -34,8 +37,7 @@ sector benchmark other tickers get compared against:
       minimum 5/9) — a fundamental quality/financial-health check.
     - 14-day RSI, Wilder's Smoothing (`src.valuation.technical.calculate_rsi`)
       — only enters on a technical micro-dip (RSI < RSI_MAX_ENTRY_THRESHOLD).
-
-All four fail safe (reject) on missing/unusable data. Valuing every
+All five fail safe (reject) on missing/unusable data. Valuing every
 ticker regardless of gate outcome costs more DCF calls per run than the
 old gate-before-value order (absorbed by the existing Redis cache), but
 is what a sector benchmark free of technical/quality-state bias requires:
@@ -620,10 +622,15 @@ def _altman_gate_reason(sector: str, z_score: Optional[float]) -> Optional[str]:
     return None
 
 
-def _entry_gate_failure_reason(ticker: str, sector: str, z_score: Optional[float]) -> Optional[str]:
+def _entry_gate_failure_reason(
+    ticker: str,
+    sector: str,
+    z_score: Optional[float],
+    price_to_intrinsic: Optional[float],
+) -> Optional[str]:
     """
-    Apply the four entry gates (Altman Z, 200-SMA trend, Piotroski
-    F-Score, RSI micro-dip) in order, short-circuiting on the first
+    Apply the five entry gates (absolute fair value, Altman Z, 200-SMA
+    trend, Piotroski F-Score, RSI micro-dip) in order, short-circuiting on the first
     failure. Called AFTER a ticker has already been valued and scored —
     see the module docstring's "Entry gates are applied AFTER valuation"
     section for why this ordering matters.
@@ -632,6 +639,21 @@ def _entry_gate_failure_reason(ticker: str, sector: str, z_score: Optional[float
         None if every applicable gate passes; otherwise a human-readable
         rejection reason.
     """
+    if (
+        price_to_intrinsic is None
+        or not math.isfinite(price_to_intrinsic)
+        or price_to_intrinsic >= 1.0
+    ):
+        ratio_display = (
+            f"{price_to_intrinsic:.3f}"
+            if price_to_intrinsic is not None and math.isfinite(price_to_intrinsic)
+            else "unavailable"
+        )
+        return (
+            "Failed absolute fair-value entry gate "
+            f"(price/intrinsic={ratio_display}, required < 1.000)."
+        )
+
     altman_reason = _altman_gate_reason(sector, z_score)
     if altman_reason is not None:
         return altman_reason
@@ -660,7 +682,7 @@ def run_todays_scan(
     """
     Run the two-pass sector-relative DCF scan (Pass 1 valuation, sector
     median, Pass 2 filter + Conviction Score) as of today, then apply the
-    four entry gates purely to decide Top-N *eligibility* — never to
+    five entry gates purely to decide Top-N *eligibility* — never to
     influence which tickers contributed to the sector median (see the
     module docstring).
 
@@ -705,13 +727,21 @@ def run_todays_scan(
     logger.info("Running Pass 2: applying the sector-relative filter and Conviction Score...")
     analyses: List[TickerAnalysis] = [score_ticker(v, sector_medians) for v in valuations]
 
-    logger.info("Applying entry gates (Altman Z, 200-SMA trend, Piotroski F-Score, RSI) for Top-N eligibility...")
+    logger.info(
+        "Applying entry gates (absolute fair value, Altman Z, 200-SMA trend, "
+        "Piotroski F-Score, RSI) for Top-N eligibility..."
+    )
     gated_analyses: List[TickerAnalysis] = []
     for analysis, valuation in zip(analyses, valuations):
         if not analysis.is_valid:
             gated_analyses.append(analysis)
             continue
-        gate_reason = _entry_gate_failure_reason(analysis.ticker, analysis.sector, valuation.altman_z_score)
+        gate_reason = _entry_gate_failure_reason(
+            analysis.ticker,
+            analysis.sector,
+            valuation.altman_z_score,
+            analysis.price_to_intrinsic,
+        )
         if gate_reason is not None:
             logger.warning("REJECTED (entry gate): %s — %s", analysis.ticker, gate_reason)
             gated_analyses.append(replace(analysis, conviction_score=None, skip_reason=gate_reason))
@@ -770,13 +800,42 @@ def refresh_sector_median_cache(
 
 
 def select_top_picks(analyses: List[TickerAnalysis], top_n: int) -> List[TickerAnalysis]:
-    """Rank sector-filter survivors by Conviction Score and take the top N."""
+    """Rank discounted, entry-eligible survivors by Conviction Score and take the top N."""
     ranked = sorted(
-        (a for a in analyses if a.is_valid),
+        (
+            a
+            for a in analyses
+            if a.is_valid
+            and a.price_to_intrinsic is not None
+            and math.isfinite(a.price_to_intrinsic)
+            and a.price_to_intrinsic < 1.0
+        ),
         key=lambda a: a.conviction_score,
         reverse=True,
     )
     return ranked[:top_n]
+
+
+def _validate_scan_completion(
+    requested_tickers: List[str],
+    analyses: List[TickerAnalysis],
+    valuations: List[ValuationResult],
+) -> None:
+    """Fail closed unless the scan returned one result per requested ticker."""
+    expected = list(requested_tickers)
+    analysis_tickers = [analysis.ticker for analysis in analyses]
+    valuation_tickers = [valuation.ticker for valuation in valuations]
+    if analysis_tickers != expected or valuation_tickers != expected:
+        raise RuntimeError(
+            "Rebalance incomplete: valuation scan did not return exactly one ordered "
+            f"result per requested ticker (requested={len(expected)}, "
+            f"analyses={len(analysis_tickers)}, valuations={len(valuation_tickers)})."
+        )
+    if not any(valuation.is_valid for valuation in valuations):
+        raise RuntimeError(
+            "Rebalance incomplete: the scan returned no usable valuations; "
+            "refusing to treat a systemic data failure as a valid no-candidate day."
+        )
 
 
 # --------------------------------------------------------------------------
@@ -2130,11 +2189,23 @@ def main() -> None:
     analyses, sector_medians, valuations, risk_free_rate = run_todays_scan(
         DEFAULT_SP500_TOP_100_TICKERS, assumptions
     )
-    refresh_sector_median_cache(sector_medians, valuations, assumptions, risk_free_rate)
+    _validate_scan_completion(DEFAULT_SP500_TOP_100_TICKERS, analyses, valuations)
+
+    # A dry run must not publish a new sector-median snapshot. Lower-level
+    # read-through market-data caches may still refresh as part of fetching
+    # the inputs required to calculate the preview.
+    if not effective_dry_run:
+        refresh_sector_median_cache(sector_medians, valuations, assumptions, risk_free_rate)
 
     top_picks = select_top_picks(analyses, args.top_n)
     if not top_picks:
-        logger.error("No tickers passed the sector-relative filter and entry gates today; nothing to trade.")
+        logger.warning("No tickers passed the sector-relative filter and entry gates today; nothing to trade.")
+        logger.info(
+            "ALPACA_PIPELINE_COMPLETED mode=%s status=no_candidates universe=%d valued=%d eligible=0",
+            "dry-run" if effective_dry_run else "execute",
+            len(DEFAULT_SP500_TOP_100_TICKERS),
+            sum(1 for valuation in valuations if valuation.is_valid),
+        )
         return
     target_tickers = {pick.ticker for pick in top_picks}
     analyses_by_ticker = {a.ticker: a for a in analyses}
@@ -2176,11 +2247,10 @@ def main() -> None:
             positions_for_rebalance = get_current_positions(trading_client)
             refreshed_account = trading_client.get_account()
         except APIError as exc:
-            logger.error(
-                "Could not refresh Alpaca state after liquidations; stopping before submitting rebalance orders: %s",
-                exc,
-            )
-            return
+            raise RuntimeError(
+                "Rebalance incomplete: could not refresh Alpaca state after liquidations; "
+                f"no rebalance orders were submitted: {exc}"
+            ) from exc
         rebalance_equity = float(refreshed_account.equity)
         rebalance_buying_power = float(refreshed_account.buying_power)
 
@@ -2194,11 +2264,10 @@ def main() -> None:
         try:
             equity_after = float(trading_client.get_account().equity)
         except APIError as exc:
-            logger.error(
-                "Could not refresh Alpaca equity after rebalance orders; stopping before post-fill checks: %s",
-                exc,
-            )
-            return
+            raise RuntimeError(
+                "Rebalance incomplete: could not refresh Alpaca equity after rebalance orders; "
+                f"post-fill checks did not run: {exc}"
+            ) from exc
 
     target_weights = calculate_inverse_beta_weights(top_picks)
     print_execution_report(
@@ -2216,11 +2285,10 @@ def main() -> None:
         try:
             post_fill_positions = get_current_positions(trading_client)
         except APIError as exc:
-            logger.error(
-                "Could not refresh Alpaca positions after rebalance orders; stopping post-fill processing: %s",
-                exc,
-            )
-            return
+            raise RuntimeError(
+                "Rebalance incomplete: could not refresh Alpaca positions after rebalance orders; "
+                f"post-fill processing did not run: {exc}"
+            ) from exc
         # Refresh open-order state immediately before the corrective-trim
         # phase — ground truth from Alpaca, not the in-memory
         # approximation carried over from the liquidate/rebalance phases
@@ -2297,6 +2365,14 @@ def main() -> None:
             var_95=risk_result.var_95 if risk_result.is_ok else None,
             cvar_95=risk_result.cvar_95 if risk_result.is_ok else None,
         )
+
+    logger.info(
+        "ALPACA_PIPELINE_COMPLETED mode=%s status=complete universe=%d valued=%d eligible=%d",
+        "dry-run" if effective_dry_run else "execute",
+        len(DEFAULT_SP500_TOP_100_TICKERS),
+        sum(1 for valuation in valuations if valuation.is_valid),
+        len(top_picks),
+    )
 
 
 if __name__ == "__main__":
