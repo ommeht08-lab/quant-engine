@@ -78,13 +78,23 @@ def _patch_common(monkeypatch, client, *, top_picks, risk_result):
     monkeypatch.setattr(engine, "load_config", lambda: dummy_config)
     monkeypatch.setattr(engine, "build_trading_client", lambda config: client)
     monkeypatch.setattr(engine, "ensure_schema", lambda: None)
+    run_events = []
+    monkeypatch.setattr(engine, "_safe_append_run_event", run_events.append)
 
     logged_trades = []
     monkeypatch.setattr(engine, "_safe_log_trade", lambda **kwargs: logged_trades.append(kwargs))
 
     monkeypatch.setattr(
         engine, "run_todays_scan",
-        lambda tickers, assumptions=None: (top_picks, {}, [], 0.04),
+        lambda tickers, assumptions=None: (
+            top_picks,
+            {},
+            [
+                types.SimpleNamespace(ticker=analysis.ticker, is_valid=True, skip_reason=None)
+                for analysis in top_picks
+            ],
+            0.04,
+        ),
     )
     monkeypatch.setattr(engine, "_validate_scan_completion", lambda *args: None)
     refreshed_caches = []
@@ -100,7 +110,7 @@ def _patch_common(monkeypatch, client, *, top_picks, risk_result):
         lambda *args, **kwargs: hedge_calls.append((args, kwargs)),
     )
 
-    return logged_trades, hedge_calls, refreshed_caches
+    return logged_trades, hedge_calls, refreshed_caches, run_events
 
 
 class TestFullOrchestration:
@@ -133,13 +143,13 @@ class TestFullOrchestration:
             position_snapshots=[snapshot_initial, snapshot_post_liquidation, snapshot_post_fill],
         )
         risk_result = VaRResult(status="ok", var_95=-0.05, cvar_95=-0.08)
-        logged_trades, hedge_calls, refreshed_caches = _patch_common(
+        logged_trades, hedge_calls, refreshed_caches, run_events = _patch_common(
             monkeypatch, client, top_picks=top_picks, risk_result=risk_result
         )
-        return client, top_picks, logged_trades, hedge_calls, refreshed_caches
+        return client, top_picks, logged_trades, hedge_calls, refreshed_caches, run_events
 
     def test_full_run_liquidates_buys_trims_and_hedges_in_order(self, monkeypatch):
-        client, top_picks, logged_trades, hedge_calls, refreshed_caches = self._build(monkeypatch)
+        client, top_picks, logged_trades, hedge_calls, refreshed_caches, run_events = self._build(monkeypatch)
         monkeypatch.setattr(engine.sys, "argv", ["alpaca_execution.py"])
 
         engine.main()
@@ -169,10 +179,14 @@ class TestFullOrchestration:
         assert actions_logged.count("SELL") >= 2  # CCC liquidation + AAA trim
         assert actions_logged.count("BUY") == 2  # AAA + BBB
         assert refreshed_caches == [True]
+        assert [event.event_type for event in run_events] == [
+            engine.RunEventType.STARTED,
+            engine.RunEventType.COMPLETED,
+        ]
 
     def test_dry_run_never_submits_orders_or_publishes_sector_medians(self, monkeypatch, caplog):
         caplog.set_level(logging.INFO, logger="src.trading.alpaca_execution")
-        client, top_picks, logged_trades, hedge_calls, refreshed_caches = self._build(monkeypatch)
+        client, top_picks, logged_trades, hedge_calls, refreshed_caches, run_events = self._build(monkeypatch)
         monkeypatch.setattr(engine.sys, "argv", ["alpaca_execution.py", "--dry-run"])
 
         engine.main()
@@ -183,11 +197,12 @@ class TestFullOrchestration:
         # RISK_SNAPSHOT/trades) — see the module docstring.
         assert logged_trades == []
         assert refreshed_caches == []
-        assert "ALPACA_PIPELINE_COMPLETED mode=dry-run status=complete" in caplog.text
+        assert "ALPACA_PIPELINE_COMPLETED mode=dry-run health=healthy decision=candidates" in caplog.text
+        assert run_events[-1].completion_status == engine.RunCompletionStatus.HEALTHY
 
     def test_partial_run_raises_and_never_emits_completion_receipt(self, monkeypatch, caplog):
         caplog.set_level(logging.INFO, logger="src.trading.alpaca_execution")
-        client, _, _, _, _ = self._build(monkeypatch)
+        client, _, _, _, _, run_events = self._build(monkeypatch)
         monkeypatch.setattr(engine.sys, "argv", ["alpaca_execution.py"])
 
         original_get_account = client.get_account
@@ -206,6 +221,141 @@ class TestFullOrchestration:
             engine.main()
 
         assert "ALPACA_PIPELINE_COMPLETED" not in caplog.text
+        assert run_events[-1].event_type == engine.RunEventType.FAILED
+        assert run_events[-1].failure_code == "RuntimeError"
+
+    def test_no_candidates_holds_non_targets_checks_profit_taking_and_calculates_risk(
+        self, monkeypatch, caplog, capsys
+    ):
+        caplog.set_level(logging.INFO, logger="src.trading.alpaca_execution")
+        take = TickerAnalysis(
+            ticker="TAKE", as_of_date="2026-01-01", historical_intrinsic_value=100.0,
+            skip_reason="absolute fair-value gate failed",
+        )
+        hold = TickerAnalysis(
+            ticker="HOLD", as_of_date="2026-01-01", historical_intrinsic_value=100.0,
+            skip_reason="RSI gate failed",
+        )
+        positions = [
+            make_position("TAKE", qty=5, market_value=600.0, current_price=120.0),
+            make_position("HOLD", qty=5, market_value=400.0, current_price=80.0),
+        ]
+        client = ScriptedMainClient(
+            positions=positions,
+            equity=10_000.0,
+            buying_power=9_000.0,
+            position_snapshots=[positions],
+        )
+        risk_calls = []
+        _, hedge_calls, _, run_events = _patch_common(
+            monkeypatch,
+            client,
+            top_picks=[take, hold],
+            risk_result=VaRResult(status="ok", var_95=-0.05, cvar_95=-0.08),
+        )
+        monkeypatch.setattr(engine, "select_top_picks", lambda analyses, top_n: [])
+        monkeypatch.setattr(
+            engine,
+            "calculate_portfolio_var",
+            lambda holdings: risk_calls.append(holdings)
+            or VaRResult(status="ok", var_95=-0.05, cvar_95=-0.08),
+        )
+        monkeypatch.setattr(engine.sys, "argv", ["alpaca_execution.py", "--dry-run"])
+
+        engine.main()
+        report = capsys.readouterr().out
+
+        assert client.closed_symbols == []
+        assert client.submitted_orders == []
+        assert risk_calls == [{"TAKE": 0.06, "HOLD": 0.04}]
+        assert len(hedge_calls) == 1
+        assert "TAKE" in report and "profit-taking: price >= intrinsic value" in report
+        assert "ALPACA_PIPELINE_COMPLETED mode=dry-run health=healthy decision=no_candidates" in caplog.text
+        assert run_events[-1].decision == engine.StrategyDecision.NO_CANDIDATES
+
+    def test_no_candidate_execute_closes_only_profit_take_and_holds_everything_else(
+        self, monkeypatch, caplog
+    ):
+        caplog.set_level(logging.INFO, logger="src.trading.alpaca_execution")
+        take = TickerAnalysis(
+            ticker="TAKE", as_of_date="2026-01-01", historical_intrinsic_value=100.0,
+            skip_reason="absolute fair-value gate failed",
+        )
+        hold = TickerAnalysis(
+            ticker="HOLD", as_of_date="2026-01-01", historical_intrinsic_value=100.0,
+            skip_reason="RSI gate failed",
+        )
+        snapshot_initial = [
+            make_position("TAKE", qty=5, market_value=600.0, current_price=120.0),
+            make_position("HOLD", qty=5, market_value=400.0, current_price=80.0),
+        ]
+        snapshot_after_profit_take = [
+            make_position("HOLD", qty=5, market_value=400.0, current_price=80.0),
+        ]
+        client = ScriptedMainClient(
+            positions=snapshot_initial,
+            equity=10_000.0,
+            buying_power=9_600.0,
+            position_snapshots=[snapshot_initial, snapshot_after_profit_take],
+        )
+        risk_calls = []
+        _, hedge_calls, _, run_events = _patch_common(
+            monkeypatch,
+            client,
+            top_picks=[take, hold],
+            risk_result=VaRResult(status="ok", var_95=-0.05, cvar_95=-0.08),
+        )
+        monkeypatch.setattr(engine, "select_top_picks", lambda analyses, top_n: [])
+        monkeypatch.setattr(
+            engine,
+            "calculate_portfolio_var",
+            lambda holdings: risk_calls.append(holdings)
+            or VaRResult(status="ok", var_95=-0.05, cvar_95=-0.08),
+        )
+        monkeypatch.setattr(engine.sys, "argv", ["alpaca_execution.py"])
+
+        engine.main()
+
+        assert client.closed_symbols == ["TAKE"]
+        assert client.submitted_orders == []
+        assert risk_calls == [{"HOLD": 0.04}]
+        assert len(hedge_calls) == 1
+        assert "ALPACA_PIPELINE_COMPLETED mode=execute health=healthy decision=no_candidates" in caplog.text
+        assert run_events[-1].completion_status == engine.RunCompletionStatus.HEALTHY
+
+    def test_no_candidate_run_is_incomplete_when_held_position_risk_is_unavailable(
+        self, monkeypatch, caplog
+    ):
+        caplog.set_level(logging.INFO, logger="src.trading.alpaca_execution")
+        hold = TickerAnalysis(
+            ticker="HOLD", as_of_date="2026-01-01", historical_intrinsic_value=100.0,
+            skip_reason="RSI gate failed",
+        )
+        positions = [
+            make_position("HOLD", qty=5, market_value=400.0, current_price=80.0),
+        ]
+        client = ScriptedMainClient(
+            positions=positions,
+            equity=10_000.0,
+            buying_power=9_600.0,
+            position_snapshots=[positions],
+        )
+        _, hedge_calls, _, run_events = _patch_common(
+            monkeypatch,
+            client,
+            top_picks=[hold],
+            risk_result=VaRResult(status="insufficient_data", message="missing price history"),
+        )
+        monkeypatch.setattr(engine, "select_top_picks", lambda analyses, top_n: [])
+        monkeypatch.setattr(engine.sys, "argv", ["alpaca_execution.py", "--dry-run"])
+
+        engine.main()
+
+        assert client.closed_symbols == []
+        assert client.submitted_orders == []
+        assert hedge_calls == []
+        assert "ALPACA_PIPELINE_COMPLETED mode=dry-run health=incomplete decision=no_candidates" in caplog.text
+        assert run_events[-1].completion_status == engine.RunCompletionStatus.INCOMPLETE
 
 
 class TestMarketClosesMidRun:
@@ -244,7 +394,7 @@ class TestMarketClosesMidRun:
             open_for_calls=3,
         )
         risk_result = VaRResult(status="insufficient_data", message="no data in this test")
-        logged_trades, hedge_calls, _ = _patch_common(
+        logged_trades, hedge_calls, _, run_events = _patch_common(
             monkeypatch, client, top_picks=top_picks, risk_result=risk_result
         )
         monkeypatch.setattr(engine.sys, "argv", ["alpaca_execution.py"])
@@ -260,3 +410,4 @@ class TestMarketClosesMidRun:
         assert "AAA" not in sell_symbols
         # VaR was unavailable this run -> hedge phase never invoked at all.
         assert hedge_calls == []
+        assert run_events[-1].completion_status == engine.RunCompletionStatus.INCOMPLETE

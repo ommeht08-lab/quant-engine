@@ -101,9 +101,10 @@ jobs:
           APCA_API_KEY_ID: ${{ secrets.APCA_API_KEY_ID }}
           APCA_API_SECRET_KEY: ${{ secrets.APCA_API_SECRET_KEY }}
           APCA_API_BASE_URL: ${{ secrets.APCA_API_BASE_URL }}
-          # Scheduled runs and manual "execute" runs are real paper-order
-          # runs. Manual dry runs receive empty DB/Redis values.
-          DATABASE_URL: ${{ (github.event_name == 'schedule' || github.event.inputs.execute == 'execute') && secrets.DATABASE_URL || '' }}
+          # Every mode records append-only operational run health. Manual
+          # dry runs still submit zero orders and write no trade rows, but
+          # do append started/completed/failed health events for the dashboard.
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           UPSTASH_REDIS_REST_URL: ${{ (github.event_name == 'schedule' || github.event.inputs.execute == 'execute') && secrets.UPSTASH_REDIS_REST_URL || '' }}
           UPSTASH_REDIS_REST_TOKEN: ${{ (github.event_name == 'schedule' || github.event.inputs.execute == 'execute') && secrets.UPSTASH_REDIS_REST_TOKEN || '' }}
         run: |
