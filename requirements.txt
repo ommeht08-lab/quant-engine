@@ -1,11 +1,12 @@
-pandas
-numpy
-scipy
-requests
-fastapi
-yfinance
-uvicorn[standard]
-python-dotenv
-alpaca-py
-psycopg2-binary
-upstash-redis
+# Exact direct versions reviewed and exercised by the remote dry-run canary.
+pandas==3.0.5
+numpy==2.4.6
+scipy==1.17.1
+requests==2.34.2
+fastapi==0.141.1
+yfinance==1.7.0
+uvicorn[standard]==0.52.4
+python-dotenv==1.2.3
+alpaca-py==0.44.0
+psycopg2-binary==2.9.13
+upstash-redis==1.8.0

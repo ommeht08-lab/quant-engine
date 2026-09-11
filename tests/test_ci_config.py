@@ -23,6 +23,7 @@ REFRESH_SEC_FUNDAMENTALS_WORKFLOW_PATH = (
 )
 WORKFLOWS_DIR = WORKFLOW_PATH.parent
 TESTS_WORKFLOW_PATH = WORKFLOWS_DIR / "tests.yml"
+REQUIREMENTS_PATH = WORKFLOW_PATH.parents[2] / "requirements.txt"
 
 
 def _read_workflow() -> str:
@@ -93,6 +94,21 @@ class TestScheduleAndTriggerPreserved:
         assert "set -o pipefail" in block
         assert "tee rebalance-report.txt" in block
         assert "grep -q '^ALPACA_PIPELINE_COMPLETED ' rebalance-report.txt" in block
+
+    def test_every_execution_mode_receives_database_url_for_run_health(self):
+        block = _job_block(_read_workflow(), "execute_trades")
+        assert "DATABASE_URL: ${{ secrets.DATABASE_URL }}" in block
+
+
+class TestTradingDependencyLock:
+    def test_every_direct_runtime_dependency_is_exactly_pinned(self):
+        dependencies = [
+            line.strip()
+            for line in REQUIREMENTS_PATH.read_text().splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+        assert dependencies
+        assert all("==" in dependency for dependency in dependencies)
 
 
 class TestConcurrencyGuard:

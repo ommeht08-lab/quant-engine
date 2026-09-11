@@ -1,5 +1,6 @@
 import PortfolioAllocation from "@/components/PortfolioAllocation";
 import RiskHistogram from "@/components/RiskHistogram";
+import TradingRunHealth from "@/components/TradingRunHealth";
 
 export default function PortfolioPage() {
   return (
@@ -15,6 +16,8 @@ export default function PortfolioPage() {
             unavailable data is never mistaken for zero.
           </p>
         </header>
+
+        <TradingRunHealth />
 
         <div className="grid gap-5 xl:grid-cols-2">
           <PortfolioAllocation />

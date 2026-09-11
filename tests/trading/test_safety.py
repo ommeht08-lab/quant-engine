@@ -163,13 +163,88 @@ class TestScanCompletionEvidence:
         with pytest.raises(RuntimeError, match="exactly one ordered result"):
             engine._validate_scan_completion(requested, analyses, valuations)
 
+    def test_coverage_below_canonical_minimum_fails_as_systemic_data_error(self):
+        requested = ["AAA", "BBB", "CCC"]
+        analyses = [types.SimpleNamespace(ticker=ticker) for ticker in requested]
+        valuations = [
+            types.SimpleNamespace(ticker="AAA", is_valid=True),
+            types.SimpleNamespace(ticker="BBB", is_valid=False),
+            types.SimpleNamespace(ticker="CCC", is_valid=False),
+        ]
+
+        with pytest.raises(RuntimeError, match="below the canonical 50% minimum"):
+            engine._validate_scan_completion(requested, analyses, valuations)
+
     def test_all_unusable_valuations_fail_as_systemic_data_error(self):
         requested = ["AAA"]
         analyses = [types.SimpleNamespace(ticker="AAA")]
         valuations = [types.SimpleNamespace(ticker="AAA", is_valid=False)]
 
-        with pytest.raises(RuntimeError, match="no usable valuations"):
+        with pytest.raises(RuntimeError, match="below the canonical 50% minimum"):
             engine._validate_scan_completion(requested, analyses, valuations)
+
+
+class TestTickerRunOutcomes:
+    def test_records_one_explicit_reason_for_every_requested_ticker(self):
+        selected = TickerAnalysis(
+            ticker="AAA", as_of_date="2026-01-01", conviction_score=1.0,
+            price_to_intrinsic=0.8,
+        )
+        rejected = TickerAnalysis(
+            ticker="BBB", as_of_date="2026-01-01", skip_reason="RSI gate failed",
+        )
+        valuations = [
+            types.SimpleNamespace(ticker="AAA", skip_reason=None),
+            types.SimpleNamespace(ticker="BBB", skip_reason=None),
+            types.SimpleNamespace(ticker="CCC", skip_reason="statement data unavailable"),
+        ]
+
+        outcomes = engine.build_ticker_run_outcomes(
+            ["AAA", "BBB", "CCC"], [selected, rejected], valuations, [selected]
+        )
+
+        assert [(outcome.ticker, outcome.status) for outcome in outcomes] == [
+            ("AAA", "selected"),
+            ("BBB", "rejected"),
+            ("CCC", "missing"),
+        ]
+        assert [outcome.reason for outcome in outcomes] == [
+            "selected in the Top-N target portfolio",
+            "RSI gate failed",
+            "statement data unavailable",
+        ]
+
+
+class TestNoCandidateLiquidationPolicy:
+    def test_holds_non_targets_but_still_evaluates_profit_taking(self):
+        client = FakeTradingClient()
+        positions = {
+            "TAKE": make_position("TAKE", qty=1, market_value=120.0, current_price=120.0),
+            "HOLD": make_position("HOLD", qty=1, market_value=80.0, current_price=80.0),
+        }
+        analyses = {
+            "TAKE": TickerAnalysis(
+                ticker="TAKE", as_of_date="2026-01-01", historical_intrinsic_value=100.0,
+                skip_reason="absolute fair-value gate failed",
+            ),
+            "HOLD": TickerAnalysis(
+                ticker="HOLD", as_of_date="2026-01-01", historical_intrinsic_value=100.0,
+                skip_reason="RSI gate failed",
+            ),
+        }
+
+        results = engine.liquidate_non_target_positions(
+            client,
+            positions,
+            set(),
+            analyses,
+            dry_run=True,
+            liquidate_non_targets=False,
+        )
+
+        assert [result["symbol"] for result in results] == ["TAKE"]
+        assert results[0]["reason"] == "profit-taking: price >= intrinsic value"
+        assert client.closed_symbols == []
 
 
 class TestAbsoluteFairValueEntryGate:

@@ -1,11 +1,11 @@
 """
-PostgreSQL telemetry for logging executed algorithmic trades.
+PostgreSQL telemetry for trades, backtests, and autonomous-run health.
 
 Connects to the database identified by the `DATABASE_URL` environment
 variable (e.g. postgresql://user:password@host:5432/dbname). Schema
 creation/migration is a separate, explicit step (`ensure_schema`) from
 logging a row: entry points call `ensure_schema()` exactly once per
-process, and `log_trade`/`log_backtest_curve` then just insert — they no
+process, and row writers then just insert — they no
 longer run `CREATE TABLE`/`ALTER TABLE` on every single call, which
 previously meant a 4-statement DDL round-trip before every individual
 trade insert.
@@ -98,6 +98,57 @@ CREATE TABLE IF NOT EXISTS backtest_curve (
 );
 """
 
+CREATE_REBALANCE_RUN_EVENTS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS rebalance_run_events (
+    id BIGSERIAL PRIMARY KEY,
+    event_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    run_id TEXT NOT NULL,
+    event_type TEXT NOT NULL CHECK (event_type IN ('started', 'completed', 'failed')),
+    completion_status TEXT CHECK (completion_status IN ('healthy', 'incomplete')),
+    decision_outcome TEXT NOT NULL CHECK (
+        decision_outcome IN ('candidates', 'no_candidates', 'not_reached')
+    ),
+    mode TEXT NOT NULL CHECK (mode IN ('dry-run', 'execute')),
+    git_sha TEXT,
+    trigger TEXT NOT NULL,
+    universe_count INTEGER CHECK (universe_count >= 0),
+    valued_count INTEGER CHECK (valued_count >= 0),
+    eligible_count INTEGER CHECK (eligible_count >= 0),
+    failure_stage TEXT,
+    failure_code TEXT,
+    UNIQUE (run_id, event_type),
+    CHECK (
+        (event_type = 'completed' AND completion_status IS NOT NULL)
+        OR (event_type <> 'completed' AND completion_status IS NULL)
+    ),
+    CHECK (
+        (event_type = 'failed' AND failure_code IS NOT NULL)
+        OR event_type <> 'failed'
+    ),
+    CHECK (universe_count IS NULL OR valued_count IS NULL OR valued_count <= universe_count),
+    CHECK (valued_count IS NULL OR eligible_count IS NULL OR eligible_count <= valued_count)
+);
+"""
+
+CREATE_REBALANCE_RUN_EVENTS_INDEX_SQL = """
+CREATE INDEX IF NOT EXISTS rebalance_run_events_latest_idx
+ON rebalance_run_events (event_at DESC, id DESC);
+"""
+
+CREATE_REBALANCE_RUN_EVENTS_APPEND_ONLY_SQL = """
+CREATE OR REPLACE FUNCTION reject_rebalance_run_event_mutation()
+RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION 'rebalance_run_events is append-only';
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS rebalance_run_events_reject_mutation ON rebalance_run_events;
+CREATE TRIGGER rebalance_run_events_reject_mutation
+BEFORE UPDATE OR DELETE ON rebalance_run_events
+FOR EACH ROW EXECUTE FUNCTION reject_rebalance_run_event_mutation();
+"""
+
 TRUNCATE_BACKTEST_CURVE_SQL = "TRUNCATE TABLE backtest_curve;"
 
 INSERT_BACKTEST_CURVE_SQL = """
@@ -119,14 +170,15 @@ def _get_database_url() -> str:
 def ensure_schema() -> None:
     """
     Create/migrate every table this module writes to (`trade_logs`,
-    `backtest_curve`). Idempotent — every statement is `CREATE TABLE IF
-    NOT EXISTS` / `ADD COLUMN IF NOT EXISTS`, safe to call repeatedly and
-    never destructive to existing rows.
+    `backtest_curve`, `rebalance_run_events`). Idempotent — every table or
+    column creation is guarded, safe to call repeatedly, and never
+    destructive to existing rows. The run-event trigger enforces that
+    operational receipts remain append-only after insertion.
 
     Entry points (`src.trading.alpaca_execution.main`,
     `src.backtesting.historical_tester.run_backtest`) call this once at
-    process start; `log_trade`/`log_backtest_curve` assume the schema
-    already exists and do not run any DDL themselves.
+    process start; row writers assume the schema already exists and do not
+    run any DDL themselves.
 
     Raises:
         RuntimeError: If `DATABASE_URL` is not set.
@@ -141,6 +193,9 @@ def ensure_schema() -> None:
             cur.execute(ALTER_TABLE_ADD_ALTMAN_Z_SQL)
             cur.execute(ALTER_TABLE_ADD_VAR_CVAR_SQL)
             cur.execute(CREATE_BACKTEST_CURVE_TABLE_SQL)
+            cur.execute(CREATE_REBALANCE_RUN_EVENTS_TABLE_SQL)
+            cur.execute(CREATE_REBALANCE_RUN_EVENTS_INDEX_SQL)
+            cur.execute(CREATE_REBALANCE_RUN_EVENTS_APPEND_ONLY_SQL)
         conn.commit()
     finally:
         if conn is not None:

@@ -106,6 +106,11 @@ was meant to be evaluated as one; letting it fall through the "fell out
 of Top N" branch used to mean a hedge bought on one run would simply be
 sold on the very next one.
 
+An empty Top-N is a valid No-candidates decision, not an instruction to
+liquidate the account. In that state existing non-target equities are
+held, but each holding still gets the independent profit-taking check and
+the confirmed portfolio still proceeds through risk calculation.
+
 Order confirmation: submit → poll → log only actual fills
 -------------------------------------------------------------
 No order is assumed filled just because `submit_order`/`close_position`
@@ -145,7 +150,18 @@ beta / Conviction Score behind the decision. This is best-effort
 telemetry, not a source of truth: logging failures (e.g. `DATABASE_URL`
 unset, database unreachable) are caught and logged as warnings — they
 never abort or roll back an already-submitted trade. Dry runs never log
-anything, since no orders are actually submitted.
+trade rows, since no orders are actually submitted. They do append typed
+run-health lifecycle events when Postgres is configured, so a remote dry
+run can prove its operational outcome on the dashboard.
+
+Run health and per-ticker outcomes
+----------------------------------
+Every requested ticker emits one `ALPACA_TICKER_OUTCOME` JSON record with
+its selected, eligible-but-not-selected, rejected, or missing result and
+an explicit reason. The run itself appends immutable started/completed/
+failed lifecycle facts to `rebalance_run_events`; operational health is
+kept separate from the strategy decision, so a fully executed
+No-candidates day is Healthy rather than mislabeled as a failure.
 
 Safety
 ------
@@ -190,6 +206,7 @@ Usage:
 
 import argparse
 import datetime
+import json
 import logging
 import math
 import os
@@ -220,6 +237,7 @@ from alpaca.trading.enums import (
 )
 from alpaca.trading.requests import GetOptionContractsRequest, GetOrdersRequest, MarketOrderRequest
 
+from src.api.sector_median_thresholds import MIN_OVERALL_COVERAGE_FRACTION
 from src.api.sector_medians import save_sector_medians
 from src.backtesting.historical_tester import (
     DEFAULT_TOP_N,
@@ -234,6 +252,14 @@ from src.data_ingestion.fetch_financials import get_current_price, get_ticker_ob
 from src.dcf_model.dcf import DEFAULT_BETA, DCFAssumptions
 from src.risk.hedging import calculate_spy_hedge
 from src.risk.monte_carlo import calculate_portfolio_var
+from src.trading.run_health import (
+    RunCompletionStatus,
+    RunEventType,
+    RunHealthEvent,
+    RunIdentity,
+    StrategyDecision,
+    append_run_event,
+)
 from src.utils.db import ensure_schema, log_trade
 from src.utils.macro import get_risk_free_rate
 from src.utils.ticker_universe import DEFAULT_SP500_TOP_100_TICKERS
@@ -332,6 +358,26 @@ class AlpacaConfig:
     def is_paper(self) -> bool:
         """Whether `base_url`'s host is exactly Alpaca's paper trading endpoint."""
         return urlparse(self.base_url).hostname == PAPER_TRADING_HOSTNAME
+
+
+@dataclass(frozen=True)
+class TickerRunOutcome:
+    """One explicit, machine-readable outcome for a requested universe ticker."""
+
+    ticker: str
+    status: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class PipelineCompletion:
+    """Terminal facts needed for both the health event and completion receipt."""
+
+    health: RunCompletionStatus
+    decision: StrategyDecision
+    universe_count: int
+    valued_count: int
+    eligible_count: int
 
 
 def load_config() -> AlpacaConfig:
@@ -821,8 +867,10 @@ def _validate_scan_completion(
     analyses: List[TickerAnalysis],
     valuations: List[ValuationResult],
 ) -> None:
-    """Fail closed unless the scan returned one result per requested ticker."""
+    """Fail closed unless the scan is complete and has sufficient usable coverage."""
     expected = list(requested_tickers)
+    if not expected:
+        raise RuntimeError("Rebalance incomplete: requested ticker universe is empty.")
     analysis_tickers = [analysis.ticker for analysis in analyses]
     valuation_tickers = [valuation.ticker for valuation in valuations]
     if analysis_tickers != expected or valuation_tickers != expected:
@@ -831,10 +879,65 @@ def _validate_scan_completion(
             f"result per requested ticker (requested={len(expected)}, "
             f"analyses={len(analysis_tickers)}, valuations={len(valuation_tickers)})."
         )
-    if not any(valuation.is_valid for valuation in valuations):
+    usable_count = sum(1 for valuation in valuations if valuation.is_valid)
+    required_count = math.ceil(len(expected) * MIN_OVERALL_COVERAGE_FRACTION)
+    if usable_count < required_count:
         raise RuntimeError(
-            "Rebalance incomplete: the scan returned no usable valuations; "
-            "refusing to treat a systemic data failure as a valid no-candidate day."
+            "Rebalance incomplete: usable valuation coverage is below the canonical "
+            f"{MIN_OVERALL_COVERAGE_FRACTION:.0%} minimum "
+            f"(usable={usable_count}, requested={len(expected)}, required={required_count}); "
+            "refusing to trade from a systemically incomplete universe."
+        )
+
+
+def build_ticker_run_outcomes(
+    requested_tickers: List[str],
+    analyses: List[TickerAnalysis],
+    valuations: List[ValuationResult],
+    top_picks: List[TickerAnalysis],
+) -> List[TickerRunOutcome]:
+    """Return exactly one auditable final scan outcome per requested ticker."""
+    analyses_by_ticker = {analysis.ticker: analysis for analysis in analyses}
+    valuations_by_ticker = {valuation.ticker: valuation for valuation in valuations}
+    selected = {pick.ticker for pick in top_picks}
+    outcomes = []
+
+    for ticker in requested_tickers:
+        analysis = analyses_by_ticker.get(ticker)
+        valuation = valuations_by_ticker.get(ticker)
+        if analysis is None:
+            reason = (
+                valuation.skip_reason
+                if valuation is not None and valuation.skip_reason
+                else "scan did not return an analysis result"
+            )
+            outcomes.append(TickerRunOutcome(ticker, "missing", reason))
+        elif ticker in selected:
+            outcomes.append(TickerRunOutcome(ticker, "selected", "selected in the Top-N target portfolio"))
+        elif analysis.is_valid:
+            outcomes.append(
+                TickerRunOutcome(ticker, "eligible_not_selected", "eligible but ranked outside the Top-N")
+            )
+        else:
+            reason = analysis.skip_reason or (
+                valuation.skip_reason
+                if valuation is not None and valuation.skip_reason
+                else "analysis was unusable without a recorded reason"
+            )
+            outcomes.append(TickerRunOutcome(ticker, "rejected", reason))
+
+    return outcomes
+
+
+def log_ticker_run_outcomes(outcomes: List[TickerRunOutcome]) -> None:
+    """Emit one JSON log record per ticker so a remote run is fully auditable."""
+    for outcome in outcomes:
+        logger.info(
+            "ALPACA_TICKER_OUTCOME %s",
+            json.dumps(
+                {"ticker": outcome.ticker, "status": outcome.status, "reason": outcome.reason},
+                sort_keys=True,
+            ),
         )
 
 
@@ -908,12 +1011,13 @@ def liquidate_non_target_positions(
     analyses_by_ticker: Dict[str, TickerAnalysis],
     dry_run: bool,
     open_order_symbols: Optional[set] = None,
+    liquidate_non_targets: bool = True,
 ) -> List[dict]:
     """
     Liquidate a held EQUITY position for either of two independent reasons:
 
-        1. The ticker fell out of the Top-N target portfolio entirely
-           (not in `target_tickers`).
+        1. When `liquidate_non_targets` is true, the ticker fell out of
+           the Top-N target portfolio entirely (not in `target_tickers`).
         2. Profit-taking: the ticker is still a target pick, but its
            current market price has risen to or above its DCF intrinsic
            value (`_is_profit_take_candidate`) — exited even though it
@@ -944,6 +1048,10 @@ def liquidate_non_target_positions(
             `None` means the open-orders lookup itself failed, in which
             case EVERY submission this call would otherwise make is
             skipped (fails safe against a possible duplicate).
+        liquidate_non_targets: False only for the explicit no-candidate
+            policy. In that state non-target equities are held, while the
+            independent profit-taking rule still runs for every holding
+            with a usable analysis.
 
     Returns:
         A list of {"symbol", "qty", "market_value", "reason", "status"}
@@ -959,12 +1067,12 @@ def liquidate_non_target_positions(
             continue
 
         analysis = analyses_by_ticker.get(symbol)
-        is_profit_take = symbol in target_tickers and _is_profit_take_candidate(position, analysis)
+        is_profit_take = _is_profit_take_candidate(position, analysis)
 
-        if symbol not in target_tickers:
-            reason = "fell out of Top N"
-        elif is_profit_take:
+        if is_profit_take:
             reason = "profit-taking: price >= intrinsic value"
+        elif liquidate_non_targets and symbol not in target_tickers:
+            reason = "fell out of Top N"
         else:
             continue
 
@@ -2131,21 +2239,39 @@ def _check_post_fill_caps(
 # Orchestration
 # --------------------------------------------------------------------------
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Autonomous sector-relative DCF paper trading execution.")
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Run the full scan and print every order that would be placed, without submitting anything.",
-    )
-    parser.add_argument(
-        "--top-n",
-        type=_positive_int,
-        default=DEFAULT_TOP_N,
-        help=f"Number of top Conviction Score tickers to hold (default: {DEFAULT_TOP_N}). Must be a positive integer.",
-    )
-    args = parser.parse_args()
+def _execution_records_complete(
+    liquidations: List[dict], rebalances: List[dict], *, dry_run: bool
+) -> bool:
+    """Whether every required order action reached its intended terminal state."""
+    if dry_run:
+        return True
 
+    liquidations_complete = all(record["status"] == "LIQUIDATED" for record in liquidations)
+    non_action_rebalance_prefixes = (
+        "SKIPPED (within ",
+        "SKIPPED (already at/above target weight)",
+    )
+    rebalances_complete = all(
+        record["status"] == "ORDER FILLED"
+        or record["status"].startswith(non_action_rebalance_prefixes)
+        for record in rebalances
+    )
+    return liquidations_complete and rebalances_complete
+
+
+def _safe_append_run_event(event: RunHealthEvent) -> None:
+    """Best-effort health telemetry that never leaks database error details."""
+    try:
+        append_run_event(event)
+    except Exception as exc:  # noqa: BLE001 - observability must not place or roll back orders
+        logger.warning(
+            "Could not record %s run-health event (%s).",
+            event.event_type.value,
+            type(exc).__name__,
+        )
+
+
+def _run_rebalance(args: argparse.Namespace) -> PipelineCompletion:
     # Fails closed (raises RuntimeError -> sys.exit(1) below) unless
     # APCA_API_BASE_URL is exactly Alpaca's paper endpoint — see
     # `load_config`'s docstring: there is no bypass of any kind. No
@@ -2154,20 +2280,15 @@ def main() -> None:
     config = load_config()
     trading_client = build_trading_client(config)
 
-    if not args.dry_run:
-        try:
-            ensure_schema()
-        except Exception as exc:  # noqa: BLE001 - schema setup must never block trading itself
-            logger.warning("Could not ensure database schema; trade telemetry may fail this run: %s", exc)
-
     # Verify Alpaca connectivity before running the (multi-minute) DCF scan,
     # so bad credentials fail fast rather than after a long wait.
     try:
         equity_before = float(trading_client.get_account().equity)
         positions = get_current_positions(trading_client)
     except APIError as exc:
-        logger.error("Could not reach Alpaca with the configured credentials: %s", exc)
-        sys.exit(1)
+        raise RuntimeError(
+            "Could not reach the Alpaca paper account with the configured credentials."
+        ) from exc
 
     # Purely informational: each order-submitting function below (see
     # `liquidate_non_target_positions`, `rebalance_target_positions`,
@@ -2189,6 +2310,12 @@ def main() -> None:
     analyses, sector_medians, valuations, risk_free_rate = run_todays_scan(
         DEFAULT_SP500_TOP_100_TICKERS, assumptions
     )
+    top_picks = select_top_picks(analyses, args.top_n)
+    log_ticker_run_outcomes(
+        build_ticker_run_outcomes(
+            DEFAULT_SP500_TOP_100_TICKERS, analyses, valuations, top_picks
+        )
+    )
     _validate_scan_completion(DEFAULT_SP500_TOP_100_TICKERS, analyses, valuations)
 
     # A dry run must not publish a new sector-median snapshot. Lower-level
@@ -2197,16 +2324,11 @@ def main() -> None:
     if not effective_dry_run:
         refresh_sector_median_cache(sector_medians, valuations, assumptions, risk_free_rate)
 
-    top_picks = select_top_picks(analyses, args.top_n)
     if not top_picks:
-        logger.warning("No tickers passed the sector-relative filter and entry gates today; nothing to trade.")
-        logger.info(
-            "ALPACA_PIPELINE_COMPLETED mode=%s status=no_candidates universe=%d valued=%d eligible=0",
-            "dry-run" if effective_dry_run else "execute",
-            len(DEFAULT_SP500_TOP_100_TICKERS),
-            sum(1 for valuation in valuations if valuation.is_valid),
+        logger.warning(
+            "No tickers passed the sector-relative filter and entry gates today. "
+            "Holding non-target equities; independent profit-taking and portfolio-risk phases continue."
         )
-        return
     target_tickers = {pick.ticker for pick in top_picks}
     analyses_by_ticker = {a.ticker: a for a in analyses}
 
@@ -2216,7 +2338,13 @@ def main() -> None:
     open_order_symbols = None if effective_dry_run else _open_order_symbols(trading_client)
 
     liquidations = liquidate_non_target_positions(
-        trading_client, positions, target_tickers, analyses_by_ticker, effective_dry_run, open_order_symbols
+        trading_client,
+        positions,
+        target_tickers,
+        analyses_by_ticker,
+        effective_dry_run,
+        open_order_symbols,
+        liquidate_non_targets=bool(top_picks),
     )
 
     # A pick that just got liquidated (fully or partially) this run
@@ -2279,6 +2407,7 @@ def main() -> None:
     # cap check and — below — for the portfolio risk calculation. A dry
     # run's positions never changed, so `positions_for_rebalance` is
     # already the accurate snapshot to reuse.
+    caps_ok = True
     if effective_dry_run:
         post_fill_positions = positions_for_rebalance
     else:
@@ -2294,16 +2423,17 @@ def main() -> None:
         # approximation carried over from the liquidate/rebalance phases
         # above, since a sell submitted earlier in this same run may
         # still be genuinely open and must not be duplicated by a trim.
-        trim_open_order_symbols = _open_order_symbols(trading_client)
-        caps_ok = _check_post_fill_caps(
-            trading_client, post_fill_positions, equity_after or equity_before, top_picks, dry_run=False,
-            open_order_symbols=trim_open_order_symbols,
-        )
-        if not caps_ok:
-            logger.warning(
-                "REBALANCE INCOMPLETE: one or more position/sector caps remain breached after "
-                "this run's corrections — see POST-FILL CAP CHECK warnings above."
+        if top_picks:
+            trim_open_order_symbols = _open_order_symbols(trading_client)
+            caps_ok = _check_post_fill_caps(
+                trading_client, post_fill_positions, equity_after or equity_before, top_picks, dry_run=False,
+                open_order_symbols=trim_open_order_symbols,
             )
+            if not caps_ok:
+                logger.warning(
+                    "REBALANCE INCOMPLETE: one or more position/sector caps remain breached after "
+                    "this run's corrections — see POST-FILL CAP CHECK warnings above."
+                )
 
     # Portfolio risk telemetry: Monte Carlo VaR/CVaR on the CONFIRMED
     # post-fill EQUITY holdings (an option hedge position, if held, is
@@ -2366,12 +2496,88 @@ def main() -> None:
             cvar_95=risk_result.cvar_95 if risk_result.is_ok else None,
         )
 
+    execution_complete = _execution_records_complete(
+        liquidations, buys, dry_run=effective_dry_run
+    )
+    # Reaching the risk phase is not enough to call a run healthy when
+    # equity exposure actually exists: an unavailable VaR result means
+    # the portfolio was not successfully modeled. An empty equity book
+    # has no exposure to model, so that normal state remains complete.
+    risk_complete = not holdings or risk_result.is_ok
+    return PipelineCompletion(
+        health=(
+            RunCompletionStatus.HEALTHY
+            if caps_ok and execution_complete and risk_complete
+            else RunCompletionStatus.INCOMPLETE
+        ),
+        decision=(
+            StrategyDecision.CANDIDATES
+            if top_picks
+            else StrategyDecision.NO_CANDIDATES
+        ),
+        universe_count=len(DEFAULT_SP500_TOP_100_TICKERS),
+        valued_count=sum(1 for valuation in valuations if valuation.is_valid),
+        eligible_count=len(top_picks),
+    )
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Autonomous sector-relative DCF paper trading execution.")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Run the full scan and print every order that would be placed, without submitting anything.",
+    )
+    parser.add_argument(
+        "--top-n",
+        type=_positive_int,
+        default=DEFAULT_TOP_N,
+        help=f"Number of top Conviction Score tickers to hold (default: {DEFAULT_TOP_N}). Must be a positive integer.",
+    )
+    args = parser.parse_args()
+    identity = RunIdentity.from_environment(dry_run=args.dry_run)
+
+    try:
+        ensure_schema()
+    except Exception as exc:  # noqa: BLE001 - telemetry must not block paper execution
+        logger.warning("Could not ensure telemetry schema (%s).", type(exc).__name__)
+
+    _safe_append_run_event(
+        RunHealthEvent(identity=identity, event_type=RunEventType.STARTED)
+    )
+
+    try:
+        completion = _run_rebalance(args)
+    except Exception as exc:
+        _safe_append_run_event(
+            RunHealthEvent(
+                identity=identity,
+                event_type=RunEventType.FAILED,
+                failure_stage="pipeline",
+                failure_code=type(exc).__name__,
+            )
+        )
+        raise
+
+    _safe_append_run_event(
+        RunHealthEvent(
+            identity=identity,
+            event_type=RunEventType.COMPLETED,
+            completion_status=completion.health,
+            decision=completion.decision,
+            universe_count=completion.universe_count,
+            valued_count=completion.valued_count,
+            eligible_count=completion.eligible_count,
+        )
+    )
     logger.info(
-        "ALPACA_PIPELINE_COMPLETED mode=%s status=complete universe=%d valued=%d eligible=%d",
-        "dry-run" if effective_dry_run else "execute",
-        len(DEFAULT_SP500_TOP_100_TICKERS),
-        sum(1 for valuation in valuations if valuation.is_valid),
-        len(top_picks),
+        "ALPACA_PIPELINE_COMPLETED mode=%s health=%s decision=%s universe=%d valued=%d eligible=%d",
+        identity.mode.value,
+        completion.health.value,
+        completion.decision.value,
+        completion.universe_count,
+        completion.valued_count,
+        completion.eligible_count,
     )
 
 

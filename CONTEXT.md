@@ -240,3 +240,30 @@ The explicit residual between operating cash flow and net income plus
 depreciation and amortization. It keeps the initial linkage honest without
 pretending the engine has separately modeled every non-cash and working-capital
 line item.
+
+## Trading run
+
+One autonomous paper-account invocation covering its market-data scan, candidate
+decision, existing-position actions, portfolio-risk calculation, and terminal
+receipt. A Trading run is operationally complete even when its Strategy decision
+is No candidates, provided every required phase still finished.
+
+## Strategy decision
+
+The investment outcome of a completed Trading run. It is either Candidates,
+meaning one or more companies qualified for ranking, or No candidates, meaning
+none qualified under the current rules. It is separate from Operational run
+health: finding nothing to buy is not itself a system failure.
+
+## No-candidate position policy
+
+When a completed scan produces No candidates, existing equity positions are held
+unless an independently evaluated profit-taking rule applies. An empty candidate
+set never means "liquidate everything."
+
+## Operational run health
+
+Whether a Trading run executed its required phases reliably: Running while only
+a start is known, Healthy after a complete terminal event, Incomplete when a run
+finishes without satisfying every execution invariant or never produces a
+terminal event, and Failed when an explicit terminal failure is recorded.
