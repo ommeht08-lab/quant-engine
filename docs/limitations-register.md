@@ -98,12 +98,16 @@ change conclusions materially.
 - **Mitigation**: `terminal_growth_rate` is bounded to `[0%, 5%]` and WACC is
   clamped to `[5%, 20%]`, preventing the denominator from approaching zero or going
   negative — but this bounds the *failure mode*, not the underlying sensitivity.
-- **Status**: Partially mitigated (numerical safety only). Full mitigation requires
-  the Track A sensitivity-analysis deliverable (WACC/terminal-growth/margin
-  independently varied and reported) — not yet built.
+- **Status**: Partially mitigated. The dashboard has a WACC/terminal-growth
+  sensitivity grid, but neither the grid nor numeric bounds remove the
+  underlying economic dependence on terminal assumptions.
 - **Consequence for interpretation**: A single point-estimate intrinsic value
-  should not be read as a precise number; without an accompanying sensitivity
-  table, its implied precision is misleading.
+  should not be read as a precise number, even alongside the sensitivity grid.
+
+  The dashboard now flags a discounted terminal-value share of **80% or more**
+  of positive enterprise value and withholds market-relative comparisons while
+  preserving the arithmetic. This is an interpretation warning, not a cure
+  for the economic sensitivity or a company-specific reinvestment forecast.
 
 ## L-006 — Normal-distribution Monte Carlo VaR assumption
 
@@ -538,3 +542,20 @@ change conclusions materially.
   be), a reconciliation performed against a `(periods − 1)`-based independent
   calculation would show a small but real Revenue CAGR discrepancy that is not
   a codebase defect — it is a resolved specification-precision gap.
+
+## L-020 — Computable DCF cases can be misleading to interpret
+
+- **Severity**: High for distressed or negative-FCF issuers.
+- **Affected model(s)**: Single-ticker DCF dashboard response.
+- **Description**: Negative terminal FCF can produce a negative perpetual-loss
+  value; higher growth or a lower WACC may then make modeled equity value *more*
+  negative. Bear/Base/Bull input cases need not be ordered by share value.
+  A latest-year effective tax rate may also be an extreme but valid observed
+  number, and fixed reinvestment percentages remain generic.
+- **Mitigation**: Structured valuation-quality codes mark nonpositive terminal
+  FCF/EV and reversed case ordering diagnostic-only, and mark observed tax ≥60%
+  or terminal-value concentration ≥80% cautionary. All flags withhold market
+  and peer comparisons; values and assumptions stay visible for diagnosis.
+- **Status**: Interpretation risk flagged, underlying economic-model limits
+  unresolved. The flat-path independent workbook does not validate the staged
+  path or these quality classifications.

@@ -57,6 +57,7 @@ from src.api.sector_median_thresholds import SectorMedianUnavailableCode
 from src.api.sector_medians import get_live_sector_median_price_to_intrinsic
 from src.data_ingestion.fetch_financials import fetch_company_financials
 from src.dcf_model.dcf import DCFAssumptions, MultiStageForecastPolicy, run_dcf_valuation
+from src.dcf_model.quality import ValuationQuality, assess_valuation_quality
 from src.dcf_model.scenarios import ScenarioInputs, ScenarioResult, compute_dcf_scenarios
 from src.dcf_model.sensitivity import compute_dcf_sensitivity
 from src.utils.macro import get_risk_free_rate
@@ -510,6 +511,20 @@ class DCFScenarioSet(BaseModel):
     bull: ScenarioResultModel
 
 
+class ValuationQualityModel(BaseModel):
+    """Interpretation status, independent of DCF/scenario computability."""
+
+    level: Literal["ordinary", "caution", "diagnostic_only"]
+    codes: List[Literal[
+        "nonpositive_terminal_fcf", "nonpositive_enterprise_value",
+        "reversed_scenario_values", "extreme_observed_tax_rate",
+        "high_terminal_value_concentration",
+    ]]
+    allows_market_comparison: bool
+    terminal_value_share_of_enterprise_value: Optional[float]
+    observed_effective_tax_rate: Optional[float]
+
+
 class SectorMedianProvenance(BaseModel):
     """
     Where the sector-median comparison denominator came from: the
@@ -543,6 +558,7 @@ class EvaluationResponse(BaseModel):
     projected_free_cash_flows: List[FreeCashFlowYear]
     forecast_method: Literal["constant", "maturation"]
     forecast_path: List[ForecastYearModel]
+    valuation_quality: ValuationQualityModel
     assumptions: dict
     sector: str
     price_to_intrinsic_value: Optional[float]
@@ -859,6 +875,15 @@ def evaluate_ticker(
         )
     )
 
+    quality: ValuationQuality = assess_valuation_quality(
+        terminal_fcf=float(result["fcf_projection"]["fcf"].iloc[-1]),
+        enterprise_value=result["enterprise_value"],
+        pv_terminal_value=result["pv_terminal_value"],
+        tax_rate=result["tax_rate"],
+        tax_rate_source=result["tax_rate_source"],
+        scenarios=scenarios,
+    )
+
     return EvaluationResponse(
         ticker=financial_data["ticker"],
         current_price=current_price,
@@ -872,6 +897,7 @@ def evaluate_ticker(
         projected_free_cash_flows=projected_fcf,
         forecast_method=result["forecast_method"],
         forecast_path=[ForecastYearModel(**vars(step)) for step in result["forecast_path"]],
+        valuation_quality=ValuationQualityModel(**vars(quality)),
         assumptions={
             # The ACTUAL values used for the projection — never the raw
             # request params, which are `None` in historical mode. See
@@ -885,10 +911,16 @@ def evaluate_ticker(
             "risk_free_rate": assumptions.risk_free_rate,
         },
         sector=sector,
-        price_to_intrinsic_value=price_to_intrinsic_value,
-        sector_median_p_iv=sector_median_result.median,
-        sector_median_unavailable_code=sector_median_result.unavailable_code,
-        sector_median_unavailable_reason=sector_median_result.unavailable_reason,
+        price_to_intrinsic_value=(price_to_intrinsic_value if quality.allows_market_comparison else None),
+        sector_median_p_iv=(sector_median_result.median if quality.allows_market_comparison else None),
+        sector_median_unavailable_code=(
+            sector_median_result.unavailable_code if quality.allows_market_comparison
+            else SectorMedianUnavailableCode.VALUATION_QUALITY
+        ),
+        sector_median_unavailable_reason=(
+            sector_median_result.unavailable_reason if quality.allows_market_comparison
+            else "Valuation quality flags suppress market and peer comparisons."
+        ),
         sector_median_snapshot=sector_median_provenance,
         revenue_growth_rate_source=revenue_growth_rate_source,
         operating_margin_source=operating_margin_source,

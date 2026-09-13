@@ -7,6 +7,7 @@ import type { SensitivityCellStatus } from "@/lib/sensitivity-cell";
 import { resolveDisplayedKey, resolveMarketSelectedForNewResult, type CaseKey, type SpectrumKey } from "@/lib/scenario-selection";
 import { formatPercent, formatPreciseCurrency } from "./format";
 import ScrollHintTable from "./ScrollHintTable";
+import { scenarioDisplayLabel, type ValuationQuality } from "@/lib/valuation-quality";
 
 export interface ScenarioAssumptions {
   revenue_growth_rate: number;
@@ -35,7 +36,6 @@ export interface DCFScenarioSet {
 export type { CaseKey };
 
 const CASE_ORDER: CaseKey[] = ["bear", "base", "bull"];
-const CASE_LABELS: Record<CaseKey, string> = { bear: "Bear", base: "Base", bull: "Bull" };
 
 // Maps a sensitivity/market-spread classification to its visual tone and
 // glyph — tone, glyph, and accessible wording are never computed
@@ -78,6 +78,7 @@ function markerGlyphClass(key: SpectrumKey): string {
 
 interface ValuationSpectrumProps {
   scenarios: DCFScenarioSet;
+  valuationQuality: ValuationQuality;
   marketPrice: number | null;
   // Bear/Base/Bull selection is lifted to the page and shared with the
   // Thesis Rail — this instrument still owns its OWN transient Market
@@ -99,12 +100,15 @@ interface ValuationSpectrumProps {
 // rail is a purely visual indicator.
 export default function ValuationSpectrum({
   scenarios,
+  valuationQuality,
   marketPrice,
   selectedScenario,
   onSelectScenario,
 }: ValuationSpectrumProps) {
   const [isMarketSelected, setIsMarketSelected] = useState(false);
   const [hoveredKey, setHoveredKey] = useState<SpectrumKey | null>(null);
+  const marketComparisonAllowed = valuationQuality.allows_market_comparison;
+  const comparisonMarketPrice = marketComparisonAllowed ? marketPrice : null;
 
   // A new result can arrive with no market price at all (or a re-run can
   // drop it) while Market was still selected/hovered from a previous
@@ -114,12 +118,12 @@ export default function ValuationSpectrum({
   // self-clearing, so it settles in the same render pass and never loops.
   const nextIsMarketSelected = resolveMarketSelectedForNewResult({
     wasMarketSelected: isMarketSelected,
-    marketPrice,
+    marketPrice: comparisonMarketPrice,
   });
   if (nextIsMarketSelected !== isMarketSelected) {
     setIsMarketSelected(nextIsMarketSelected);
   }
-  if (marketPrice === null && hoveredKey === "market") {
+  if (comparisonMarketPrice === null && hoveredKey === "market") {
     setHoveredKey(null);
   }
 
@@ -128,10 +132,10 @@ export default function ValuationSpectrum({
   const rangePoints: ValuationRangePoint[] = [
     ...CASE_ORDER.map((key) => ({
       key,
-      label: CASE_LABELS[key],
+      label: scenarioDisplayLabel(key, valuationQuality),
       value: scenarios[key].is_valid ? scenarios[key].intrinsic_value_per_share : null,
     })),
-    { key: "market", label: "Market price", value: marketPrice },
+    { key: "market", label: "Market price", value: comparisonMarketPrice },
   ];
   const range = computeValuationRange(rangePoints);
   const invalidKeys = CASE_ORDER.filter((key) => !scenarios[key].is_valid);
@@ -140,7 +144,8 @@ export default function ValuationSpectrum({
   // The selector always offers Bear/Base/Bull (even when invalid — picking
   // one then shows exactly why via the readout) and Market only when an
   // observed price actually exists.
-  const selectableKeys: SpectrumKey[] = marketPrice !== null ? [...CASE_ORDER, "market"] : [...CASE_ORDER];
+  const selectableKeys: SpectrumKey[] = marketComparisonAllowed && marketPrice !== null
+    ? [...CASE_ORDER, "market"] : [...CASE_ORDER];
 
   function selectKey(key: SpectrumKey) {
     if (key === "market") {
@@ -159,8 +164,8 @@ export default function ValuationSpectrum({
     if (key === "market") return `Market: ${formatPreciseCurrency(marketPrice)}, observed price`;
     const scenario = scenarios[key];
     return scenario.is_valid
-      ? `${CASE_LABELS[key]}: ${formatPreciseCurrency(scenario.intrinsic_value_per_share)}`
-      : `${CASE_LABELS[key]}: not computable`;
+      ? `${scenarioDisplayLabel(key, valuationQuality)}: ${formatPreciseCurrency(scenario.intrinsic_value_per_share)}${marketComparisonAllowed ? "" : ", market comparison withheld"}`
+      : `${scenarioDisplayLabel(key, valuationQuality)}: not computable`;
   }
 
   function selectionAnnouncement(key: SpectrumKey): string {
@@ -169,10 +174,10 @@ export default function ValuationSpectrum({
     }
     const scenario = scenarios[key];
     if (!scenario.is_valid) {
-      return `${CASE_LABELS[key]} selected: not computable. ${scenario.invalid_reason ?? ""}`.trim();
+      return `${scenarioDisplayLabel(key, valuationQuality)} selected: not computable. ${scenario.invalid_reason ?? ""}`.trim();
     }
     return (
-      `${CASE_LABELS[key]} selected: ${formatPreciseCurrency(scenario.intrinsic_value_per_share)}, ` +
+      `${scenarioDisplayLabel(key, valuationQuality)} selected: ${formatPreciseCurrency(scenario.intrinsic_value_per_share)}, ${marketComparisonAllowed ? "" : "market comparison withheld, "}` +
       `starting growth ${formatPercent(scenario.assumptions.revenue_growth_rate)}, ` +
       `margin ${formatPercent(scenario.assumptions.operating_margin)}, ` +
       `WACC ${formatPercent(scenario.assumptions.wacc, 2)}, ` +
@@ -186,7 +191,7 @@ export default function ValuationSpectrum({
 
       <div className="instrument-panel">
         <p className="instrument-caption">
-          Market, Bear, Base, and Bull on one scale. Bear/Base/Bull reproject cash flow and
+          {marketComparisonAllowed ? "Market, Bear, Base, and Bull" : "Bear, Base, and Bull model outputs"} on one scale. Bear/Base/Bull reproject cash flow and
           discounting from this valuation&rsquo;s own annual forecast path — transparent policy cases, not
           probabilities, forecasts, recommendations, or price targets.
         </p>
@@ -214,7 +219,7 @@ export default function ValuationSpectrum({
                   className={`instrument-marker-glyph ${markerGlyphClass(key)}`}
                   style={key === "bear" ? { transform: "rotate(45deg)" } : undefined}
                 />
-                <span aria-hidden="true">{key === "market" ? "Market" : CASE_LABELS[key]}</span>
+                <span aria-hidden="true">{key === "market" ? "Market" : scenarioDisplayLabel(key, valuationQuality)}</span>
               </button>
             );
           })}
@@ -264,7 +269,7 @@ export default function ValuationSpectrum({
             </>
           ) : scenarios[displayedKey].is_valid ? (
             <>
-              <p className="instrument-readout-label">{CASE_LABELS[displayedKey]}</p>
+              <p className="instrument-readout-label">{scenarioDisplayLabel(displayedKey, valuationQuality)}</p>
               <p className="instrument-readout-value">
                 {formatPreciseCurrency(scenarios[displayedKey].intrinsic_value_per_share)}
               </p>
@@ -287,10 +292,13 @@ export default function ValuationSpectrum({
                   Negative modeled equity value is a distress signal, not a literal tradable share-price floor.
                 </p>
               )}
+              {!marketComparisonAllowed && (
+                <p className="instrument-readout-note">Calculated model output only; no market-relative or downside/upside inference.</p>
+              )}
             </>
           ) : (
             <>
-              <p className="instrument-readout-label">{CASE_LABELS[displayedKey]}</p>
+              <p className="instrument-readout-label">{scenarioDisplayLabel(displayedKey, valuationQuality)}</p>
               <p className="instrument-readout-value instrument-readout-value--muted">Not computable</p>
               <p className="instrument-readout-note">{scenarios[displayedKey].invalid_reason}</p>
             </>
@@ -308,9 +316,9 @@ export default function ValuationSpectrum({
       <ScrollHintTable>
         <table className="data-table w-full min-w-[680px] border-collapse text-sm mt-6">
           <caption className="sr-only">
-            Bear, Base, and Bull valuation scenarios: intrinsic value per share, comparison to
-            market price, and the revenue growth, operating margin, WACC, and terminal growth
-            assumptions used for each case.
+            Bear, Base, and Bull valuation scenarios: calculated value per share,
+            {marketComparisonAllowed ? " comparison to market price," : " market comparison withheld,"}
+            {" "}and the revenue growth, operating margin, WACC, and terminal growth assumptions used for each case.
           </caption>
           <thead>
             <tr className="border-b border-[var(--line)] text-left">
@@ -318,7 +326,7 @@ export default function ValuationSpectrum({
                 Case
               </th>
               <th scope="col" className="px-3 py-2 text-right font-medium">
-                Intrinsic value / share
+                Calculated model value / share
               </th>
               <th scope="col" className="px-3 py-2 text-right font-medium">
                 vs. Market
@@ -342,9 +350,12 @@ export default function ValuationSpectrum({
               const scenario = scenarios[key];
               const isBase = key === "base";
               const value = scenario.is_valid ? scenario.intrinsic_value_per_share : null;
-              const spread = computeMarketSpread({ value, marketPrice });
+              const spread = computeMarketSpread({ value, marketPrice: marketComparisonAllowed ? marketPrice : null });
               const { toneClass, glyph } = sensitivityCellToneAndGlyph(spread.status);
-              const { visible: vsMarketVisible, accessible: accessibleVsMarket } = formatMarketSpread(spread);
+              const { visible: computedVsMarket, accessible: computedAccessibleVsMarket } = formatMarketSpread(spread);
+              const vsMarketVisible = marketComparisonAllowed ? computedVsMarket : "Withheld";
+              const accessibleVsMarket = marketComparisonAllowed
+                ? computedAccessibleVsMarket : "Market comparison withheld by valuation-quality cautions";
 
               return (
                 <tr
@@ -355,7 +366,7 @@ export default function ValuationSpectrum({
                     scope="row"
                     className={`py-2.5 pr-4 text-left font-medium ${isBase ? "text-[var(--cobalt)]" : "text-[var(--paper)]"}`}
                   >
-                    {CASE_LABELS[key]}
+                    {scenarioDisplayLabel(key, valuationQuality)}
                   </th>
                   <td className="tabular-nums font-mono px-3 py-2.5 text-right text-[var(--paper)]">
                     {value !== null ? (
@@ -393,7 +404,7 @@ export default function ValuationSpectrum({
         <div className="mt-4 space-y-1.5">
           {invalidKeys.map((key) => (
             <p key={key} className="text-xs leading-5 text-[var(--paper-dim)]">
-              <span className="font-semibold text-[var(--paper-muted)]">{CASE_LABELS[key]} case not computable:</span>{" "}
+              <span className="font-semibold text-[var(--paper-muted)]">{scenarioDisplayLabel(key, valuationQuality)} case not computable:</span>{" "}
               {scenarios[key].invalid_reason}
             </p>
           ))}

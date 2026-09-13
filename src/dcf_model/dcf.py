@@ -1419,10 +1419,13 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
     # the caller left `tax_rate` unset.
     if assumptions.tax_rate is not None:
         tax_rate = assumptions.tax_rate
+        tax_rate_source = "custom"
     elif inputs["tax_rate"] is not None:
         tax_rate = inputs["tax_rate"]
+        tax_rate_source = "historical"
     else:
         tax_rate = DEFAULT_TAX_RATE
+        tax_rate_source = "fallback"
         logger.warning("Effective tax rate unavailable; defaulting to %.1f%%.", tax_rate * 100)
 
     revenue_growth_rate = assumptions.revenue_growth_rate
@@ -1554,6 +1557,7 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
         "shares_outstanding": inputs["shares_outstanding"],
         "base_revenue": inputs["revenue"],
         "tax_rate": tax_rate,
+        "tax_rate_source": tax_rate_source,
         "cost_of_debt": (
             resolved_cost_of_debt
             if resolved_cost_of_debt is not None

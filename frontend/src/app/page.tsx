@@ -15,6 +15,7 @@ import SectorRelativeValuation, {
 import ProjectedCashFlows, { type FreeCashFlowYear } from "@/components/valuation/ProjectedCashFlows";
 import AssumptionsBridge from "@/components/valuation/AssumptionsBridge";
 import type { SectorMedianUnavailableCode } from "@/lib/sector-median-copy";
+import { qualityIssueCopy, type ValuationQuality } from "@/lib/valuation-quality";
 
 interface EvaluationResponse {
   ticker: string;
@@ -34,6 +35,7 @@ interface EvaluationResponse {
     revenue_growth_rate: number;
     operating_margin: number;
   }[];
+  valuation_quality: ValuationQuality;
   assumptions: {
     revenue_growth_rate: number;
     operating_margin: number;
@@ -118,6 +120,11 @@ export default function Home() {
         !Array.isArray(data.forecast_path) ||
         !Array.isArray(data.projected_free_cash_flows) ||
         data.forecast_path.length !== data.projected_free_cash_flows.length
+        || !data.valuation_quality
+        || !Array.isArray(data.valuation_quality.codes)
+        || typeof data.valuation_quality.allows_market_comparison !== "boolean"
+        || !["ordinary", "caution", "diagnostic_only"].includes(data.valuation_quality.level)
+        || data.valuation_quality.allows_market_comparison !== (data.valuation_quality.codes.length === 0)
       ) {
         throw {
           kind: "unavailable",
@@ -238,6 +245,25 @@ export default function Home() {
           </div>
         )}
 
+        {result && result.valuation_quality.level !== "ordinary" && (
+          <div className="status-warning mb-6" role="alert">
+            <strong className="block text-[var(--paper)]">
+              {result.valuation_quality.level === "diagnostic_only"
+                ? "Diagnostic model output — not an actionable share valuation"
+                : "Valuation interpretation caution"}
+            </strong>
+            <p className="mt-1">The calculations and assumptions below remain visible, but market and peer comparisons are withheld.</p>
+            <ul className="mt-2 list-disc pl-5">
+              {result.valuation_quality.codes.map((code) => <li key={code}>{qualityIssueCopy(code)}</li>)}
+            </ul>
+            {result.valuation_quality.terminal_value_share_of_enterprise_value !== null && (
+              <p className="mt-2">
+                Discounted terminal value supplies {(result.valuation_quality.terminal_value_share_of_enterprise_value * 100).toFixed(1)}% of enterprise value.
+              </p>
+            )}
+          </div>
+        )}
+
         {result && (
           <div className="panel mb-6 p-4 text-sm text-[var(--paper-muted)]" role="status">
             <strong className="block text-[var(--paper)]">Multi-stage forecast</strong>
@@ -262,6 +288,7 @@ export default function Home() {
                 sector={result.sector}
                 marketPrice={result.current_price}
                 scenarios={result.scenarios}
+                valuationQuality={result.valuation_quality}
                 selectedScenario={selectedScenario}
                 onSelectScenario={setSelectedScenario}
                 isUpdating={isLoading}
@@ -271,12 +298,17 @@ export default function Home() {
             <div className="workspace-analysis-slot">
               <ValuationSpectrum
                 scenarios={result.scenarios}
+                valuationQuality={result.valuation_quality}
                 marketPrice={result.current_price}
                 selectedScenario={selectedScenario}
                 onSelectScenario={setSelectedScenario}
               />
 
-              <SensitivityMatrix matrix={result.sensitivity} marketPrice={result.current_price} />
+              <SensitivityMatrix
+                matrix={result.sensitivity}
+                marketPrice={result.valuation_quality.allows_market_comparison ? result.current_price : null}
+                comparisonWithheld={!result.valuation_quality.allows_market_comparison}
+              />
 
               <SectorRelativeValuation
                 ticker={result.ticker}

@@ -116,6 +116,15 @@ historical derivation and the fallback.
 
 ## Free Cash Flow projection
 
+The dashboard may request the optional five-year maturation Forecast path:
+years 1–2 retain resolved historical/user growth, then years 3–5 linearly
+fade only growth above a 3% mature ceiling to that ceiling. Weak or negative
+growth remains unchanged. Each year holds the resolved operating margin; the
+unlevered FCF equation below is otherwise identical. Bear/Base/Bull apply
+their input deltas to that same annual path. The default path used by trading
+and older callers remains flat. The independent DCF workbook V2 validates
+the flat path only, not the maturation path.
+
 ```
 Revenue_t     = Revenue_{t-1} * (1 + revenue_growth_rate)
 EBIT_t        = Revenue_t * operating_margin
@@ -127,10 +136,30 @@ FCF_t         = NOPAT_t + D&A_t - CapEx_t - ΔNWC_t
 ```
 
 (`project_free_cash_flows`, in [`dcf.py`](../../src/dcf_model/dcf.py)). Revenue
-growth and operating margin are held **constant** across the projection window —
-there is no glide path or fade toward a terminal growth rate within the explicit
-forecast period; the transition happens at the terminal-value step, not gradually
-within the projection.
+For the default flat path, growth and operating margin are held **constant**
+across the projection window. The optional maturation path changes annual
+growth as above; it does not change the terminal-growth assumption.
+
+## Valuation quality, separate from computability
+
+The single-ticker valuation response reports a structured `valuation_quality`
+alongside all calculated values and assumptions. This is interpretation policy,
+not an input clamp or a second DCF. Codes and inclusive review thresholds:
+
+| Code | Trigger | Presentation |
+|---|---|---|
+| `nonpositive_terminal_fcf` | Final forecast-year FCF ≤ 0 | Diagnostic only; no actionable share-value interpretation. |
+| `nonpositive_enterprise_value` | Computed enterprise value ≤ 0 | Diagnostic only; negative EV is a model diagnostic, not a realizable enterprise price. |
+| `reversed_scenario_values` | All three cases compute, but Bear ≤ Base ≤ Bull does not hold | Diagnostic only; Bear/Bull are input labels, not intuitive downside/upside. |
+| `extreme_observed_tax_rate` | Statement-derived effective tax rate ≥ 60%; explicit overrides/fallbacks are not called observed | Caution: one unusual tax year may dominate the forecast. |
+| `high_terminal_value_concentration` | Discounted terminal value / positive enterprise value ≥ 80%, when discounted terminal value is nonnegative | Caution: most value depends on terminal assumptions. |
+
+Any diagnostic code sets `diagnostic_only`; otherwise any caution code sets
+`caution`; otherwise the result is `ordinary`. Every flag suppresses the
+response's price/intrinsic and sector-relative ratios and the dashboard's
+market-relative deltas and sensitivity colors. The raw intrinsic, scenario,
+sensitivity, WACC, and bridge numbers remain for audit. These thresholds are
+review triggers, not a certificate that an unflagged valuation is investment-ready.
 
 D&A and CapEx are modeled as constant percentages of projected revenue
 (`DEFAULT_DA_PCT_REVENUE = 3%`, `DEFAULT_CAPEX_PCT_REVENUE = 4%`). Change in Net
