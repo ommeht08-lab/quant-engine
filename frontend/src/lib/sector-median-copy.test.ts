@@ -8,7 +8,7 @@ import {
   sectorRelativeDisclaimer,
 } from "./sector-median-copy.ts";
 
-const ALL_CODES = ["incompatible_assumptions", "insufficient_peers", "snapshot_unavailable"] as const;
+const ALL_CODES = ["incompatible_assumptions", "insufficient_peers", "snapshot_unavailable", "valuation_quality"] as const;
 
 for (const code of ALL_CODES) {
   test(`sectorMedianUnavailableCopy(${code}) returns a non-empty message with no backend internals`, () => {
@@ -37,6 +37,11 @@ test("incompatible_assumptions copy mentions baseline assumptions, not a generic
 
 test("insufficient_peers copy mentions comparable companies, not staleness or connectivity", () => {
   assert.match(sectorMedianUnavailableCopy("insufficient_peers"), /comparable companies/i);
+});
+
+test("valuation_quality copy distinguishes withholding from failed computation", () => {
+  assert.match(sectorMedianUnavailableCopy("valuation_quality"), /withheld/i);
+  assert.match(sectorMedianUnavailableCopy("valuation_quality"), /calculated figures remain/i);
 });
 
 test("an unrecognized or missing code falls back to the generic snapshot_unavailable copy", () => {

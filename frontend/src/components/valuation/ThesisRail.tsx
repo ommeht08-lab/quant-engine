@@ -1,8 +1,8 @@
 import { formatPercent, formatPreciseCurrency } from "./format";
 import { resolveThesisRailFields } from "@/lib/thesis-rail-fields";
 import type { CaseKey, DCFScenarioSet } from "./ValuationSpectrum";
+import { scenarioDisplayLabel, type ValuationQuality } from "@/lib/valuation-quality";
 
-const CASE_LABELS: Record<CaseKey, string> = { bear: "Bear", base: "Base", bull: "Bull" };
 const CASE_ORDER: CaseKey[] = ["bear", "base", "bull"];
 
 export interface ThesisRailProps {
@@ -10,6 +10,7 @@ export interface ThesisRailProps {
   sector: string;
   marketPrice: number | null;
   scenarios: DCFScenarioSet;
+  valuationQuality: ValuationQuality;
   selectedScenario: CaseKey;
   onSelectScenario: (key: CaseKey) => void;
   isUpdating: boolean;
@@ -31,12 +32,15 @@ export default function ThesisRail({
   sector,
   marketPrice,
   scenarios,
+  valuationQuality,
   selectedScenario,
   onSelectScenario,
   isUpdating,
 }: ThesisRailProps) {
   const scenario = scenarios[selectedScenario];
-  const fields = resolveThesisRailFields(scenario, marketPrice);
+  const fields = resolveThesisRailFields(
+    scenario, valuationQuality.allows_market_comparison ? marketPrice : null
+  );
   const deltaTone =
     fields.priceDelta === null
       ? "text-[var(--instrument-text)]"
@@ -55,7 +59,7 @@ export default function ThesisRail({
       </div>
 
       <div className="thesis-rail-primary">
-        <p className="thesis-rail-row-label">{CASE_LABELS[selectedScenario]} intrinsic value / share</p>
+        <p className="thesis-rail-row-label">{scenarioDisplayLabel(selectedScenario, valuationQuality)} model value / share</p>
         <p className="thesis-rail-value">
           {fields.intrinsicValue !== null ? formatPreciseCurrency(fields.intrinsicValue) : "Not computable"}
         </p>
@@ -73,12 +77,19 @@ export default function ThesisRail({
               )}
             </p>
             <p className="thesis-rail-delta-note">
-              {fields.priceDelta !== null ? fields.deltaLabel : "No market price to compare"}
+              {fields.priceDelta !== null
+                ? fields.deltaLabel
+                : valuationQuality.allows_market_comparison
+                  ? "No market price to compare"
+                  : "Comparison withheld by valuation-quality cautions"}
             </p>
           </>
         )}
         {fields.intrinsicValue === null && (
           <p className="thesis-rail-delta-note">{scenario.invalid_reason}</p>
+        )}
+        {!valuationQuality.allows_market_comparison && (
+          <p className="thesis-rail-delta-note">Market upside/downside is withheld by valuation-quality cautions.</p>
         )}
       </div>
 
@@ -116,7 +127,7 @@ export default function ThesisRail({
             aria-pressed={selectedScenario === key}
             onClick={() => onSelectScenario(key)}
           >
-            {CASE_LABELS[key]}
+            {scenarioDisplayLabel(key, valuationQuality)}
           </button>
         ))}
       </div>

@@ -124,8 +124,11 @@ class SectorMedianUnavailableCode(str, Enum):
       meaningfully different from the caller's (or a user's) point of
       view — "peer data isn't available right now" covers all of them
       without promising a specific fix or timeline.
+    - VALUATION_QUALITY: this valuation is numerically computable but its
+      interpretation flags make a relative price comparison misleading.
     """
 
     INCOMPATIBLE_ASSUMPTIONS = "incompatible_assumptions"
     INSUFFICIENT_PEERS = "insufficient_peers"
     SNAPSHOT_UNAVAILABLE = "snapshot_unavailable"
+    VALUATION_QUALITY = "valuation_quality"

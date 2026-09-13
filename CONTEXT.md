@@ -238,6 +238,18 @@ ceiling fades toward that ceiling. Weak or declining growth is not presumed
 to recover within the forecast window, and margin does not improve without
 an explicit assumption.
 
+## Valuation quality
+
+The interpretation status of a mathematically computed valuation, based on
+diagnostic evidence such as perpetual losses, reversed case values, unusual
+observed tax, or terminal-value dominance. It does not change the calculation.
+
+## Diagnostic-only valuation
+
+A computed result whose cash-flow economics or case ordering does not support
+an actionable share-value or intuitive downside/upside interpretation. Its
+numbers remain available for investigation, not market-relative conclusions.
+
 ## Linked three-statement period
 
 One historical standalone quarter whose total assets equal total liabilities

@@ -20,6 +20,7 @@ from src.api import main as api_main
 from src.api.sector_median_thresholds import SectorMedianUnavailableCode
 from src.api.sector_medians import LiveSectorMedianResult, SectorMedianSnapshotProvenance, generate_sector_medians
 from src.dcf_model.dcf import DCFAssumptions
+from validation.dcf_reconciliation.adapter import load_all
 
 
 def _synthetic_financial_data() -> dict:
@@ -103,6 +104,52 @@ class TestHistoricalVsCustomAssumptionMode:
         body = client.get("/api/evaluate/TEST").json()
         assert body["forecast_method"] == "constant"
         assert all(step["stage"] == "constant" for step in body["forecast_path"])
+
+    @pytest.mark.parametrize("ticker,expected_level", [
+        ("MSFT", "ordinary"), ("CAT", "ordinary"),
+        ("INTC", "diagnostic_only"), ("VZ", "caution"),
+    ])
+    def test_frozen_quality_flags_protect_response_comparisons(
+        self, client, monkeypatch, ticker, expected_level
+    ):
+        _, financials = load_all()[ticker]
+        monkeypatch.setattr(api_main, "fetch_company_financials", lambda _ticker: financials)
+        monkeypatch.setattr(
+            api_main, "get_live_sector_median_price_to_intrinsic",
+            lambda _sector, assumptions=None: LiveSectorMedianResult(
+                median=0.8, unavailable_code=None, unavailable_reason=None, provenance=None,
+            ),
+        )
+        response = client.get(f"/api/evaluate/{ticker}", params={"forecast_mode": "maturation"})
+        assert response.status_code == 200
+        body = response.json()
+        quality = body["valuation_quality"]
+        assert quality["level"] == expected_level
+        assert body["scenarios"]["base"]["intrinsic_value_per_share"] == body["intrinsic_value_per_share"]
+        assert len(body["projected_free_cash_flows"]) == 5
+        if expected_level == "ordinary":
+            assert quality["allows_market_comparison"]
+            assert body["price_to_intrinsic_value"] is not None
+            assert body["sector_median_p_iv"] == 0.8
+        else:
+            assert not quality["allows_market_comparison"]
+            assert body["price_to_intrinsic_value"] is None
+            assert body["sector_median_p_iv"] is None
+            assert body["sector_median_unavailable_code"] == "valuation_quality"
+            assert body["sensitivity"]["cells"]
+
+    def test_negative_margin_quality_keeps_numbers_but_withholds_comparisons(self, client, monkeypatch):
+        financials = _synthetic_financial_data()
+        financials["income_statement"].loc["Operating Income"] = [
+            -200.0, -220.0,
+        ]
+        monkeypatch.setattr(api_main, "fetch_company_financials", lambda _ticker: financials)
+        body = client.get("/api/evaluate/TEST", params={"forecast_mode": "maturation"}).json()
+        assert body["valuation_quality"]["level"] == "diagnostic_only"
+        assert "reversed_scenario_values" in body["valuation_quality"]["codes"]
+        assert body["assumptions"]["operating_margin"] == pytest.approx(-0.20)
+        assert body["scenarios"]["bear"]["intrinsic_value_per_share"] > body["scenarios"]["base"]["intrinsic_value_per_share"]
+        assert body["price_to_intrinsic_value"] is None
 
     def test_omitted_params_use_historical_mode(self, client):
         response = client.get("/api/evaluate/TEST")

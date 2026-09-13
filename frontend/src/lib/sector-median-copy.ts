@@ -6,7 +6,7 @@
  * (precise staleness windows, coverage percentages, raw validation
  * text) and must never be shown to a user verbatim.
  */
-export type SectorMedianUnavailableCode = "incompatible_assumptions" | "insufficient_peers" | "snapshot_unavailable";
+export type SectorMedianUnavailableCode = "incompatible_assumptions" | "insufficient_peers" | "snapshot_unavailable" | "valuation_quality";
 
 /**
  * Truthful, code-driven copy for why a sector-relative comparison isn't
@@ -30,6 +30,8 @@ export function sectorMedianUnavailableCopy(code: SectorMedianUnavailableCode | 
       return "This comparison requires a peer snapshot with the same forecast policy and baseline assumptions.";
     case "insufficient_peers":
       return "Not enough comparable companies have been valued in this sector yet.";
+    case "valuation_quality":
+      return "Relative valuation is withheld because this model result has interpretation cautions; the calculated figures remain available for diagnosis.";
     case "snapshot_unavailable":
     default:
       return "Peer data is temporarily unavailable.";

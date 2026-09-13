@@ -42,7 +42,9 @@ export default function SectorRelativeValuation({
         <h2 className="section-title">Sector-relative valuation</h2>
         <div className="panel p-5 sm:p-6">
           <p className="text-sm leading-6 text-[var(--paper-dim)]">
-            {priceToIntrinsicValue === null
+            {sectorMedianUnavailableCode === "valuation_quality"
+              ? sectorMedianUnavailableCopy(sectorMedianUnavailableCode)
+              : priceToIntrinsicValue === null
               ? "Price-to-intrinsic-value could not be computed for this ticker."
               : sectorMedianUnavailableCopy(sectorMedianUnavailableCode)}
           </p>

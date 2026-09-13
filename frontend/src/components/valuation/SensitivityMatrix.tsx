@@ -27,11 +27,12 @@ export interface DCFSensitivityMatrix {
 interface SensitivityMatrixSectionProps {
   matrix: DCFSensitivityMatrix;
   marketPrice: number | null;
+  comparisonWithheld?: boolean;
 }
 
 // Renders the already-computed grid — every cell is exactly what the API
 // returned; no DCF math happens in this component.
-export default function SensitivityMatrix({ matrix, marketPrice }: SensitivityMatrixSectionProps) {
+export default function SensitivityMatrix({ matrix, marketPrice, comparisonWithheld = false }: SensitivityMatrixSectionProps) {
   const hasMarketPrice = marketPrice !== null;
 
   return (
@@ -63,7 +64,9 @@ export default function SensitivityMatrix({ matrix, marketPrice }: SensitivityMa
               </span>
             </>
           ) : (
-            <span className="text-[var(--paper-muted)]">Market comparison unavailable.</span>
+            <span className="text-[var(--paper-muted)]">
+              {comparisonWithheld ? "Market comparison withheld by valuation-quality cautions." : "Market comparison unavailable."}
+            </span>
           )}
           <span className="inline-flex items-center gap-1.5">
             <span aria-hidden="true" className="text-[var(--paper-dim)]">
@@ -76,11 +79,13 @@ export default function SensitivityMatrix({ matrix, marketPrice }: SensitivityMa
         <ScrollHintTable>
           <table className="data-table w-full min-w-[560px] border-collapse text-sm">
             <caption className="sr-only">
-              Intrinsic value per share at combinations of WACC (rows) and terminal growth rate
+              Calculated model value per share at combinations of WACC (rows) and terminal growth rate
               (columns). The baseline case is marked.{" "}
               {hasMarketPrice
                 ? "Cells are colored teal when above the current market price and red when below it."
-                : "Market price is unavailable, so cells are not compared against it."}
+                : comparisonWithheld
+                  ? "Market comparisons are withheld by valuation-quality cautions."
+                  : "Market price is unavailable, so cells are not compared against it."}
             </caption>
             <thead>
               <tr className="border-b border-[var(--line)] text-left">
@@ -122,11 +127,14 @@ export default function SensitivityMatrix({ matrix, marketPrice }: SensitivityMa
                       isBaseline,
                       formatCurrency: formatPreciseCurrency,
                     });
+                    const displayedAccessibleLabel = comparisonWithheld && value !== null
+                      ? `${formatPreciseCurrency(value)}, market comparison withheld${isBaseline ? ", baseline case" : ""}`
+                      : accessibleLabel;
 
                     return (
                       <td
                         key={colIndex}
-                        aria-label={accessibleLabel}
+                        aria-label={displayedAccessibleLabel}
                         className={`tabular-nums font-mono px-3 py-2 text-right ${toneClass} ${
                           isBaseline
                             ? "bg-[var(--cobalt-soft)] outline outline-2 -outline-offset-2 outline-[var(--cobalt)]"
