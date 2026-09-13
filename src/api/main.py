@@ -46,7 +46,7 @@ import os
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
@@ -56,7 +56,7 @@ from pydantic import BaseModel
 from src.api.sector_median_thresholds import SectorMedianUnavailableCode
 from src.api.sector_medians import get_live_sector_median_price_to_intrinsic
 from src.data_ingestion.fetch_financials import fetch_company_financials
-from src.dcf_model.dcf import DCFAssumptions, run_dcf_valuation
+from src.dcf_model.dcf import DCFAssumptions, MultiStageForecastPolicy, run_dcf_valuation
 from src.dcf_model.scenarios import ScenarioInputs, ScenarioResult, compute_dcf_scenarios
 from src.dcf_model.sensitivity import compute_dcf_sensitivity
 from src.utils.macro import get_risk_free_rate
@@ -437,6 +437,15 @@ class FreeCashFlowYear(BaseModel):
     fcf: float
 
 
+class ForecastYearModel(BaseModel):
+    """One year of the primary (Base) valuation's forecast assumptions."""
+
+    year: int
+    stage: Literal["constant", "near_term", "maturation"]
+    revenue_growth_rate: float
+    operating_margin: float
+
+
 class SensitivityAxis(BaseModel):
     """One axis (rows or columns) of the DCF sensitivity grid."""
 
@@ -532,6 +541,8 @@ class EvaluationResponse(BaseModel):
     intrinsic_value_per_share: float
     implies_negative_equity_value: bool
     projected_free_cash_flows: List[FreeCashFlowYear]
+    forecast_method: Literal["constant", "maturation"]
+    forecast_path: List[ForecastYearModel]
     assumptions: dict
     sector: str
     price_to_intrinsic_value: Optional[float]
@@ -639,6 +650,9 @@ def _scenario_result_to_model(scenario: ScenarioResult) -> ScenarioResultModel:
 @app.get("/api/evaluate/{ticker}", response_model=EvaluationResponse, dependencies=[Depends(require_service_token)])
 def evaluate_ticker(
     ticker: str,
+    forecast_mode: Literal["constant", "maturation"] = Query(
+        "constant", description="Forecast policy. Trading and older callers retain the constant default."
+    ),
     revenue_growth_rate: Optional[float] = Query(
         None,
         description=(
@@ -672,13 +686,16 @@ def evaluate_ticker(
 
     Args:
         ticker: Stock ticker symbol, e.g. "AAPL".
+        forecast_mode: "constant" retains the existing default for trading
+            and older API callers. "maturation" holds starting growth for
+            two years then fades growth above 3% over the final three years.
         revenue_growth_rate: Explicit annual revenue growth override. When
             omitted (the default), the company's own historical Revenue
             CAGR is used instead — this is also the same default the
             sector-median cache (`src.api.sector_medians`) and the live
             trading engine (`src.trading.alpaca_execution`) are generated
-            with, so the default (no query params) response is comparable
-            against the default cached sector median out of the box.
+            with. A maturation request is not comparable with that cache
+            and must return an unavailable sector comparison.
         operating_margin: Explicit EBIT margin override, same
             historical-by-default behavior as `revenue_growth_rate`.
         terminal_growth_rate: Configurable terminal (perpetuity) growth
@@ -761,6 +778,7 @@ def evaluate_ticker(
             operating_margin=operating_margin,
             terminal_growth_rate=terminal_growth_rate,
             risk_free_rate=get_risk_free_rate(),
+            forecast_policy=MultiStageForecastPolicy() if forecast_mode == "maturation" else None,
         )
         result = run_dcf_valuation(financial_data, assumptions)
     except ValueError as exc:
@@ -835,6 +853,9 @@ def evaluate_ticker(
             total_debt=result["total_debt"],
             cash_and_equivalents=result["cash_and_equivalents"],
             shares_outstanding=result["shares_outstanding"],
+            baseline_forecast_path=(
+                result["forecast_path"] if forecast_mode == "maturation" else None
+            ),
         )
     )
 
@@ -849,6 +870,8 @@ def evaluate_ticker(
         intrinsic_value_per_share=intrinsic_value,
         implies_negative_equity_value=result["implies_negative_equity_value"],
         projected_free_cash_flows=projected_fcf,
+        forecast_method=result["forecast_method"],
+        forecast_path=[ForecastYearModel(**vars(step)) for step in result["forecast_path"]],
         assumptions={
             # The ACTUAL values used for the projection — never the raw
             # request params, which are `None` in historical mode. See

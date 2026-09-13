@@ -5,7 +5,7 @@ not probabilities, forecasts, or price targets.
 
 This module is a pure, read-only consumer of the DCF model seam in
 `src.dcf_model.dcf`. Every scenario is produced by calling the SAME
-`project_free_cash_flows` / `calculate_terminal_value` /
+FCF projection / `calculate_terminal_value` /
 `discount_to_present_value` / `calculate_intrinsic_value_per_share`
 functions the baseline valuation itself calls, with the baseline's own
 already-fetched source data (base revenue, tax rate, D&A/CapEx/NWC
@@ -16,11 +16,14 @@ provider call — every input is already-computed data the caller already
 has in memory from running the baseline valuation.
 
 Bear and Bull each apply a fixed policy delta to the baseline's growth,
-margin, WACC, and terminal growth, clamped to the DCF model's own
-declared economic bounds; Base applies a zero delta, which — because it
-runs through the identical code path with the identical inputs —
-reproduces the baseline valuation exactly. A scenario whose (clamped)
-assumptions are still not economically valid for the model (e.g. WACC no
+margin, WACC, and terminal growth. The explicit-input bounds apply to growth
+and margin when the baseline is within them; an observed rate outside those
+bounds is shifted without a clamp that would reverse case direction.
+Base applies a zero delta, which — because it runs through the identical code
+path with the identical inputs —
+reproduces the baseline valuation exactly. With a multi-stage baseline,
+growth and margin deltas apply to every year, preserving stage timing.
+A scenario whose (clamped) assumptions are still not economically valid for the model (e.g. WACC no
 longer exceeds terminal growth) reports a `None` valuation and a concise
 reason instead of raising — it never fails the baseline response.
 """
@@ -29,6 +32,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from src.dcf_model.dcf import (
+    ForecastYearAssumptions,
     MAX_DISCOUNT_RATE,
     MAX_EXPLICIT_OPERATING_MARGIN,
     MAX_EXPLICIT_REVENUE_GROWTH_RATE,
@@ -41,6 +45,7 @@ from src.dcf_model.dcf import (
     calculate_terminal_value,
     discount_to_present_value,
     project_free_cash_flows,
+    project_free_cash_flows_from_path,
 )
 
 # Fixed policy deltas applied to the baseline's own growth/margin/WACC/
@@ -80,6 +85,7 @@ class ScenarioInputs:
     total_debt: Optional[float]
     cash_and_equivalents: Optional[float]
     shares_outstanding: Optional[float]
+    baseline_forecast_path: Optional[tuple[ForecastYearAssumptions, ...]] = None
 
 
 @dataclass
@@ -114,6 +120,17 @@ def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
 
 
+def _shift_staged_rate(baseline: float, delta: float, low: float, high: float) -> float:
+    """Keep an observed rate outside slider bounds from reversing case direction.
+
+    The bounds govern explicit user overrides, not historically observed
+    losses or contraction. Clamping a negative historical margin up to zero
+    would make Bear more optimistic than Base for a distressed issuer.
+    """
+    shifted = baseline + delta
+    return _clamp(shifted, low, high) if low <= baseline <= high else shifted
+
+
 def _compute_scenario(
     name: str,
     revenue_growth_delta: float,
@@ -122,16 +139,25 @@ def _compute_scenario(
     terminal_growth_delta: float,
     inputs: ScenarioInputs,
 ) -> ScenarioResult:
-    revenue_growth_rate = _clamp(
-        inputs.baseline_revenue_growth_rate + revenue_growth_delta,
-        MIN_EXPLICIT_REVENUE_GROWTH_RATE,
-        MAX_EXPLICIT_REVENUE_GROWTH_RATE,
-    )
-    operating_margin = _clamp(
-        inputs.baseline_operating_margin + operating_margin_delta,
-        MIN_EXPLICIT_OPERATING_MARGIN,
-        MAX_EXPLICIT_OPERATING_MARGIN,
-    )
+    if inputs.baseline_forecast_path is None:
+        # The autonomous trader's established flat-case semantics are unchanged.
+        revenue_growth_rate = _clamp(
+            inputs.baseline_revenue_growth_rate + revenue_growth_delta,
+            MIN_EXPLICIT_REVENUE_GROWTH_RATE, MAX_EXPLICIT_REVENUE_GROWTH_RATE,
+        )
+        operating_margin = _clamp(
+            inputs.baseline_operating_margin + operating_margin_delta,
+            MIN_EXPLICIT_OPERATING_MARGIN, MAX_EXPLICIT_OPERATING_MARGIN,
+        )
+    else:
+        revenue_growth_rate = _shift_staged_rate(
+            inputs.baseline_revenue_growth_rate, revenue_growth_delta,
+            MIN_EXPLICIT_REVENUE_GROWTH_RATE, MAX_EXPLICIT_REVENUE_GROWTH_RATE,
+        )
+        operating_margin = _shift_staged_rate(
+            inputs.baseline_operating_margin, operating_margin_delta,
+            MIN_EXPLICIT_OPERATING_MARGIN, MAX_EXPLICIT_OPERATING_MARGIN,
+        )
     wacc = _clamp(inputs.baseline_wacc + wacc_delta, MIN_DISCOUNT_RATE, MAX_DISCOUNT_RATE)
     terminal_growth_rate = _clamp(
         inputs.baseline_terminal_growth_rate + terminal_growth_delta,
@@ -146,16 +172,46 @@ def _compute_scenario(
     )
 
     try:
-        fcf_projection = project_free_cash_flows(
-            base_revenue=inputs.base_revenue,
-            revenue_growth_rate=revenue_growth_rate,
-            operating_margin=operating_margin,
-            tax_rate=inputs.tax_rate,
-            da_pct_revenue=inputs.da_pct_revenue,
-            capex_pct_revenue=inputs.capex_pct_revenue,
-            nwc_pct_revenue_change=inputs.nwc_pct_revenue_change,
-            years=inputs.projection_years,
-        )
+        if inputs.baseline_forecast_path is None:
+            fcf_projection = project_free_cash_flows(
+                base_revenue=inputs.base_revenue,
+                revenue_growth_rate=revenue_growth_rate,
+                operating_margin=operating_margin,
+                tax_rate=inputs.tax_rate,
+                da_pct_revenue=inputs.da_pct_revenue,
+                capex_pct_revenue=inputs.capex_pct_revenue,
+                nwc_pct_revenue_change=inputs.nwc_pct_revenue_change,
+                years=inputs.projection_years,
+            )
+        else:
+            # Apply the same Bear/Base/Bull deltas to every forecast year,
+            # retaining its stage and maturation shape. Base's zero deltas
+            # reproduce the primary valuation's exact FCF path.
+            scenario_path = tuple(
+                ForecastYearAssumptions(
+                    year=step.year,
+                    stage=step.stage,
+                    revenue_growth_rate=_shift_staged_rate(
+                        step.revenue_growth_rate, revenue_growth_delta,
+                        MIN_EXPLICIT_REVENUE_GROWTH_RATE,
+                        MAX_EXPLICIT_REVENUE_GROWTH_RATE,
+                    ),
+                    operating_margin=_shift_staged_rate(
+                        step.operating_margin, operating_margin_delta,
+                        MIN_EXPLICIT_OPERATING_MARGIN,
+                        MAX_EXPLICIT_OPERATING_MARGIN,
+                    ),
+                )
+                for step in inputs.baseline_forecast_path
+            )
+            fcf_projection = project_free_cash_flows_from_path(
+                base_revenue=inputs.base_revenue,
+                forecast_path=scenario_path,
+                tax_rate=inputs.tax_rate,
+                da_pct_revenue=inputs.da_pct_revenue,
+                capex_pct_revenue=inputs.capex_pct_revenue,
+                nwc_pct_revenue_change=inputs.nwc_pct_revenue_change,
+            )
         terminal_value = calculate_terminal_value(
             final_year_fcf=float(fcf_projection["fcf"].iloc[-1]),
             wacc=wacc,

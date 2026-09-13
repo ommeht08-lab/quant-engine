@@ -27,6 +27,13 @@ interface EvaluationResponse {
   intrinsic_value_per_share: number;
   implies_negative_equity_value: boolean;
   projected_free_cash_flows: FreeCashFlowYear[];
+  forecast_method: "constant" | "maturation";
+  forecast_path: {
+    year: number;
+    stage: "constant" | "near_term" | "maturation";
+    revenue_growth_rate: number;
+    operating_margin: number;
+  }[];
   assumptions: {
     revenue_growth_rate: number;
     operating_margin: number;
@@ -54,9 +61,9 @@ export default function Home() {
   // Default mode: use each company's own historical revenue growth and
   // operating margin — the growth/margin query params are OMITTED
   // entirely in this mode (never sent as 0 or as the slider's current
-  // position), which is also the exact default the sector-median cache
-  // (src.api.sector_medians / the trading engine) is generated with, so
-  // the default request stays comparable against the default cache.
+  // position). The dashboard explicitly requests the maturation forecast;
+  // sector-relative comparison stays unavailable until a same-policy
+  // peer snapshot exists.
   const [useCustomAssumptions, setUseCustomAssumptions] = useState(false);
   const [revenueGrowthRate, setRevenueGrowthRate] = useState(0.08);
   const [operatingMargin, setOperatingMargin] = useState(0.25);
@@ -84,6 +91,7 @@ export default function Home() {
 
     try {
       const params = new URLSearchParams({
+        forecast_mode: "maturation",
         terminal_growth_rate: String(terminalGrowthRate),
       });
       // Only send explicit growth/margin overrides in custom mode — in
@@ -105,6 +113,17 @@ export default function Home() {
       }
 
       const data: EvaluationResponse = await response.json();
+      if (
+        data.forecast_method !== "maturation" ||
+        !Array.isArray(data.forecast_path) ||
+        !Array.isArray(data.projected_free_cash_flows) ||
+        data.forecast_path.length !== data.projected_free_cash_flows.length
+      ) {
+        throw {
+          kind: "unavailable",
+          message: "The valuation service has not enabled the staged forecast yet. Please try again after it is updated.",
+        } satisfies ValuationRequestError;
+      }
       setResult(data);
       setSelectedScenario("base");
     } catch (err) {
@@ -136,8 +155,8 @@ export default function Home() {
             <h1 className="display-title">Intrinsic value desk</h1>
           </div>
           <p className="page-deck">
-            Build a DCF case from company history or your own assumptions, then read it against
-            market price and sector peers.
+            Build a staged DCF case from company history or your own assumptions, then read it
+            against market price. Peer comparisons appear only when their forecast policy matches.
           </p>
         </header>
 
@@ -220,6 +239,17 @@ export default function Home() {
         )}
 
         {result && (
+          <div className="panel mb-6 p-4 text-sm text-[var(--paper-muted)]" role="status">
+            <strong className="block text-[var(--paper)]">Multi-stage forecast</strong>
+            <span className="mt-1 block">
+              Growth holds for two near-term years, then excess growth fades toward a 3% mature ceiling.
+              A weak or declining growth rate is not turned into an assumed recovery. The financial
+              statements still come from the existing provider; this is not the SEC cutover.
+            </span>
+          </div>
+        )}
+
+        {result && (
           <div
             className={`workspace-grid ${workspaceState === "ready" ? "result-enter" : ""} ${
               isLoading || workspaceState === "previous-result" ? "result-stale" : ""
@@ -257,7 +287,7 @@ export default function Home() {
                 sectorMedianSnapshot={result.sector_median_snapshot}
               />
 
-              <ProjectedCashFlows rows={result.projected_free_cash_flows} />
+              <ProjectedCashFlows rows={result.projected_free_cash_flows} forecastPath={result.forecast_path} />
 
               <AssumptionsBridge result={result} />
             </div>

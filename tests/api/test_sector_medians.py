@@ -24,7 +24,7 @@ from src.api.sector_medians import (
     get_sector_median_price_to_intrinsic,
     save_sector_medians,
 )
-from src.dcf_model.dcf import DCFAssumptions
+from src.dcf_model.dcf import DCFAssumptions, MultiStageForecastPolicy
 
 
 def _write_cache(
@@ -106,6 +106,19 @@ class TestStaleness:
 
 
 class TestAssumptionMismatch:
+    def test_flat_peer_snapshot_refused_for_maturation_valuation(self, tmp_path):
+        path = tmp_path / "flat-cache.json"
+        _write_cache(path)
+        assumptions = DCFAssumptions(
+            risk_free_rate=0.04,
+            forecast_policy=MultiStageForecastPolicy(),
+        )
+        median, reason = get_sector_median_price_to_intrinsic(
+            "Technology", assumptions=assumptions, path=path
+        )
+        assert median is None
+        assert "different DCF assumptions" in reason
+
     def test_matching_assumptions_are_accepted(self, tmp_path):
         path = tmp_path / "cache.json"
         _write_cache(
