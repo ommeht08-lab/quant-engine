@@ -112,11 +112,19 @@ def _serialize_comparable_assumptions(assumptions: DCFAssumptions) -> dict:
     (da/capex/nwc %, market_risk_premium) don't materially change P/IV
     rankings the way growth/margin/terminal-growth overrides do.
     """
-    return {
+    comparable = {
         "revenue_growth_rate": assumptions.revenue_growth_rate,
         "operating_margin": assumptions.operating_margin,
         "terminal_growth_rate": assumptions.terminal_growth_rate,
     }
+    if assumptions.forecast_policy is not None:
+        comparable["forecast_policy"] = {
+            "method": "maturation",
+            "near_term_years": assumptions.forecast_policy.near_term_years,
+            "mature_growth_ceiling": assumptions.forecast_policy.mature_growth_ceiling,
+            "projection_years": assumptions.projection_years,
+        }
+    return comparable
 
 
 def _compute_current_price_to_intrinsic(ticker: str, assumptions: DCFAssumptions) -> Optional[Dict]:

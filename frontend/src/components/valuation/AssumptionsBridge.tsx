@@ -1,6 +1,7 @@
 import { formatCompactCurrency, formatPercent } from "./format";
 
 export interface AssumptionsBridgeResult {
+  forecast_method: "constant" | "maturation";
   enterprise_value: number;
   equity_value: number;
   assumptions: {
@@ -42,7 +43,7 @@ export default function AssumptionsBridge({ result }: AssumptionsBridgeProps) {
           </dd>
         </div>
         <div className="flex items-baseline justify-between gap-4 py-2.5">
-          <dt className="text-sm text-[var(--paper-muted)]">Revenue growth rate used</dt>
+          <dt className="text-sm text-[var(--paper-muted)]">Starting revenue growth rate</dt>
           <dd className="flex items-baseline gap-2 text-right">
             <span className="tabular-nums font-mono text-sm font-semibold text-[var(--paper)]">
               {formatPercent(result.assumptions.revenue_growth_rate)}
@@ -53,7 +54,7 @@ export default function AssumptionsBridge({ result }: AssumptionsBridgeProps) {
           </dd>
         </div>
         <div className="flex items-baseline justify-between gap-4 py-2.5">
-          <dt className="text-sm text-[var(--paper-muted)]">Operating margin used</dt>
+          <dt className="text-sm text-[var(--paper-muted)]">Starting operating margin</dt>
           <dd className="flex items-baseline gap-2 text-right">
             <span className="tabular-nums font-mono text-sm font-semibold text-[var(--paper)]">
               {formatPercent(result.assumptions.operating_margin)}

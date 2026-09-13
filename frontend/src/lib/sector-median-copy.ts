@@ -27,7 +27,7 @@ export type SectorMedianUnavailableCode = "incompatible_assumptions" | "insuffic
 export function sectorMedianUnavailableCopy(code: SectorMedianUnavailableCode | null | undefined): string {
   switch (code) {
     case "incompatible_assumptions":
-      return "This comparison is only available under the snapshot's baseline model assumptions.";
+      return "This comparison requires a peer snapshot with the same forecast policy and baseline assumptions.";
     case "insufficient_peers":
       return "Not enough comparable companies have been valued in this sector yet.";
     case "snapshot_unavailable":

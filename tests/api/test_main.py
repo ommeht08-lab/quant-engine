@@ -74,6 +74,36 @@ def client(monkeypatch):
 
 
 class TestHistoricalVsCustomAssumptionMode:
+    def test_dashboard_maturation_path_and_comparison_identity(self, client, monkeypatch):
+        seen = []
+
+        def lookup(_sector, assumptions=None):
+            seen.append(assumptions)
+            return LiveSectorMedianResult(
+                median=None,
+                unavailable_code=SectorMedianUnavailableCode.INCOMPATIBLE_ASSUMPTIONS,
+                unavailable_reason="different forecast policy",
+                provenance=None,
+            )
+
+        monkeypatch.setattr(api_main, "get_live_sector_median_price_to_intrinsic", lookup)
+        response = client.get("/api/evaluate/TEST", params={"forecast_mode": "maturation"})
+        assert response.status_code == 200
+        body = response.json()
+        assert body["forecast_method"] == "maturation"
+        assert [step["stage"] for step in body["forecast_path"]] == [
+            "near_term", "near_term", "maturation", "maturation", "maturation"
+        ]
+        assert body["scenarios"]["base"]["intrinsic_value_per_share"] == body["intrinsic_value_per_share"]
+        assert body["sector_median_p_iv"] is None
+        assert body["sector_median_unavailable_code"] == "incompatible_assumptions"
+        assert seen[0].forecast_policy is not None
+
+    def test_default_remains_constant(self, client):
+        body = client.get("/api/evaluate/TEST").json()
+        assert body["forecast_method"] == "constant"
+        assert all(step["stage"] == "constant" for step in body["forecast_path"])
+
     def test_omitted_params_use_historical_mode(self, client):
         response = client.get("/api/evaluate/TEST")
 

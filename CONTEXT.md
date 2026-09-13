@@ -1,7 +1,7 @@
-# Point-in-time fundamentals — glossary
+# Valuation Engine — glossary
 
-Terms as used throughout `src/fundamentals/`. This file is glossary-only —
-see the Phase 3 architecture notes for design rationale.
+Terms used across fundamentals, valuation, and paper trading. This file is
+glossary-only — see the Phase 3 architecture notes for design rationale.
 
 ## Issuer
 
@@ -220,6 +220,23 @@ A versioned set of metric tolerances plus minimum counts of reports, distinct
 statement-observation dates, and distinct SEC base-period ends. Passing it provides review
 evidence only; it never switches the live source by itself, while insufficient
 samples and out-of-range differences remain distinct outcomes.
+
+## Forecast path
+
+A sequence of explicit annual revenue-growth and operating-margin assumptions
+used to project cash flows. It is a projection input, not a set of reported facts.
+
+## Near-term forecast stage
+
+The initial years of a Forecast path that retain the resolved starting growth
+and margin assumptions.
+
+## Maturation forecast stage
+
+The later years of a Forecast path in which growth above a stated mature
+ceiling fades toward that ceiling. Weak or declining growth is not presumed
+to recover within the forecast window, and margin does not improve without
+an explicit assumption.
 
 ## Linked three-statement period
 

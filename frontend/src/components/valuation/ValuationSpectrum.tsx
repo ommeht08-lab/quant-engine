@@ -173,7 +173,7 @@ export default function ValuationSpectrum({
     }
     return (
       `${CASE_LABELS[key]} selected: ${formatPreciseCurrency(scenario.intrinsic_value_per_share)}, ` +
-      `growth ${formatPercent(scenario.assumptions.revenue_growth_rate)}, ` +
+      `starting growth ${formatPercent(scenario.assumptions.revenue_growth_rate)}, ` +
       `margin ${formatPercent(scenario.assumptions.operating_margin)}, ` +
       `WACC ${formatPercent(scenario.assumptions.wacc, 2)}, ` +
       `terminal growth ${formatPercent(scenario.assumptions.terminal_growth_rate)}.`
@@ -187,7 +187,7 @@ export default function ValuationSpectrum({
       <div className="instrument-panel">
         <p className="instrument-caption">
           Market, Bear, Base, and Bull on one scale. Bear/Base/Bull reproject cash flow and
-          discounting from this valuation&rsquo;s own assumptions — transparent policy cases, not
+          discounting from this valuation&rsquo;s own annual forecast path — transparent policy cases, not
           probabilities, forecasts, recommendations, or price targets.
         </p>
 
@@ -270,7 +270,7 @@ export default function ValuationSpectrum({
               </p>
               <div className="instrument-readout-grid">
                 <span>
-                  Growth <b>{formatPercent(scenarios[displayedKey].assumptions.revenue_growth_rate)}</b>
+                  Starting growth <b>{formatPercent(scenarios[displayedKey].assumptions.revenue_growth_rate)}</b>
                 </span>
                 <span>
                   Margin <b>{formatPercent(scenarios[displayedKey].assumptions.operating_margin)}</b>
@@ -324,7 +324,7 @@ export default function ValuationSpectrum({
                 vs. Market
               </th>
               <th scope="col" className="px-3 py-2 text-right font-medium">
-                Revenue growth
+                Starting growth
               </th>
               <th scope="col" className="px-3 py-2 text-right font-medium">
                 Operating margin

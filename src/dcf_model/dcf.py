@@ -8,7 +8,8 @@ Given the raw financial data produced by
 2. Projects unlevered Free Cash Flow (FCF) for a configurable number of
    years, using a revenue growth rate and operating margin that default
    to the company's own historical Revenue CAGR and average Operating
-   Margin (each independently overridable).
+   Margin (each independently overridable). An optional maturation policy
+   expresses the annual growth path; default callers retain the flat path.
 3. Calculates Terminal Value using the perpetuity growth (Gordon Growth)
    method.
 4. Discounts the projected cash flows and terminal value back to present
@@ -671,6 +672,113 @@ def calculate_wacc(
 # 2. FCF projection
 # --------------------------------------------------------------------------
 
+@dataclass(frozen=True)
+class ForecastYearAssumptions:
+    """The explicit growth and EBIT margin applied in one forecast year."""
+
+    year: int
+    stage: str
+    revenue_growth_rate: float
+    operating_margin: float
+
+
+@dataclass(frozen=True)
+class MultiStageForecastPolicy:
+    """Hold near-term growth, then fade only excess growth to a mature ceiling.
+
+    A weak or declining historical growth rate is never automatically turned
+    into a recovery within the projection window. Terminal growth remains a
+    separate perpetuity assumption. Margin is held at the resolved
+    historical/user rate rather than assuming improved profitability.
+    """
+
+    near_term_years: int = 2
+    mature_growth_ceiling: float = 0.03
+
+    def __post_init__(self) -> None:
+        near_term_years = _coerce_positive_int(self.near_term_years)
+        if near_term_years is None:
+            raise ValueError("near_term_years must be a positive integer.")
+        ceiling = _require_finite_numeric(self.mature_growth_ceiling, "mature_growth_ceiling")
+        if not 0 <= ceiling <= MAX_EXPLICIT_REVENUE_GROWTH_RATE:
+            raise ValueError("mature_growth_ceiling must be between 0 and 0.40.")
+        object.__setattr__(self, "near_term_years", near_term_years)
+        object.__setattr__(self, "mature_growth_ceiling", ceiling)
+
+    def build_path(
+        self, growth_rate: float, operating_margin: float, years: int
+    ) -> tuple[ForecastYearAssumptions, ...]:
+        growth_rate = _require_finite_numeric(growth_rate, "revenue_growth_rate")
+        operating_margin = _require_finite_numeric(operating_margin, "operating_margin")
+        years = _coerce_positive_int(years)
+        if years is None or self.near_term_years >= years:
+            raise ValueError("multi-stage projection requires years greater than near_term_years.")
+        if growth_rate <= -1:
+            raise ValueError("revenue_growth_rate must be greater than -100%.")
+        mature_rate = min(growth_rate, self.mature_growth_ceiling)
+        fade_years = years - self.near_term_years
+        return tuple(
+            ForecastYearAssumptions(
+                year=year,
+                stage="near_term" if year <= self.near_term_years else "maturation",
+                revenue_growth_rate=(
+                    growth_rate if year <= self.near_term_years else
+                    growth_rate + (mature_rate - growth_rate) * (year - self.near_term_years) / fade_years
+                ),
+                operating_margin=operating_margin,
+            )
+            for year in range(1, years + 1)
+        )
+
+
+def project_free_cash_flows_from_path(
+    base_revenue: float,
+    forecast_path: tuple[ForecastYearAssumptions, ...],
+    tax_rate: float = DEFAULT_TAX_RATE,
+    da_pct_revenue: float = DEFAULT_DA_PCT_REVENUE,
+    capex_pct_revenue: float = DEFAULT_CAPEX_PCT_REVENUE,
+    nwc_pct_revenue_change: float = DEFAULT_NWC_PCT_REVENUE_CHANGE,
+) -> pd.DataFrame:
+    """Project FCF from a complete, consecutive path of yearly assumptions."""
+    base_revenue = _require_finite_numeric(base_revenue, "base_revenue")
+    if base_revenue <= 0:
+        raise ValueError("base_revenue must be positive.")
+    if not isinstance(forecast_path, tuple) or not forecast_path:
+        raise ValueError("forecast_path must be a non-empty tuple.")
+    for name, value in (
+        ("tax_rate", tax_rate), ("da_pct_revenue", da_pct_revenue),
+        ("capex_pct_revenue", capex_pct_revenue),
+        ("nwc_pct_revenue_change", nwc_pct_revenue_change),
+    ):
+        _require_finite_numeric(value, name)
+    rows = []
+    prior_revenue = base_revenue
+    try:
+        for expected_year, step in enumerate(forecast_path, start=1):
+            if not isinstance(step, ForecastYearAssumptions) or step.year != expected_year:
+                raise ValueError("forecast_path must contain consecutive years starting at 1.")
+            growth = _require_finite_numeric(step.revenue_growth_rate, "revenue_growth_rate")
+            margin = _require_finite_numeric(step.operating_margin, "operating_margin")
+            revenue = prior_revenue * (1 + growth)
+            ebit = revenue * margin
+            nopat = ebit * (1 - tax_rate)
+            da = revenue * da_pct_revenue
+            capex = revenue * capex_pct_revenue
+            change_in_nwc = nwc_pct_revenue_change * (revenue - prior_revenue)
+            fcf = nopat + da - capex - change_in_nwc
+            row = dict(year=expected_year, revenue=revenue, ebit=ebit, nopat=nopat,
+                       da=da, capex=capex, change_in_nwc=change_in_nwc, fcf=fcf)
+            for column_name, value in row.items():
+                if column_name != "year" and not _is_valid_finite_number(value):
+                    raise ValueError(
+                        f"Projected {column_name} for year {expected_year} is not a finite number ({value!r})."
+                    )
+            rows.append(row)
+            prior_revenue = revenue
+    except (ArithmeticError, OverflowError) as exc:
+        raise ValueError(f"Free cash flow projection overflowed: {exc}") from exc
+    return pd.DataFrame(rows).set_index("year")
+
 def project_free_cash_flows(
     base_revenue: float,
     revenue_growth_rate: float,
@@ -748,40 +856,17 @@ def project_free_cash_flows(
     capex_pct_revenue = _require_finite_numeric(capex_pct_revenue, "capex_pct_revenue")
     nwc_pct_revenue_change = _require_finite_numeric(nwc_pct_revenue_change, "nwc_pct_revenue_change")
 
-    rows = []
-    prior_revenue = base_revenue
-    revenue = base_revenue
-    try:
-        for year in range(1, years + 1):
-            revenue = revenue * (1 + revenue_growth_rate)
-            ebit = revenue * operating_margin
-            nopat = ebit * (1 - tax_rate)
-            da = revenue * da_pct_revenue
-            capex = revenue * capex_pct_revenue
-            change_in_nwc = nwc_pct_revenue_change * (revenue - prior_revenue)
-            fcf = nopat + da - capex - change_in_nwc
-            prior_revenue = revenue
-
-            row = {
-                "year": year,
-                "revenue": revenue,
-                "ebit": ebit,
-                "nopat": nopat,
-                "da": da,
-                "capex": capex,
-                "change_in_nwc": change_in_nwc,
-                "fcf": fcf,
-            }
-            for column_name, value in row.items():
-                if column_name != "year" and not _is_valid_finite_number(value):
-                    raise ValueError(
-                        f"Projected {column_name} for year {year} is not a finite number ({value!r})."
-                    )
-            rows.append(row)
-    except (ArithmeticError, OverflowError) as exc:
-        raise ValueError(f"Free cash flow projection overflowed: {exc}") from exc
-
-    return pd.DataFrame(rows).set_index("year")
+    return project_free_cash_flows_from_path(
+        base_revenue=base_revenue,
+        forecast_path=tuple(
+            ForecastYearAssumptions(year, "constant", revenue_growth_rate, operating_margin)
+            for year in range(1, years + 1)
+        ),
+        tax_rate=tax_rate,
+        da_pct_revenue=da_pct_revenue,
+        capex_pct_revenue=capex_pct_revenue,
+        nwc_pct_revenue_change=nwc_pct_revenue_change,
+    )
 
 
 # --------------------------------------------------------------------------
@@ -1173,6 +1258,7 @@ class DCFAssumptions:
     da_pct_revenue: float = DEFAULT_DA_PCT_REVENUE
     capex_pct_revenue: float = DEFAULT_CAPEX_PCT_REVENUE
     nwc_pct_revenue_change: float = DEFAULT_NWC_PCT_REVENUE_CHANGE
+    forecast_policy: Optional[MultiStageForecastPolicy] = None
 
     def __post_init__(self) -> None:
         """
@@ -1205,6 +1291,11 @@ class DCFAssumptions:
                 f"projection_years must be a positive integer, got {self.projection_years!r}."
             )
         self.projection_years = validated_projection_years
+        if self.forecast_policy is not None:
+            if not isinstance(self.forecast_policy, MultiStageForecastPolicy):
+                raise ValueError("forecast_policy must be a MultiStageForecastPolicy.")
+            if self.forecast_policy.near_term_years >= self.projection_years:
+                raise ValueError("forecast_policy requires a longer projection horizon.")
 
         # Optional fields: `None` has its own meaning ("derive from
         # historicals" for revenue_growth_rate/operating_margin; "derive
@@ -1286,8 +1377,8 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
         cash_and_equivalents, shares_outstanding, base_revenue, tax_rate,
         cost_of_debt.
 
-        `revenue_growth_rate` and `operating_margin` reflect whatever was
-        actually used for the projection: the explicit value from
+        `revenue_growth_rate` and `operating_margin` reflect the starting
+        values used for the projection: the explicit value from
         `assumptions` if provided, otherwise the historically-derived
         figure, otherwise the conservative fallback (see DCFAssumptions).
 
@@ -1382,16 +1473,29 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
     )
     wacc = wacc_computation.applied_rate
 
-    fcf_projection = project_free_cash_flows(
-        base_revenue=inputs["revenue"],
-        revenue_growth_rate=revenue_growth_rate,
-        operating_margin=operating_margin,
-        tax_rate=tax_rate,
-        da_pct_revenue=assumptions.da_pct_revenue,
-        capex_pct_revenue=assumptions.capex_pct_revenue,
-        nwc_pct_revenue_change=assumptions.nwc_pct_revenue_change,
-        years=assumptions.projection_years,
+    forecast_path = (
+        assumptions.forecast_policy.build_path(revenue_growth_rate, operating_margin, assumptions.projection_years)
+        if assumptions.forecast_policy is not None else
+        tuple(ForecastYearAssumptions(year, "constant", revenue_growth_rate, operating_margin)
+              for year in range(1, assumptions.projection_years + 1))
     )
+    if assumptions.forecast_policy is None:
+        # Preserve the existing trading and programmatic valuation route.
+        fcf_projection = project_free_cash_flows(
+            base_revenue=inputs["revenue"], revenue_growth_rate=revenue_growth_rate,
+            operating_margin=operating_margin, tax_rate=tax_rate,
+            da_pct_revenue=assumptions.da_pct_revenue,
+            capex_pct_revenue=assumptions.capex_pct_revenue,
+            nwc_pct_revenue_change=assumptions.nwc_pct_revenue_change,
+            years=assumptions.projection_years,
+        )
+    else:
+        fcf_projection = project_free_cash_flows_from_path(
+            base_revenue=inputs["revenue"], forecast_path=forecast_path,
+            tax_rate=tax_rate, da_pct_revenue=assumptions.da_pct_revenue,
+            capex_pct_revenue=assumptions.capex_pct_revenue,
+            nwc_pct_revenue_change=assumptions.nwc_pct_revenue_change,
+        )
 
     terminal_value = calculate_terminal_value(
         final_year_fcf=fcf_projection["fcf"].iloc[-1],
@@ -1432,6 +1536,8 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
         "wacc_was_clamped": wacc_computation.was_clamped,
         "revenue_growth_rate": revenue_growth_rate,
         "operating_margin": operating_margin,
+        "forecast_method": "maturation" if assumptions.forecast_policy is not None else "constant",
+        "forecast_path": forecast_path,
         "fcf_projection": fcf_projection,
         "terminal_value": terminal_value,
         "pv_fcf": discounting["pv_fcf"],

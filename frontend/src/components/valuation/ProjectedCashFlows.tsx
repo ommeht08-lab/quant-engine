@@ -1,4 +1,4 @@
-import { formatCompactCurrency } from "./format";
+import { formatCompactCurrency, formatPercent } from "./format";
 import ScrollHintTable from "./ScrollHintTable";
 
 export interface FreeCashFlowYear {
@@ -14,6 +14,12 @@ export interface FreeCashFlowYear {
 
 export interface ProjectedCashFlowsProps {
   rows: FreeCashFlowYear[];
+  forecastPath: {
+    year: number;
+    stage: "constant" | "near_term" | "maturation";
+    revenue_growth_rate: number;
+    operating_margin: number;
+  }[];
 }
 
 // The full-detail projection, deliberately last among the DCF-derived
@@ -22,16 +28,24 @@ export interface ProjectedCashFlowsProps {
 // supporting arithmetic underneath all of them, not the entry point to
 // the story. The Year column stays pinned so it stays legible while
 // scrolling the wide row of dollar figures on narrow viewports.
-export default function ProjectedCashFlows({ rows }: ProjectedCashFlowsProps) {
+export default function ProjectedCashFlows({ rows, forecastPath }: ProjectedCashFlowsProps) {
+  const assumptionsByYear = new Map(forecastPath.map((step) => [step.year, step]));
   return (
     <div>
-      <h2 className="section-title">Projected free cash flows</h2>
+      <h2 className="section-title">Base-case projected free cash flows</h2>
       <div className="panel p-5 sm:p-6">
+        <p className="mb-3 text-xs text-[var(--paper-dim)]">
+          These annual rates and cash flows belong to Base. Bear and Bull retain the same stage timing
+          with their own assumption changes.
+        </p>
         <ScrollHintTable>
-          <table className="data-table w-full min-w-[640px] border-collapse text-sm">
+          <table className="data-table w-full min-w-[880px] border-collapse text-sm">
             <thead>
               <tr className="border-b border-[var(--line)] text-left">
                 <th className="sticky left-0 z-10 bg-[var(--ink-raised)] py-2 pr-4 font-medium">Year</th>
+                <th className="py-2 pr-4 font-medium">Phase</th>
+                <th className="py-2 pr-4 font-medium">Growth</th>
+                <th className="py-2 pr-4 font-medium">EBIT margin</th>
                 <th className="py-2 pr-4 font-medium">Revenue</th>
                 <th className="py-2 pr-4 font-medium">EBIT</th>
                 <th className="py-2 pr-4 font-medium">NOPAT</th>
@@ -47,6 +61,12 @@ export default function ProjectedCashFlows({ rows }: ProjectedCashFlowsProps) {
                   <td className="sticky left-0 z-10 bg-[var(--ink-raised)] py-3 pr-4 font-sans text-[var(--paper-dim)]">
                     Year {row.year}
                   </td>
+                  <td className="py-3 pr-4 font-sans">
+                    {assumptionsByYear.get(row.year)?.stage === "near_term" ? "Near term" :
+                      assumptionsByYear.get(row.year)?.stage === "maturation" ? "Maturation" : "Constant"}
+                  </td>
+                  <td className="py-3 pr-4">{assumptionsByYear.has(row.year) ? formatPercent(assumptionsByYear.get(row.year)!.revenue_growth_rate) : "—"}</td>
+                  <td className="py-3 pr-4">{assumptionsByYear.has(row.year) ? formatPercent(assumptionsByYear.get(row.year)!.operating_margin) : "—"}</td>
                   <td className="py-3 pr-4">{formatCompactCurrency(row.revenue)}</td>
                   <td className="py-3 pr-4">{formatCompactCurrency(row.ebit)}</td>
                   <td className="py-3 pr-4">{formatCompactCurrency(row.nopat)}</td>

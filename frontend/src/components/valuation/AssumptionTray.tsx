@@ -42,7 +42,7 @@ export default function AssumptionTray({
           <>
             <AssumptionField
               id="revenue-growth"
-              label="Revenue growth rate"
+              label="Starting revenue growth rate"
               value={revenueGrowthRate}
               min={-0.1}
               max={0.4}
