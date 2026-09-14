@@ -491,7 +491,6 @@ class TestBooleanAndNonnumericRejectedAtDCFAssumptions:
             "risk_free_rate",
             "market_risk_premium",
             "da_pct_revenue",
-            "capex_pct_revenue",
             "nwc_pct_revenue_change",
         ],
     )
@@ -499,6 +498,13 @@ class TestBooleanAndNonnumericRejectedAtDCFAssumptions:
         """These fields are never legitimately None, even though the dataclass itself doesn't enforce it."""
         with pytest.raises(ValueError, match=field_name):
             DCFAssumptions(**{field_name: None})
+
+    def test_none_capex_pct_revenue_is_accepted_as_opt_in(self):
+        """Unlike the fields above, capex_pct_revenue=None is a deliberate opt-in
+        into historical derivation (see derive_historical_capex_pct_revenue),
+        not a rejected value — construction must succeed with the field left None."""
+        assumptions = DCFAssumptions(capex_pct_revenue=None)
+        assert assumptions.capex_pct_revenue is None
 
     @pytest.mark.parametrize("bad_value", ["5", "abc", float("nan"), float("inf")])
     def test_projection_years_rejects_nonnumeric_and_nonfinite(self, bad_value):

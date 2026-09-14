@@ -341,3 +341,145 @@ class TestSectorMedianProvenanceSerialization:
         assert response.status_code == 200
         body = response.json()
         assert body["sector_median_snapshot"] is None
+
+
+def _financial_data_with_capex_history(ratio: float = 0.30, periods: int = 4) -> dict:
+    """Same shape as `_synthetic_financial_data` above, but with a real,
+    multi-year `cash_flow` carrying a controlled, flat CapEx/revenue ratio
+    -- `_synthetic_financial_data` deliberately leaves `cash_flow: None`
+    since the historical-vs-custom growth/margin tests above don't need it."""
+    dates = [pd.Timestamp(f"{2026 - i}-12-31") for i in range(periods)]
+    income_stmt = pd.DataFrame(
+        {
+            d: {
+                "Total Revenue": 1000.0,
+                "Operating Income": 150.0,
+                "Pretax Income": 200.0,
+                "Tax Provision": 50.0,
+            }
+            for d in dates
+        }
+    )
+    cash_flow = pd.DataFrame({d: {"Capital Expenditure": -1000.0 * ratio} for d in dates})
+    balance_sheet = pd.DataFrame(
+        {dates[0]: {"Total Debt": 100.0, "Cash And Cash Equivalents": 50.0}}
+    )
+    return {
+        "ticker": "TEST",
+        "sector": "Technology",
+        "income_statement": income_stmt,
+        "balance_sheet": balance_sheet,
+        "cash_flow": cash_flow,
+        "current_price": 50.0,
+        "shares_outstanding": 100.0,
+        "beta": 1.0,
+    }
+
+
+class TestCapexModeQueryParameter:
+    def test_default_omits_capex_mode_and_matches_prior_behavior(self, client):
+        """No `capex_mode` query param at all -- the endpoint's own default
+        request, unaffected by this feature's existence."""
+        body = client.get("/api/evaluate/TEST").json()
+        assert body["capex_pct_revenue"] == pytest.approx(0.04)
+        assert body["capex_pct_revenue_source"] == "default"
+        assert body["capex_derivation"] is None
+
+    def test_explicit_default_capex_mode_is_identical_to_omitting_it(self, client):
+        default_body = client.get("/api/evaluate/TEST").json()
+        explicit_body = client.get("/api/evaluate/TEST", params={"capex_mode": "default"}).json()
+        assert explicit_body["capex_pct_revenue"] == default_body["capex_pct_revenue"]
+        assert explicit_body["intrinsic_value_per_share"] == default_body["intrinsic_value_per_share"]
+
+    def test_historical_mode_with_sufficient_history_derives_the_ratio(self, client, monkeypatch):
+        monkeypatch.setattr(
+            api_main, "fetch_company_financials",
+            lambda _ticker: _financial_data_with_capex_history(ratio=0.30, periods=4),
+        )
+        body = client.get("/api/evaluate/TEST", params={"capex_mode": "historical"}).json()
+        assert body["capex_pct_revenue"] == pytest.approx(0.30)
+        assert body["capex_pct_revenue_source"] == "historical"
+        assert body["capex_derivation"]["status"] == "derived"
+        assert body["capex_derivation"]["ratio"] == pytest.approx(0.30)
+        assert len(body["capex_derivation"]["source_periods"]) == 4
+
+    def test_historical_mode_with_insufficient_history_falls_back_and_explains_why(self, client, monkeypatch):
+        monkeypatch.setattr(
+            api_main, "fetch_company_financials",
+            lambda _ticker: _financial_data_with_capex_history(ratio=0.30, periods=2),
+        )
+        body = client.get("/api/evaluate/TEST", params={"capex_mode": "historical"}).json()
+        assert body["capex_pct_revenue"] == pytest.approx(0.04)
+        assert body["capex_pct_revenue_source"] == "fallback"
+        assert body["capex_derivation"]["status"] == "insufficient_history"
+        assert body["capex_derivation"]["ratio"] is None
+        assert "3" in body["capex_derivation"]["reason"]
+
+    def test_historical_mode_changes_intrinsic_value_relative_to_default(self, client, monkeypatch):
+        """End-to-end: opting in to a genuinely higher CapEx ratio than the
+        4% default must produce a strictly lower intrinsic value per share
+        for the same company, holding everything else fixed."""
+        monkeypatch.setattr(
+            api_main, "fetch_company_financials",
+            lambda _ticker: _financial_data_with_capex_history(ratio=0.30, periods=4),
+        )
+        default_body = client.get("/api/evaluate/TEST").json()
+        historical_body = client.get("/api/evaluate/TEST", params={"capex_mode": "historical"}).json()
+        assert historical_body["intrinsic_value_per_share"] < default_body["intrinsic_value_per_share"]
+
+    def test_historical_mode_scenarios_use_the_resolved_ratio_not_none(self, client, monkeypatch):
+        """Regression test for a confirmed bug: ScenarioInputs was built
+        from assumptions.capex_pct_revenue (None under capex_mode=historical)
+        instead of the resolved result["capex_pct_revenue"], so Bear/Base/Bull
+        all came back is_valid=False with invalid_reason "capex_pct_revenue
+        must be a finite number, got None" -- even though the top-level
+        valuation itself was fine. Base must reproduce the top-level
+        intrinsic_value_per_share exactly (the documented invariant this bug
+        broke), and Bear/Bull must actually compute for these inputs (flat
+        0% growth / 15% margin -- comfortably away from any WACC<=g edge)."""
+        monkeypatch.setattr(
+            api_main, "fetch_company_financials",
+            lambda _ticker: _financial_data_with_capex_history(ratio=0.30, periods=4),
+        )
+        body = client.get("/api/evaluate/TEST", params={"capex_mode": "historical"}).json()
+
+        assert body["capex_pct_revenue_source"] == "historical"
+        assert body["capex_pct_revenue"] == pytest.approx(0.30)
+
+        scenarios = body["scenarios"]
+        assert scenarios["base"]["is_valid"] is True, scenarios["base"].get("invalid_reason")
+        assert scenarios["base"]["intrinsic_value_per_share"] == pytest.approx(
+            body["intrinsic_value_per_share"]
+        )
+        assert scenarios["bear"]["is_valid"] is True, scenarios["bear"].get("invalid_reason")
+        assert scenarios["bull"]["is_valid"] is True, scenarios["bull"].get("invalid_reason")
+        assert scenarios["bear"]["intrinsic_value_per_share"] is not None
+        assert scenarios["bull"]["intrinsic_value_per_share"] is not None
+
+    def test_historical_mode_quality_and_sensitivity_remain_consistent(self, client, monkeypatch):
+        """Quality classification and the sensitivity grid are downstream
+        of the ACTUAL computed FCF/EV (or, for sensitivity, the already-
+        resolved fcf_projection) -- neither should care how capex_pct_revenue
+        was resolved, only what it resolved to. Sanity-checked here: a
+        default request and a capex_mode=historical request against the
+        SAME underlying data both produce a structurally valid, present
+        quality/sensitivity payload (the scenario bug did not have a
+        parallel defect in either of these, but nothing here previously
+        asserted that explicitly for the historical-mode path)."""
+        monkeypatch.setattr(
+            api_main, "fetch_company_financials",
+            lambda _ticker: _financial_data_with_capex_history(ratio=0.30, periods=4),
+        )
+        default_body = client.get("/api/evaluate/TEST").json()
+        historical_body = client.get("/api/evaluate/TEST", params={"capex_mode": "historical"}).json()
+
+        for body in (default_body, historical_body):
+            assert body["valuation_quality"]["level"] in ("ordinary", "caution", "diagnostic_only")
+            assert body["sensitivity"]["cells"]
+            assert body["sensitivity"]["wacc_axis"]["values"]
+            assert body["sensitivity"]["terminal_growth_axis"]["values"]
+        # Same underlying company/margin/growth, only CapEx differs -- the
+        # WACC axis (independent of capex_pct_revenue) should be identical.
+        assert historical_body["sensitivity"]["wacc_axis"]["values"] == pytest.approx(
+            default_body["sensitivity"]["wacc_axis"]["values"]
+        )
