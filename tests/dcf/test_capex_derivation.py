@@ -18,8 +18,6 @@ from, or compared against, any live source; they are self-contained,
 hand-verifiable synthetic data.
 """
 
-import math
-
 import pandas as pd
 import pytest
 
