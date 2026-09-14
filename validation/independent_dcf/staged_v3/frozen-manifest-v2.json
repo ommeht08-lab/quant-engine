@@ -1,0 +1,13 @@
+{
+  "description": "SHA-256 checksums recorded at v2 freeze time. The comparator (compare_scenarios_v2_after_freeze.py) recomputes both hashes before running any comparison and aborts on drift.",
+  "files": {
+    "frozen-results.json": {
+      "sha256": "4de5f3e4665bd3d6fcf74ea674084d18590c428fc866bab41e404f785349e200",
+      "role": "Base input dependency (untouched, from v1/original freeze)"
+    },
+    "frozen-results-scenarios-v2.json": {
+      "sha256": "af6880e6bbbf252d714cabfda71aec052f2def4700166c9d221fb6ed9b6d58fb",
+      "role": "This module's own frozen output"
+    }
+  }
+}

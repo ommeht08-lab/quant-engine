@@ -193,6 +193,115 @@ constraint the model cannot currently overcome).
   fiscal calendar, using `(periods − 1)` instead would misstate `years_elapsed`
   and therefore the annualized CAGR — as it did for INTC in Phase 2B
 
+### A-029 — Staged (maturation) forecast: near-term window and fade fractions
+- **Model affected**: Dashboard staged DCF forecast path
+  (`MultiStageForecastPolicy.build_path`, [`dcf.py`](../src/dcf_model/dcf.py));
+  see `docs/model-specifications/dcf.md`'s "Free Cash Flow projection" section
+- **Current value/policy**: `near_term_years = 2` (years 1–2 hold the resolved
+  growth rate unchanged); `mature_growth_ceiling = 3%`; years 3–5 linearly fade
+  only the excess of growth above that ceiling toward it, retaining 2/3, 1/3,
+  and 0 of that excess respectively (`fade_years = 5 − 2 = 3`, weight
+  `(year − 2) / 3` toward the ceiling at each maturation year). A growth rate
+  at or below the ceiling is never faded (`mature_rate = min(growth_rate,
+  mature_growth_ceiling)`) — a weak or negative growth rate is never turned
+  into a recovery. Margin is held flat across all five years; only growth
+  fades. This was already the codebase's implemented behavior (added with the
+  dashboard's multi-stage forecast in PR #27); this entry and the linked spec
+  section are what first pin the exact fractions in writing
+- **Rationale**: A near-term window anchored to the company's own resolved
+  (historical or user-overridden) growth rate avoids overstating a
+  hyper-growth or distressed company's near-term trajectory, while the fade
+  prevents an extreme resolved growth rate from being held constant for all
+  five explicit years and dominating the terminal-value math; 2 near-term
+  years / 3 fade years and a 3% ceiling are engineering judgment, not derived
+  from a market-calibrated mean-reversion study
+- **Evidence/source**: Engineering judgment; not empirically derived or
+  calibrated
+- **Sensitivity required**: Yes — Track A sensitivity analysis on near-term
+  window length, mature ceiling, and fade shape has not been performed
+- **Validation status**: Independently validated — `validation/independent_dcf/staged_v3/`
+  reconciles this exact per-year fade formula against production for MSFT,
+  CAT, INTC, VZ, and a synthetic negative-margin case (140/140 intermediate
+  Base comparisons, largest difference `1.39e-17`), and the resulting faded
+  path is also the input each Bear/Bull scenario shifts, which itself now has
+  its own independent reconciliation — see `A-030` and `L-021` for that
+  evidence and its scope/caveats
+- **If wrong**: A too-short near-term window or too-aggressive fade understates
+  a genuinely durable high-growth company's near-term value; a too-long window
+  or too-lenient ceiling overstates a company whose current growth is a
+  temporary anomaly. Because the fade only ever pulls growth *down* toward the
+  ceiling (never up), a distressed or slow-growth company's valuation is
+  unaffected by this assumption either way
+
+### A-030 — Bear / Base / Bull scenario deltas and the staged-path shift/clamp rule
+- **Model affected**: Scenario interpretation layer
+  (`compute_dcf_scenarios`, [`scenarios.py`](../src/dcf_model/scenarios.py));
+  see `docs/model-specifications/dcf.md`'s "Bear / Base / Bull scenarios"
+  section
+- **Current value/policy**: Fixed deltas applied to the baseline's own
+  resolved assumptions — Bear: growth −3pp, margin −2pp, WACC +1pp, terminal
+  growth −0.5pp; Bull: the mirror image (+3pp / +2pp / −1pp / +0.5pp); Base:
+  zero delta on every axis (reproduces the baseline exactly, since it runs
+  through the identical code path with identical inputs). For a flat-path
+  baseline, growth/margin deltas apply once and are clamped unconditionally
+  to the explicit-override bounds (`[-10%, 40%]` / `[0%, 60%]`). For a staged
+  baseline, the delta is applied independently to each of the five per-year
+  growth/margin values in the already-faded path (preserving stage timing),
+  and the clamp is skipped — the shifted value is used unclamped — whenever
+  that year's own *baseline* rate already sits outside the explicit-override
+  bounds, so a distressed issuer's out-of-bounds historical rate cannot have
+  its Bear case silently clamped back toward Base. WACC and terminal growth
+  are always clamped unconditionally to `[5%, 20%]` / `[0%, 5%]`. This was
+  already the codebase's implemented behavior; this entry and the linked spec
+  section are what first pin these numbers in writing — the written
+  specification was previously silent on them, which is why the untracked
+  staged-DCF validation workbook (`validation/independent_dcf/staged_v3/`)
+  initially built its own guessed convention (growth ±2pp / margin ±1pp) that
+  differed from production before this entry existed
+- **Rationale**: Fixed, symmetric percentage-point deltas keep Bear/Bull
+  transparent and reproducible (an analyst can hand-verify the shifted
+  inputs) at the cost of not being calibrated to any company-specific or
+  market-implied dispersion; the staged-path per-year, conditionally-clamped
+  shift preserves the maturation path's shape instead of rebuilding it from a
+  single shifted starting rate (which would not equal shifting each already-
+  faded year by a flat delta)
+- **Evidence/source**: Engineering judgment; not empirically derived or
+  calibrated to observed valuation dispersion
+- **Sensitivity required**: No — these are fixed policy constants, not a
+  Track A sensitivity-sweep target; a legitimate future change would be a
+  deliberate policy revision, not a calibration exercise
+- **Validation status**: Independently validated, with a caveat on how
+  "independent" to read this as (see below). The Base case these deltas are
+  applied to has passed independent reconciliation (see `A-029`). A
+  follow-on independently-coded calculation
+  (`validation/independent_dcf/staged_v3/independent_scenarios_v2.py`, frozen
+  before comparison) checks all five years' growth, margin, revenue and FCFF,
+  each year's discounted FCFF, the terminal value and its present value,
+  enterprise value, the debt/cash equity bridge, and per-share value for
+  MSFT, CAT, INTC, VZ, and the synthetic negative-margin case, plus nine
+  synthetic boundary fixtures isolating conditional growth/margin clamping,
+  WACC/terminal-growth bounds, and one uncomputable (`WACC <= g`) scenario —
+  1,036 total comparisons against production (via validation-only wrapper
+  functions around the real `dcf.py`/`scenarios.py` code, since
+  `ScenarioResult` does not itself expose these intermediates), 0 failures,
+  0 exceptions, with frozen-file hash verification passing before comparison
+  — see `L-021` for the full evidence, hashes, and report location. **Caveat**:
+  this validator's calculation code is independent (no import of
+  `scenarios.py`'s formulas), but its policy discovery was not blind — the
+  deltas and shift/clamp rule it checks against were read directly from
+  `scenarios.py` in order to write `A-030` itself, then encoded into the
+  validator. This is strong evidence the *code* correctly implements the
+  now-pinned policy; it is not the same class of evidence as `A-028`'s
+  blind-workbook discovery of a genuine specification gap
+- **If wrong**: These are presentation/interpretation deltas, not inputs to
+  the baseline valuation itself — a wrong or miscalibrated delta changes only
+  the Bear/Bull spread shown alongside Base, not Base itself. An unreconciled
+  implementation bug in the shift/clamp logic (as opposed to the policy
+  constants being debatable) could silently mis-clamp a distressed issuer's
+  Bear case or misapply the delta to the wrong year of a staged path — the
+  class of error `L-021`'s planned independent reconciliation is meant to
+  catch
+
 ## Screens and Conviction Score
 
 ### A-010 — Altman Z-Score distress threshold and sector exclusions

@@ -1,7 +1,9 @@
 # Model Specification: Discounted Cash Flow (DCF) Valuation
 
-Source: [`src/dcf_model/dcf.py`](../../src/dcf_model/dcf.py)
-Tests: [`tests/dcf/test_dcf.py`](../../tests/dcf/test_dcf.py) — see "Test coverage" below for
+Source: [`src/dcf_model/dcf.py`](../../src/dcf_model/dcf.py) (base valuation, staged forecast path),
+[`src/dcf_model/scenarios.py`](../../src/dcf_model/scenarios.py) (Bear/Base/Bull)
+Tests: [`tests/dcf/test_dcf.py`](../../tests/dcf/test_dcf.py), [`tests/dcf/test_multistage.py`](../../tests/dcf/test_multistage.py),
+[`tests/dcf/test_scenarios.py`](../../tests/dcf/test_scenarios.py) — see "Test coverage" below for
 the current test-function/collected-case counts (counted, not hand-maintained, to avoid drift).
 Consumers: [`src/api/main.py`](../../src/api/main.py) (single-ticker live API),
 [`src/backtesting/historical_tester.py`](../../src/backtesting/historical_tester.py)
@@ -116,14 +118,46 @@ historical derivation and the fallback.
 
 ## Free Cash Flow projection
 
-The dashboard may request the optional five-year maturation Forecast path:
-years 1–2 retain resolved historical/user growth, then years 3–5 linearly
-fade only growth above a 3% mature ceiling to that ceiling. Weak or negative
-growth remains unchanged. Each year holds the resolved operating margin; the
-unlevered FCF equation below is otherwise identical. Bear/Base/Bull apply
-their input deltas to that same annual path. The default path used by trading
-and older callers remains flat. The independent DCF workbook V2 validates
-the flat path only, not the maturation path.
+The dashboard may request the optional five-year maturation Forecast path
+(`forecast_mode=maturation`, `MultiStageForecastPolicy` in
+[`dcf.py`](../../src/dcf_model/dcf.py)): years 1–2 ("near-term",
+`near_term_years = 2`) retain the resolved historical/user growth rate
+unchanged; years 3–5 ("maturation") linearly fade only the excess of that
+growth rate above a `mature_growth_ceiling = 3%` toward that ceiling. A
+resolved growth rate at or below the 3% ceiling is **not** faded at all —
+`mature_rate = min(growth_rate, mature_growth_ceiling)`, so a weak,
+negative, or already-mature growth rate stays flat across all five years,
+by construction (never nudged toward a *higher* mature rate). The exact
+per-year formula (`fade_years = years − near_term_years = 3`):
+
+```
+growth[year] = growth_rate                                                          for year <= near_term_years (1-2)
+growth[year] = growth_rate + (mature_rate - growth_rate) * (year - near_term_years) / fade_years   for year > near_term_years (3-5)
+```
+
+Equivalently, expressed as the fraction of the near-term/mature-ceiling gap
+that remains **un-faded** at each maturation year — the convention this
+document and the independent validation workbook both use — year 3 retains
+2/3 of the excess above the ceiling, year 4 retains 1/3, and year 5 retains
+none (fully at `mature_rate`). Each year holds the resolved operating
+margin unchanged; the unlevered FCF equation below is otherwise identical.
+Bear/Base/Bull apply their input deltas to that same annual path — see
+"Bear / Base / Bull scenarios" below. The default path used by trading and
+older callers remains flat (no `forecast_mode` request = flat growth/margin
+for all five years, via `project_free_cash_flows`, not
+`MultiStageForecastPolicy`). The independent DCF workbook V2 validates the
+flat path only; the staged workbook V3 (`validation/independent_dcf/staged_v3/`)
+independently validates the maturation Base path and per-year fade formula
+above for MSFT, CAT, INTC, VZ, and a synthetic negative-margin case (140/140
+intermediate comparisons passing at a `1.39e-17` largest float-rate
+difference), and its follow-on `independent_scenarios_v2.py` independently
+validates the Bear/Bull scenario deltas and shift/clamp rule below — full
+per-year growth/margin/revenue/FCFF, discounted FCFF, terminal value, present
+values, enterprise value, and the equity bridge, for the same five cases plus
+nine synthetic boundary/uncomputable-scenario fixtures (1,036 comparisons,
+0 failures) — see `L-021` in the limitations register for the full evidence,
+hashes, and an important caveat: this check's calculation code is
+independent, but its policy discovery was not blind.
 
 ```
 Revenue_t     = Revenue_{t-1} * (1 + revenue_growth_rate)
@@ -139,6 +173,82 @@ FCF_t         = NOPAT_t + D&A_t - CapEx_t - ΔNWC_t
 For the default flat path, growth and operating margin are held **constant**
 across the projection window. The optional maturation path changes annual
 growth as above; it does not change the terminal-growth assumption.
+
+## Bear / Base / Bull scenarios
+
+`compute_dcf_scenarios` (in [`scenarios.py`](../../src/dcf_model/scenarios.py))
+derives three cases from a single completed baseline valuation's own already-
+resolved inputs — it is a pure, read-only consumer of `dcf.py`'s projection,
+terminal-value, discounting, and bridge functions; it fetches no data and
+reimplements no formula. Base applies a zero delta on every axis and runs
+through the identical code path as Bear/Bull, so it reproduces the baseline
+valuation exactly.
+
+**Fixed policy deltas** (module-level constants in
+[`scenarios.py`](../../src/dcf_model/scenarios.py); not user-configurable,
+not derived from statement data):
+
+| Axis | Bear | Bull |
+|---|---:|---:|
+| Revenue growth rate | −3 percentage points | +3 percentage points |
+| Operating margin | −2 percentage points | +2 percentage points |
+| WACC | +1 percentage point | −1 percentage point |
+| Terminal growth rate | −0.5 percentage point | +0.5 percentage point |
+
+Tax rate, D&A/CapEx/NWC-as-%-of-revenue, projection horizon, and the equity
+bridge (total debt, cash and equivalents, shares outstanding) are held fixed
+across all three cases — only growth, margin, WACC, and terminal growth move.
+
+**Where the delta applies, and the clamp/shift rule.** For a flat-path
+baseline (no forecast path — the trader's established semantics), the
+delta is applied once to the single baseline growth/margin value, then
+clamped to `[MIN_EXPLICIT_REVENUE_GROWTH_RATE, MAX_EXPLICIT_REVENUE_GROWTH_RATE]`
+(`[-10%, 40%]`) / `[MIN_EXPLICIT_OPERATING_MARGIN, MAX_EXPLICIT_OPERATING_MARGIN]`
+(`[0%, 60%]`) unconditionally. For a staged (maturation) baseline, the delta
+is applied **independently to each of the five already-faded per-year
+growth/margin values** in the baseline path (preserving stage timing — the
+near-term/maturation shape is not rebuilt from a shifted starting rate and
+re-faded), via a conditional shift (`_shift_staged_rate`, in
+[`scenarios.py`](../../src/dcf_model/scenarios.py)):
+
+```
+shifted = that_year's_baseline_rate + delta
+if low <= that_year's_baseline_rate <= high:
+    result = clamp(shifted, low, high)
+else:
+    result = shifted   # unclamped
+```
+
+The clamp is skipped, not applied at a boundary, whenever the *baseline*
+year's own rate already sits outside the explicit-override bounds (e.g. an
+observed historical margin below 0% for a distressed issuer) — clamping in
+that case would silently make Bear more optimistic than Base for that year,
+since a negative baseline shifted down and then floored at 0% would round
+back up. This bound governs explicit user overrides, not an observed
+historical loss/contraction; an out-of-bounds historical rate is shifted by
+the flat delta with no floor/ceiling correction. WACC and terminal growth
+rate are always clamped unconditionally to `[MIN_DISCOUNT_RATE,
+MAX_DISCOUNT_RATE]` (`[5%, 20%]`) and `[MIN_EXPLICIT_TERMINAL_GROWTH_RATE,
+MAX_EXPLICIT_TERMINAL_GROWTH_RATE]` (`[0%, 5%]`) respectively — there is no
+staged/flat distinction for those two axes, since they are single scalars,
+not per-year paths.
+
+**Invalid scenarios never raise.** If a scenario's (clamped/shifted)
+assumptions are not economically valid for the model after the delta is
+applied — most commonly `WACC <= terminal_growth_rate`, which would make the
+Gordon Growth perpetuity diverge — `compute_dcf_scenarios` catches the
+`ValueError` that `calculate_terminal_value` (or another downstream function)
+raises and reports that one case as `intrinsic_value_per_share = None` with
+a concise `invalid_reason` string, rather than letting the exception
+propagate. One unreconcilable scenario never fails the baseline response or
+the other two cases.
+
+**What Bear/Bull are not.** They are not probabilities, not calibrated to
+any observed market distribution, and not guaranteed to bracket the baseline
+in share-value order — see `nonpositive_terminal_fcf` /
+`reversed_scenario_values` below; a case whose terminal FCF turns negative
+can produce equity value that moves in the *opposite* direction from its
+growth/margin delta.
 
 ## Valuation quality, separate from computability
 
@@ -433,8 +543,13 @@ silently mixing SEC and yfinance statement fields.
 
 ## Known simplifications
 
-- No glide path: growth/margin are constant within the explicit forecast window,
-  not fading toward the terminal growth rate.
+- The default flat path (no `forecast_mode` requested) has no glide path:
+  growth/margin are constant across the whole explicit forecast window, not
+  fading toward the terminal growth rate. The optional staged/maturation
+  path (`forecast_mode=maturation`) does fade growth — see "Free Cash Flow
+  projection" above — but only years 3–5, only growth above the 3% mature
+  ceiling, and never margin; it is not a full glide toward the terminal
+  growth rate itself, which remains an independent perpetuity assumption.
 - D&A, CapEx, and NWC-change are modeled as simple percentages of revenue/Δrevenue,
   not derived from the company's own historical D&A/CapEx/NWC ratios the way
   revenue growth and operating margin are.
