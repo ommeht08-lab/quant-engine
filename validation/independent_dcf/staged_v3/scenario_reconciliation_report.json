@@ -1,0 +1,9 @@
+{
+  "frozen_base_source": "/private/tmp/valuation-staged-dcf-validation/validation/independent_dcf/staged_v3/frozen-results.json",
+  "frozen_scenarios_source": "/private/tmp/valuation-staged-dcf-validation/validation/independent_dcf/staged_v3/frozen-results-scenarios.json",
+  "comparisons": 50,
+  "failures": 0,
+  "max_abs_delta": 0.0,
+  "failed_rows": [],
+  "tolerances": "rate 1e-10 absolute; per-share $0.01"
+}

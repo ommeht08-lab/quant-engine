@@ -559,3 +559,123 @@ change conclusions materially.
 - **Status**: Interpretation risk flagged, underlying economic-model limits
   unresolved. The flat-path independent workbook does not validate the staged
   path or these quality classifications.
+
+## L-021 — Bear/Base/Bull scenario constants were undocumented; now pinned and independently reconciled (not blind)
+
+- **Severity**: Medium. Does not affect the Base valuation itself, only the
+  Bear/Bull cases shown alongside it.
+- **Affected model(s)**: Scenario interpretation layer
+  (`compute_dcf_scenarios`, [`src/dcf_model/scenarios.py`](../src/dcf_model/scenarios.py)),
+  the dashboard's Bear/Base/Bull display, and any independent validation of it.
+- **Description**: `docs/model-specifications/dcf.md` described the staged
+  (maturation) forecast path only in prose (no numeric fade fractions) and
+  did not mention the Bear/Bull scenario deltas at all. A fresh reviewer could
+  not reproduce or independently check the full dashboard result — Base plus
+  Bear/Bull — from the written specification alone; they would have had to
+  read `scenarios.py` directly. This was discovered concretely during the
+  staged-DCF independent validation effort
+  (`validation/independent_dcf/staged_v3/`): its workbook was authored from
+  the written specification *before* reading `scenarios.py`, and — because
+  the specification was silent — used a guessed scenario convention (growth
+  ±2 percentage points, margin ±1 point; WACC and terminal-growth deltas
+  happened to match production) that turned out to differ from the actual
+  production deltas (growth ±3pp, margin ±2pp) discovered only after the
+  workbook was frozen. As a result, that workbook's frozen Bear/Bull
+  per-share values do not match production and were never claimed to — see
+  its `README.md`'s "Frozen result and reconciliation" section for the
+  per-company deltas. Only the Base case (140/140 intermediate comparisons)
+  was actually reconciled; Bear/Bull remain independently *unvalidated*, not
+  merely mismatched against a wrong convention.
+- **Mitigation**: `docs/model-specifications/dcf.md`'s new "Bear / Base /
+  Bull scenarios" section, and `A-029`/`A-030` in the assumptions register,
+  now pin the exact production fade fractions, scenario deltas, and
+  shift/clamp rule in writing, so this gap cannot recur silently. Two rounds
+  of independent Bear/Bull reconciliation followed, neither able to reuse the
+  original workbook's Excel-authoring tool (`build.mjs` depends on a
+  spreadsheet-authoring package unavailable outside the environment that
+  built the V3 workbook), so both are plain Python modules instead:
+  - **v1** (`independent_scenarios.py` / `frozen-results-scenarios.json`,
+    SHA-256 `15dc9a7ae94665d1812292bb01122ef8fc785f55f6624f9f5e116c234ed99421`,
+    compared by `compare_scenarios_after_freeze.py`): checked only per-share
+    value, year-1 growth, year-1 margin, WACC, and
+    terminal growth (50 comparisons total: 5 cases × 2 scenarios × 5
+    metrics) — 50/50 passed, `0.0` maximum absolute difference.
+  - **v2** (`independent_scenarios_v2.py` / `frozen-results-scenarios-v2.json`,
+    SHA-256 `af6880e6bbbf252d714cabfda71aec052f2def4700166c9d221fb6ed9b6d58fb`,
+    compared by `compare_scenarios_v2_after_freeze.py`): extends coverage to
+    all five years' growth, margin, revenue and FCFF, each year's discounted
+    FCFF, terminal value and its present value, enterprise value, the
+    debt/cash equity bridge, and per-share value, for the same five cases,
+    plus nine new synthetic boundary fixtures isolating conditional
+    growth/margin clamping, both WACC bounds, both terminal-growth bounds,
+    and one uncomputable (`WACC <= g` after clamping) scenario — 1,036
+    comparisons total, 0 failures, 0 exceptions. Because `ScenarioResult`
+    does not itself expose most of these intermediates, v2's production side
+    uses validation-only wrapper functions
+    (`production_scenario_capture.py`) that call the actual production
+    functions — including the private `_shift_staged_rate`/`_clamp` — in the
+    same sequence `_compute_scenario` does internally, purely to capture
+    values it would otherwise discard; nothing in `src/` was changed to
+    produce this evidence. The comparator also independently cross-checks
+    that wrapper's own orchestration against `compute_dcf_scenarios` called
+    directly, and verifies both frozen files' SHA-256 hashes against a
+    recorded manifest before running any comparison (tested to actually
+    abort on a deliberately corrupted copy). v1's frozen file and hash are
+    preserved unchanged, alongside v2, as a narrower but still-valid
+    historical result — v2 does not supersede or invalidate it.
+  - **Known defect, not corrected in place**: v1's own frozen
+    `scenarioConvention` description string reads "WACC -/+1pp" — read as
+    Bear −1pp / Bull +1pp, the **reverse** of the actual computation (Bear
+    +1pp / Bull −1pp, confirmed correct in v1's actual numeric output and in
+    `A-030`). This is a self-description bug in the frozen JSON's free text,
+    not in the frozen arithmetic. Because `frozen-results-scenarios.json` is
+    frozen, hash-pinned evidence, it is intentionally **not** edited to fix
+    this — correcting a frozen artifact's bytes after the fact would defeat
+    the point of freezing it. v2's `scenarioConvention` string is instead
+    generated programmatically from the actual delta constants (not
+    hand-typed shorthand) specifically to make this class of error
+    structurally impossible going forward.
+- **Status**: The specification gap is documented (`A-029`/`A-030`), and two
+  rounds of independent reconciliation are recorded — v1 (50/50, narrow
+  scope) and v2 (1,036/1,036, full intermediate coverage plus boundary
+  cases). All artifacts described above are currently **untracked, uncommitted
+  files in the `codex/staged-dcf-independent-validation` worktree**
+  (`git status` shows the whole `validation/independent_dcf/staged_v3/`
+  directory as untracked) — nothing here has been committed to the
+  repository yet; do not describe this evidence as "committed" until it
+  actually is. As with `L-012`/`A-028`, this also remains a single-reviewer
+  (the authoring session's own) result until a second-reviewer sign-off is
+  separately recorded per `docs/independent-validation-plan.md`. **Read the
+  independence caveat below before treating either round as a blind check.**
+- **Independence caveat**: this validator's *calculation code* is
+  independent — neither `independent_scenarios.py` nor
+  `independent_scenarios_v2.py` imports `src/dcf_model/scenarios.py`; every
+  formula is typed in fresh from the specification text. But its *policy
+  discovery was not blind*: the author of both validator modules had already
+  read `scenarios.py` directly — that reading is what produced `A-030`'s
+  pinned deltas and shift/clamp rule in the first place, before either
+  validator existed. This differs in kind from the original blind Base
+  workbooks (V1/V2, and V3's Base section), which were authored from
+  specification text *before* anyone in that effort had read `dcf.py`, and
+  which is how `L-019`/`A-028`'s genuine specification ambiguity was first
+  caught. An exact-match result here is real, non-trivial evidence that the
+  *code* correctly implements the now-pinned policy (a coding bug in
+  `_shift_staged_rate`, a sign error in a delta, or a wrong-year application
+  would very likely not be reproduced by independently-typed formulas, even
+  by an author who knew the target numbers) — but it cannot claim the
+  stronger "blind re-derivation independently discovered the same policy"
+  property that the original Base validation has.
+- **Consequence for interpretation**: The Base **and** Bear/Bull per-share
+  values — and, as of v2, every intermediate in the Bear/Bull calculation
+  chain — for MSFT, CAT, INTC, VZ, and the synthetic negative-margin case now
+  have independent, exact-match reconciliation evidence for the staged path,
+  plus dedicated evidence that the conditional clamp/shift rule and the
+  uncomputable-scenario path behave as pinned at their boundary conditions
+  (the nine synthetic fixtures — these are constructed test inputs, not
+  additional real-company evidence). This is evidence the *code* correctly
+  implements the now-pinned policy, not evidence that the
+  ±3pp/±2pp/∓1pp/∓0.5pp deltas themselves are economically well-calibrated —
+  see `A-030`'s "If wrong" note — and, per the independence caveat above, not
+  evidence with the same epistemic strength as a blind second implementation.
+  `L-020`'s separate, still-open interpretation risk (Bear/Bull need not be
+  ordered by share value) is unaffected by any of this.

@@ -499,6 +499,77 @@ remediated here; `src/dcf_model/dcf.py` was not touched.
   verdict as a defect, and confirm the H-1 `.gitignore` exceptions are
   both present and narrowly scoped.
 
+## Uncommitted working-tree changes — Staged-DCF Roadmap Stage 0: Bear/Base/Bull scenario specification pinning and independent reconciliation
+
+**Status: not yet committed.** Work performed on branch
+`codex/staged-dcf-independent-validation`, in the
+`/private/tmp/valuation-staged-dcf-validation` worktree. Documentation
+pinning (below) followed by two rounds of independent Bear/Bull
+reconciliation, all recorded together here.
+
+- **What changed**: Documentation only —
+  [`docs/model-specifications/dcf.md`](model-specifications/dcf.md) gains a
+  new "Bear / Base / Bull scenarios" section (exact production deltas,
+  staged per-year conditional shift/clamp rule, invalid-scenario behavior)
+  and pins the maturation forecast's exact fade formula/fractions (previously
+  described only in prose); its stale "no glide path" line in "Known
+  simplifications" is corrected to acknowledge the maturation path. New
+  entries `A-029` (staged fade parameters) and `A-030` (scenario deltas and
+  shift/clamp rule) in
+  [`docs/assumptions-register.md`](assumptions-register.md); new entry
+  `L-021` in [`docs/limitations-register.md`](limitations-register.md)
+  recording the specification gap, its resolution, and the resulting
+  independent-reconciliation evidence and its scope/caveats. `src/` was
+  **not** modified — `src/dcf_model/scenarios.py`'s existing deltas and
+  shift/clamp logic (already implemented since the dashboard's scenario
+  feature shipped) were read, not changed; this step only documents them.
+  Two new frozen, hash-pinned independent validation artifacts were added
+  under `validation/independent_dcf/staged_v3/` (all currently untracked —
+  see that directory's own `README.md` "Git status" section): v1
+  (`independent_scenarios.py` / `frozen-results-scenarios.json`, 50
+  comparisons on per-share/year-1-growth/year-1-margin/WACC/terminal-growth)
+  and v2 (`independent_scenarios_v2.py` /
+  `frozen-results-scenarios-v2.json` / `frozen-manifest-v2.json` /
+  `production_scenario_capture.py` / `compare_scenarios_v2_after_freeze.py`,
+  1,036 comparisons covering every intermediate in the Bear/Bull calculation
+  chain plus nine synthetic boundary/uncomputable-scenario fixtures). The
+  pre-existing `frozen-results.json` (Base, 140/140-validated) and the
+  original `staged_dcf_independent_validation.xlsx` were read but not
+  modified; their hashes were re-verified unchanged before and after this
+  work.
+- **Why**: `docs/model-specifications/dcf.md` described the staged forecast
+  path only in prose (no numeric fade fractions) and did not mention the
+  Bear/Bull scenario deltas at all — a fresh reviewer could not reproduce or
+  independently check the full dashboard result (Base plus Bear/Bull) from
+  the written specification alone. This was discovered concretely while
+  building the untracked staged-DCF V3 workbook's Bear/Bull cells, which —
+  because the specification was silent — used a guessed convention that
+  turned out to differ from the actual production deltas, discovered only
+  after that workbook was frozen. Per this repository's established
+  independent-validation discipline (`docs/independent-validation-plan.md`),
+  the correct response to a silent-specification gap is to pin the
+  specification and then independently re-validate against it — not to
+  quietly edit the frozen workbook to match, and not to leave Bear/Bull
+  unreconciled. See `L-021` for the full account, including an explicit
+  caveat that this reconciliation's policy discovery was not blind (the
+  author had read `scenarios.py` before writing the validators), unlike the
+  original blind Base workbooks that caught `L-019`/`A-028`'s genuine
+  specification ambiguity.
+- **Output effect**: None: documentation and validation-only. No `src/` file
+  was read for behavior other than confirming existing deltas/formulas, and
+  none was modified. Nothing about the live DCF, dashboard, trader, or SEC
+  pipeline's actual computed output changes as a result of this step.
+- **Tests**: `tests/dcf/test_scenarios.py` and `tests/dcf/test_multistage.py`
+  (28 tests) rerun unchanged and pass, confirming no regression from the
+  (nonexistent) source changes. New, non-`pytest` validation scripts:
+  `independent_scenarios.py`/`compare_scenarios_after_freeze.py` (v1, 50/50
+  passing) and `independent_scenarios_v2.py`/
+  `compare_scenarios_v2_after_freeze.py` (v2, 1,036/1,036 passing, includes
+  a hash-drift guard verified to actually abort against a deliberately
+  corrupted frozen file before being restored). Every comparison row from
+  both rounds — passes included, not only failures — is written to a
+  committed-pending (currently untracked) report file for audit.
+
 ## Pre-remediation-branch history
 
 Commits before `26221de` (e.g. `9927a26` "DevOps: Fix Tailwind CSS compilation and
