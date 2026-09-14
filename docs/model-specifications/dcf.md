@@ -3,7 +3,8 @@
 Source: [`src/dcf_model/dcf.py`](../../src/dcf_model/dcf.py) (base valuation, staged forecast path),
 [`src/dcf_model/scenarios.py`](../../src/dcf_model/scenarios.py) (Bear/Base/Bull)
 Tests: [`tests/dcf/test_dcf.py`](../../tests/dcf/test_dcf.py), [`tests/dcf/test_multistage.py`](../../tests/dcf/test_multistage.py),
-[`tests/dcf/test_scenarios.py`](../../tests/dcf/test_scenarios.py) — see "Test coverage" below for
+[`tests/dcf/test_scenarios.py`](../../tests/dcf/test_scenarios.py),
+[`tests/dcf/test_capex_derivation.py`](../../tests/dcf/test_capex_derivation.py) — see "Test coverage" below for
 the current test-function/collected-case counts (counted, not hand-maintained, to avoid drift).
 Consumers: [`src/api/main.py`](../../src/api/main.py) (single-ticker live API),
 [`src/backtesting/historical_tester.py`](../../src/backtesting/historical_tester.py)
@@ -173,6 +174,123 @@ FCF_t         = NOPAT_t + D&A_t - CapEx_t - ΔNWC_t
 For the default flat path, growth and operating margin are held **constant**
 across the projection window. The optional maturation path changes annual
 growth as above; it does not change the terminal-growth assumption.
+
+## Historical CapEx derivation (opt-in, live Yahoo path)
+
+`capex_pct_revenue` defaults to the flat `DEFAULT_CAPEX_PCT_REVENUE` (4% of
+revenue) shown above for every caller — **unchanged** by this section.
+Passing `DCFAssumptions(capex_pct_revenue=None)` (or, at the API layer,
+`GET /api/evaluate/{ticker}?capex_mode=historical`) opts into deriving it
+instead from the company's own historical CapEx, via
+`derive_historical_capex_pct_revenue` (in
+[`dcf.py`](../../src/dcf_model/dcf.py)):
+
+```
+ratio_t = |CapEx_t| / Revenue_t   for each fiscal-period-end date t present,
+                                   with a usable value, in BOTH the annual
+                                   income statement and the annual cash-flow
+                                   statement
+
+capex_pct_revenue = mean(ratio_t across every usable t)
+```
+
+**Genuinely opt-in — not merely unused by default.** `derive_historical_capex_pct_revenue`
+is called from exactly one place: `run_dcf_valuation`'s own
+`assumptions.capex_pct_revenue is None` branch. `extract_valuation_inputs`
+does **not** call it, and no other code path does either — a default
+request (nothing passed, or an explicit non-`None` override) never invokes
+this function at all, so it cannot be affected by anything it might
+encounter in a malformed statement. (An earlier revision of this feature
+called it unconditionally from `extract_valuation_inputs` and discarded
+the result when unused; that was a real defect, fixed before this reached
+`main` — see `L-022`.)
+
+**Period alignment.** `t` is matched by the exact column date (a
+`pandas.Timestamp`), never by column position — the income statement and
+cash-flow statement are not guaranteed to carry the same number of columns
+(observed directly while designing this feature: Caterpillar's `income_stmt`
+carried 5 columns against 4 for three other tickers checked). A period
+present in only one of the two statements is silently excluded, the same
+way a missing statement cell is treated elsewhere in this module — it is
+not reported as malformed.
+
+**Row selection.** Every one of `CAPEX_HISTORICAL_ROW_CANDIDATES`
+(`"Capital Expenditure Reported"`, `"Capital Expenditure"`,
+`"CapitalExpenditure"`, `"Purchase Of PPE"`) that is actually present in
+the cash-flow statement is evaluated independently — its own usable-period
+count against the same revenue row — and the row with the **most** usable
+aligned periods is selected, not simply the first name match. Ties are
+broken by the candidate list's own priority order (`"...Reported"` first).
+This matters because "prefer `"...Reported"` unconditionally" can silently
+discard a fuller row: a ticker where `"Capital Expenditure Reported"`
+exists but is populated for only one year, while `"Capital Expenditure"`
+is populated for four, must select the latter, not fall back to the
+default for want of history that was actually available under a different
+row. Within one derivation, every period comes from the SAME selected
+row — row definitions are never mixed across years. The selected row is
+reported as `capex_row` in the result (surfaced in the API response's
+`capex_derivation.capex_row`) — the row-preference *rationale* remains the
+one below: yfinance's FY2025 `"Capital Expenditure"` for VZ (−$17,461M)
+and `"Capital Expenditure Reported"` (−$17,011M) disagreed by roughly
+$450M, and the latter matches Verizon's own publicly reported $17.0B
+full-year figure to within rounding — that observation motivates the
+tie-break preference, not the row *selection* rule itself, which is
+coverage-first.
+
+**Sign and validity.** Every historical CapEx value observed while
+designing this feature (MSFT, CAT, INTC, VZ, every usable period) was
+negative (an outflow), matching this module's existing documented
+convention (see the Free Cash Flow projection section above). A period
+whose CapEx value is *positive*, non-finite, a `bool`, or a non-numeric
+type, or whose revenue is not strictly positive, is excluded from the
+average and recorded in `excluded_periods` (distinct from a period simply
+absent from one of the two statements) — never silently sign-flipped or
+substituted. Duplicate fiscal-period-end columns in either statement (a
+real, if rare, yfinance data-quality issue — every per-date lookup becomes
+ambiguous when it occurs) are detected upfront and reported as
+`status="malformed_data"`; any other unexpected statement shape while
+evaluating one candidate row is caught the same way, scoped to that row,
+so a problem with one candidate cannot prevent a better one from being
+selected. This function never raises.
+
+**Minimum history.** At least `MIN_HISTORICAL_CAPEX_PERIODS` (3) usable
+periods are required. Fewer — including zero, whether because no period
+qualified or every candidate period was excluded as malformed — falls back
+to `DEFAULT_CAPEX_PCT_REVENUE`, with the specific reason available via the
+result's `status`/`reason` fields (`"insufficient_history"`,
+`"missing_data"`, or `"malformed_data"`).
+
+**No upper plausibility bound.** Unlike `revenue_growth_rate`/
+`operating_margin`'s explicit-override bounds, a derived `capex_pct_revenue`
+is not capped — an anomalous input period could in principle produce an
+implausibly large ratio with nothing flagging it as suspect beyond the
+DCF's ordinary `nonpositive_terminal_fcf`/`nonpositive_enterprise_value`
+quality codes catching the downstream consequence. This is a deliberate
+non-decision, not an oversight: no economically-grounded cutoff has been
+established, and inventing one without a documented rationale would be
+worse than leaving the question open. See `A-031`'s "If wrong" note.
+
+**Scope — live Yahoo path only, API-only, no dashboard control, CapEx
+only.** Only yfinance's *annual* statement accessors are read (the same
+ones already used elsewhere in this module) — no quarterly or trailing-
+twelve-month data is ever mixed in. This derivation is entirely independent
+of, and does not call, `src.fundamentals.valuation_integration.prepare_sec_dcf_inputs`
+— the separate, offline SEC path's own CapEx derivation (median of the 4
+most recent trailing SEC periods), which is not reachable from the live
+API and is not reconciled against this one. This derivation covers CapEx
+only; D&A (`da_pct_revenue`) and net-working-capital-change
+(`nwc_pct_revenue_change`) remain flat policy constants in the live path.
+At the API layer (`GET /api/evaluate/{ticker}?capex_mode=historical`),
+this is reachable **only** by passing that query parameter directly — the
+dashboard frontend (`frontend/src/app/page.tsx` and everything under
+`frontend/src/components/valuation/`) has no UI control for it and does
+not read the resulting `capex_pct_revenue`/`capex_pct_revenue_source`/
+`capex_derivation` response fields. A `capex_mode=historical` result is
+therefore not something an ordinary dashboard user can produce or see; it
+is experimental, API-only, and — per `L-022` — mathematically tested but
+not economically validated. See `A-031` in the assumptions register for
+the full rationale and evidence, and `L-022` for what mathematical testing
+of this derivation does and does not establish.
 
 ## Bear / Base / Bull scenarios
 

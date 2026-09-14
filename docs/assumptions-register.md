@@ -302,6 +302,127 @@ constraint the model cannot currently overcome).
   class of error `L-021`'s planned independent reconciliation is meant to
   catch
 
+### A-031 — Historical CapEx-as-%-of-revenue derivation (live Yahoo path, opt-in)
+- **Model affected**: Live Yahoo-backed DCF (`extract_valuation_inputs`,
+  `derive_historical_capex_pct_revenue`, `DCFAssumptions.capex_pct_revenue`,
+  `run_dcf_valuation`, all in [`dcf.py`](../src/dcf_model/dcf.py));
+  surfaced via `capex_mode` on `GET /api/evaluate/{ticker}`
+  ([`src/api/main.py`](../src/api/main.py))
+- **Current value/policy**: Opt-in only, and genuinely so — `derive_historical_capex_pct_revenue`
+  is called from exactly one place, `run_dcf_valuation`'s own
+  `assumptions.capex_pct_revenue is None` branch; `extract_valuation_inputs`
+  does not call it, so a default request never invokes this derivation at
+  all. `DCFAssumptions.capex_pct_revenue` still defaults to the flat
+  `DEFAULT_CAPEX_PCT_REVENUE` (4% of revenue); passing `capex_pct_revenue=None`
+  explicitly (or `capex_mode=historical` at the API layer) requests deriving
+  it instead as the simple average of CapEx / Revenue across every annual
+  fiscal period present in both the Yahoo income statement and cash-flow
+  statement, matched by exact column date (never by position), with a
+  usable, correctly-signed CapEx value (negative — a present positive value
+  is treated as malformed and excluded, not sign-flipped) and strictly
+  positive revenue. Requires at least `MIN_HISTORICAL_CAPEX_PERIODS = 3`
+  usable periods; fewer (or none) falls back to `DEFAULT_CAPEX_PCT_REVENUE`,
+  with the reason surfaced via `capex_pct_revenue_source`/`capex_derivation`.
+  When more than one of `CAPEX_HISTORICAL_ROW_CANDIDATES` is present in the
+  cash-flow statement, each is evaluated independently and the one with the
+  **most usable aligned periods wins** — not simply the first name match —
+  with ties broken toward `"Capital Expenditure Reported"` (preferred,
+  where coverage is equal, since it was observed — VZ FY2025, checked live
+  while designing this feature — to sit closer to the company's own
+  as-filed figure than the plain/aliased `"Capital Expenditure"`/
+  `"Purchase Of PPE"` labels). The selected row is reported as `capex_row`
+  in the result. A duplicate fiscal-period-end column in either statement,
+  or any other unexpected statement shape, is caught and reported as
+  `status="malformed_data"` rather than raised — this function never
+  raises. Only yfinance's *annual* statement accessors are ever read
+  (`Ticker.cashflow`/`Ticker.income_stmt` — the same ones
+  `fetch_company_financials` already used before this feature existed); no
+  quarterly/TTM data is mixed in. This is a NEW derivation for the live
+  Yahoo path specifically — it does **not** touch, wire in, or duplicate
+  `src.fundamentals.valuation_integration.prepare_sec_dcf_inputs`, which
+  already derives CapEx (median of 4 trailing SEC periods) for the
+  separate, offline SEC path; that module remains disconnected from
+  `src/api/main.py`, unchanged by this entry. D&A and NWC remain flat
+  policy constants in the live path — this entry covers CapEx only. At the
+  API layer this is reachable **only** via the `capex_mode` query
+  parameter, directly — the dashboard frontend has no UI control for it
+  and does not read the resulting response fields; see `L-022`. No upper
+  plausibility bound is applied to a derived ratio (unlike
+  `revenue_growth_rate`/`operating_margin`'s explicit-override bounds) —
+  this is a deliberate open question, not an oversight; no
+  economically-grounded cutoff has been established, so none was invented.
+- **Rationale**: The flat 4% assumption was found, during an economic-
+  credibility review of the staged DCF's frozen cases, to differ from real
+  reported CapEx by a wide and inconsistent margin across companies (see
+  "Evidence/source"); a company's own multi-year history is a more
+  representative starting point than one constant applied uniformly,
+  while still being a simple, auditable average — not a forecast model —
+  consistent with how `revenue_growth_rate`/`operating_margin` already
+  derive from history by default. Kept opt-in (not the new default,
+  unlike growth/margin) specifically because this derivation is new and
+  its real-world data coverage has not been exercised in production the
+  way the growth/margin derivation has.
+- **Evidence/source**: Live SEC XBRL and yfinance data, inspected directly
+  while designing this feature (2026-09-14): MSFT's real FY2026
+  CapEx/revenue was 34.9% against the flat 4% default (and was *not*
+  stable — it moved 13.3% -> 18.1% -> 22.9% -> 34.9% across FY2023-FY2026,
+  which a simple average smooths but necessarily lags); VZ's was 12.3%;
+  INTC's ranged 27.7%-47.5% across FY2022-FY2025. All three are well above
+  the flat default; none of the three matches it. See
+  `docs/model-specifications/dcf.md`'s "Historical CapEx derivation"
+  section for the full walkthrough.
+- **Sensitivity required**: Not yet performed as a systematic sweep;
+  `tests/dcf/test_capex_derivation.py::TestRunDcfValuationWiring::test_capex_change_moves_fcf_and_per_share_in_the_correct_direction_by_the_expected_amount`
+  demonstrates the direction and exact per-year magnitude of the effect
+  for one synthetic case, not a general sensitivity analysis
+- **Validation status**: Mathematically tested, including an adversarial
+  read-only review that found and a follow-up pass that fixed two
+  confirmed defects before this reached `main`: (1) the derivation was
+  originally called unconditionally from `extract_valuation_inputs`, so a
+  duplicate fiscal-period-end column in a ticker's cash-flow statement
+  could raise an uncaught exception and break a *default* (non-opt-in)
+  valuation — fixed by making the call genuinely opt-in (see "Current
+  value/policy") and making the function itself never raise; (2)
+  `src/api/main.py`'s scenario construction passed the unresolved
+  `assumptions.capex_pct_revenue` (`None` under `capex_mode=historical`)
+  into `ScenarioInputs` instead of the resolved `result["capex_pct_revenue"]`,
+  so Bear/Base/Bull silently reported `is_valid=False` for every
+  `capex_mode=historical` request even though the base valuation itself
+  was fine — fixed by using the resolved value, matching the pattern
+  already used for the top-level response. Both fixes have dedicated
+  regression tests (see below). Current test coverage:
+  `tests/dcf/test_capex_derivation.py` (period alignment, sign handling,
+  exact ratio arithmetic against hand-computed frozen fixtures including
+  one asymmetric fixture that distinguishes the documented mean from a
+  median, row-coverage-based selection with a dedicated sparse-preferred-
+  row-vs-fuller-standardized-row case, duplicate-column handling,
+  insufficient-history and malformed-data fallback behavior, default-
+  policy preservation verified by asserting the derivation function is
+  never even called for a default request) and
+  `tests/api/test_main.py::TestCapexModeQueryParameter` (end-to-end via
+  the API, including that Base/Bear/Bull all compute correctly and Base
+  matches the top-level per-share value under `capex_mode=historical`,
+  and that quality classification and the sensitivity grid remain
+  structurally consistent). **Not economically validated** — no claim is
+  made that a historically-averaged ratio is a better *forecast* of future
+  CapEx than the flat default for any given company, only that it more
+  closely matches that company's own recent past, and correctly reaches
+  the rest of the response (scenarios included) once resolved. See `L-022`
+- **If wrong**: A too-low derived ratio (a company whose true forward
+  capital intensity is rising, as this entry's own MSFT evidence shows)
+  still understates CapEx and overstates value, the same failure mode as
+  the flat default, just by a smaller margin; a too-high derived ratio
+  (a company whose capital intensity is falling, or which had one
+  anomalous high-CapEx year within the averaging window) understates value
+  instead. An unbounded-above derived ratio (see "Current value/policy")
+  could in principle be implausibly large for an anomalous input period;
+  nothing catches this beyond the DCF's ordinary nonpositive-FCF/EV
+  quality codes catching the downstream consequence — an open question,
+  not resolved by this entry. Because this is opt-in, a wrong or
+  implausible ratio only affects a caller who explicitly requested
+  `capex_mode=historical` — the trader, the sector-median cache, and any
+  caller that doesn't pass this parameter are entirely unaffected
+
 ## Screens and Conviction Score
 
 ### A-010 — Altman Z-Score distress threshold and sector exclusions

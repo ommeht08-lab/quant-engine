@@ -679,3 +679,107 @@ change conclusions materially.
   evidence with the same epistemic strength as a blind second implementation.
   `L-020`'s separate, still-open interpretation risk (Bear/Bull need not be
   ordered by share value) is unaffected by any of this.
+
+## L-022 — Historical CapEx derivation (A-031) is mathematically tested, not economically validated; covers CapEx only, live Yahoo path only
+
+- **Severity**: Medium. Opt-in and off by default — no existing caller
+  (dashboard default, trader, sector-median cache) is affected unless it
+  explicitly requests `capex_mode=historical`.
+- **Affected model(s)**: Live Yahoo-backed DCF, when `capex_mode=historical`
+  is explicitly requested.
+- **Description**: `A-031` derives a company's historical CapEx/revenue
+  ratio and passes it into the same FCF projection every other DCF path
+  already uses — the arithmetic is tested (`tests/dcf/test_capex_derivation.py`,
+  `tests/api/test_main.py::TestCapexModeQueryParameter`) against frozen,
+  hand-computed fixtures covering period alignment, sign handling, exact
+  ratio arithmetic (including an asymmetric fixture that distinguishes the
+  documented mean from a median — a uniform/evenly-spaced fixture alone
+  cannot), row selection by usable-period coverage, duplicate-column
+  handling, insufficient-history and malformed-data fallback, and default-
+  policy preservation. None of that establishes that the resulting
+  valuation is more *economically correct* than the flat-4% default — only
+  that the code correctly computes what it claims to compute, the same
+  distinction `L-021`/`A-030` already draw for the Bear/Bull scenario work.
+
+  **Two confirmed defects were found by an adversarial read-only review of
+  the initial implementation, and fixed before this reached `main`** (both
+  now have dedicated regression tests, listed under "Mitigation"):
+  1. `extract_valuation_inputs` originally called the derivation
+     *unconditionally*, regardless of `capex_mode` — so a duplicate
+     fiscal-period-end column in a ticker's cash-flow statement (a real,
+     if rare, yfinance data-quality issue) raised an uncaught `ValueError`
+     that broke even a *default*, non-opt-in valuation for that ticker.
+     Fixed by moving the call into `run_dcf_valuation`'s own opt-in branch
+     only, and separately hardening the derivation function itself to
+     never raise (duplicate columns and other unexpected statement shapes
+     are now reported as `status="malformed_data"`).
+  2. `src/api/main.py`'s Bear/Base/Bull construction passed the raw,
+     unresolved `assumptions.capex_pct_revenue` (`None` under
+     `capex_mode=historical`) into `ScenarioInputs` instead of the
+     resolved `result["capex_pct_revenue"]` — every `capex_mode=historical`
+     request silently returned `scenarios.base.is_valid = False` (and
+     Bear/Bull the same), breaking the documented invariant that Base
+     reproduces the top-level `intrinsic_value_per_share`, even though the
+     base valuation itself was correct. Fixed by using the resolved value,
+     matching the pattern already used for the top-level response fields.
+
+  Four further, narrower gaps remain, disclosed rather than fixed:
+  1. **A trailing average lags a trending ratio.** `A-031`'s own MSFT
+     evidence (13.3% -> 34.9% across 4 years) shows the simple average
+     this derivation uses will sit below a company's current run rate
+     whenever CapEx intensity is rising, and above it when falling — by
+     design, since smoothing single-year noise and tracking the current
+     level are in tension, and this derivation chooses the former.
+  2. **CapEx only.** D&A and NWC-as-%-of-revenue-change remain flat policy
+     constants in the live Yahoo path (D&A is *also* still flat in the
+     offline SEC path — see `A-004`); deriving CapEx alone can move FCF in
+     either direction relative to a company's true cash generation,
+     depending on how far its real D&A ratio also differs from the flat
+     3% default in the same period — this derivation does not attempt to
+     characterize, let alone correct for, that interaction.
+  3. **Live Yahoo path only.** The offline SEC path
+     (`src.fundamentals.valuation_integration.prepare_sec_dcf_inputs`)
+     already derives CapEx independently (median of 4 trailing SEC
+     periods, a different methodology and data source) and is unaffected
+     by, and not reconciled against, this entry — the two are not
+     expected to agree exactly for the same issuer, and no comparison
+     between them has been run.
+  4. **No upper plausibility bound.** A derived ratio is not capped, unlike
+     `revenue_growth_rate`/`operating_margin`'s explicit-override bounds.
+     Deliberately left open rather than papered over with an invented
+     cutoff: no economically-grounded bound has been established. Flagged
+     here as an explicit open question for follow-on work, not resolved
+     by this entry.
+- **Mitigation**: Status/reason are always surfaced
+  (`capex_pct_revenue_source`, `capex_derivation`, including the selected
+  `capex_row`), so a caller can distinguish "genuinely derived from N years
+  of history, from this specific row" from "requested but fell back to the
+  default" rather than the ratio's provenance being silently ambiguous.
+  Being opt-in bounds the blast radius of any of the above turning out to
+  matter in practice — and, after the two fixes above, is now actually true
+  of the default path (previously, item 1's defect meant "opt-in" was not
+  fully accurate for malformed-statement tickers). Regression tests:
+  `tests/dcf/test_capex_derivation.py::TestDefaultPolicyPreservation::test_default_construction_never_calls_derivation`
+  and `::TestDuplicateColumnsEndToEnd` (for defect 1);
+  `tests/api/test_main.py::TestCapexModeQueryParameter::test_historical_mode_scenarios_use_the_resolved_ratio_not_none`
+  (for defect 2). Also reachable **only** via the API's `capex_mode` query
+  parameter directly — the dashboard has no UI control for it and does not
+  display the resulting fields, which meaningfully limits (without
+  eliminating, for direct API/automation callers) the risk of an ordinary
+  dashboard user mistaking a `capex_mode=historical` result for a normal,
+  validated valuation.
+- **Status**: The two confirmed defects are resolved. The four remaining
+  items are open by design — disclosed scope boundaries of a deliberately
+  narrow first slice (CapEx, live path, opt-in only), not defects to fix
+  within it. D&A/NWC derivation, an upper plausibility bound (if one is
+  ever justified), and any live/offline reconciliation are candidate
+  follow-on work, not committed.
+- **Consequence for interpretation**: A `capex_mode=historical` valuation
+  is arithmetically self-consistent and traceable (exact ratio, exact
+  source row and periods, exact fallback reason when applicable), and, as
+  of the fixes above, correctly reaches every part of the response
+  (Base/Bear/Bull scenarios included) rather than silently breaking one of
+  them — but it still carries the same interpretive caveat as every other
+  assumption in this model: a well-computed number is not the same claim
+  as a well-calibrated one, and this specific path remains experimental
+  and API-only, not a dashboard-facing feature.

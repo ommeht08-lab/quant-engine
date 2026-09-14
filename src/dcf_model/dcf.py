@@ -22,7 +22,7 @@ Each step is a standalone, independently testable function; a single
 import logging
 import math
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -39,6 +39,36 @@ DEFAULT_TAX_RATE = 0.21
 DEFAULT_DA_PCT_REVENUE = 0.03
 DEFAULT_CAPEX_PCT_REVENUE = 0.04
 DEFAULT_NWC_PCT_REVENUE_CHANGE = 0.01
+
+# Historical CapEx-as-%-of-revenue derivation (opt-in; see
+# `derive_historical_capex_pct_revenue`). Row-label priority: yfinance
+# sometimes exposes both a standardized "Capital Expenditure" figure and
+# a "Capital Expenditure Reported" figure that differ (observed directly:
+# VZ FY2025 "Capital Expenditure" = -$17,461M vs "Capital Expenditure
+# Reported" = -$17,011M, the latter matching Verizon's own reported $17.0B
+# to within rounding) -- "...Reported" is preferred, closer to the
+# as-filed figure, wherever yfinance provides it; it is absent for some
+# tickers (observed: MSFT, INTC), where the plain/aliased labels are the
+# only ones available and are identical to each other.
+CAPEX_HISTORICAL_ROW_CANDIDATES = (
+    "Capital Expenditure Reported",
+    "Capital Expenditure",
+    "CapitalExpenditure",
+    "Purchase Of PPE",
+)
+# Minimum usable annual periods required before a historical CapEx ratio
+# is derived, rather than falling back to DEFAULT_CAPEX_PCT_REVENUE. Set
+# above the bare minimum of 1 deliberately: the whole purpose of this
+# derivation is to average out single-year noise (observed directly: MSFT's
+# own CapEx/revenue ratio moved 13.26% -> 34.94% across just 4 fiscal years
+# during its AI-infrastructure buildout), so a 1- or 2-period "average"
+# would not meaningfully differ from just using the latest year. 3 was
+# chosen as the smallest window that still means something as an average,
+# while remaining achievable in practice: yfinance's annual cash-flow
+# statement was observed (MSFT, CAT, INTC, VZ) to reliably expose 4 usable
+# annual CapEx periods out of 5 raw columns (the oldest column is
+# consistently unpopulated for this row across all four).
+MIN_HISTORICAL_CAPEX_PERIODS = 3
 
 # Conservative fallbacks used only when historical Revenue CAGR / average
 # Operating Margin cannot be computed from the fetched statements.
@@ -307,6 +337,285 @@ def calculate_historical_average_operating_margin(income_stmt: Optional[pd.DataF
     return sum(margins) / len(margins)
 
 
+@dataclass(frozen=True)
+class HistoricalCapexDerivation:
+    """Result of deriving a company's own historical CapEx-as-%-of-revenue
+    ratio from its Yahoo annual cash-flow and income statements, for the
+    opt-in `DCFAssumptions(capex_pct_revenue=None)` path (see
+    `derive_historical_capex_pct_revenue`).
+
+    Only ANNUAL statement columns are ever considered -- `cash_flow` and
+    `income_stmt` here are always yfinance's annual accessors
+    (`Ticker.cashflow` / `Ticker.income_stmt`), never the quarterly/TTM
+    ones, so there is no annual/quarterly mixing to guard against; this is
+    a caller contract, not something this function can verify from the
+    DataFrame alone.
+
+    Attributes:
+        ratio: The derived CapEx / revenue ratio (a positive decimal), or
+            `None` if no ratio could be derived.
+        capex_row: The cash-flow row label actually used (one of
+            `CAPEX_HISTORICAL_ROW_CANDIDATES`), or `None` if no candidate
+            row was usable enough to select. Every period in
+            `source_periods` came from this SAME row -- row definitions
+            are never mixed across years within one derivation.
+        source_periods: ISO date strings (most-recent first) of the
+            fiscal-period-end columns that passed every validity check
+            for `capex_row`. When `status == "derived"`, these are
+            exactly the periods averaged into `ratio`. When
+            `status == "insufficient_history"`, these are the valid-but-
+            too-few periods that would have been averaged had there been
+            enough of them -- `ratio` is still `None` in that case.
+        excluded_periods: ISO date strings of columns present in both
+            statements (for `capex_row`) but excluded because the value
+            was malformed (wrong sign, non-finite, or nonpositive
+            revenue) -- distinct from a period simply absent from one of
+            the two statements, which is silently skipped and does not
+            appear here.
+        status: One of "derived", "insufficient_history", "missing_data",
+            "malformed_data".
+        reason: A human-readable explanation, always populated.
+    """
+
+    ratio: Optional[float]
+    capex_row: Optional[str]
+    source_periods: Tuple[str, ...]
+    excluded_periods: Tuple[str, ...]
+    status: str
+    reason: str
+
+
+def _usable_capex_periods_for_row(
+    capex_by_period: "pd.Series", revenue_by_period: "pd.Series"
+) -> Tuple[list, list, list]:
+    """For ONE already-selected cash-flow row, walk every date it shares
+    with `revenue_by_period` and split into (used_periods, excluded_periods,
+    ratios) using the module's documented validity rules (see
+    `derive_historical_capex_pct_revenue`'s docstring). A period missing
+    from one of the two series is silently skipped, not excluded. Returns
+    ISO date strings, most-recent first, alongside the numeric ratios."""
+    common_dates = sorted(
+        set(revenue_by_period.index) & set(capex_by_period.index),
+        key=pd.Timestamp,
+        reverse=True,
+    )
+    used_periods: list = []
+    excluded_periods: list = []
+    ratios: list = []
+    for period in common_dates:
+        revenue = revenue_by_period[period]
+        capex = capex_by_period[period]
+        if pd.isna(revenue) or pd.isna(capex):
+            continue  # genuinely absent for this period -- not malformed
+        iso_period = pd.Timestamp(period).date().isoformat()
+        if not (_is_valid_finite_number(revenue) and _is_valid_finite_number(capex)):
+            excluded_periods.append(iso_period)
+            continue
+        revenue = float(revenue)
+        capex = float(capex)
+        if revenue <= 0:
+            excluded_periods.append(iso_period)
+            continue
+        if capex > 0:
+            excluded_periods.append(iso_period)
+            continue
+        used_periods.append(iso_period)
+        ratios.append(abs(capex) / revenue)
+    return used_periods, excluded_periods, ratios
+
+
+def derive_historical_capex_pct_revenue(
+    cash_flow: Optional[pd.DataFrame],
+    income_stmt: Optional[pd.DataFrame],
+    minimum_periods: int = MIN_HISTORICAL_CAPEX_PERIODS,
+) -> HistoricalCapexDerivation:
+    """
+    Derive a company's own historical CapEx-as-%-of-revenue ratio: the
+    simple average of (CapEx / Revenue) across every annual fiscal period
+    present in BOTH statements, with a usable, correctly-signed CapEx
+    value and positive revenue.
+
+    This is the opt-in alternative to the flat `DEFAULT_CAPEX_PCT_REVENUE`
+    (see `DCFAssumptions.capex_pct_revenue`'s docstring). This function is
+    called ONLY from `run_dcf_valuation`'s own opt-in branch
+    (`assumptions.capex_pct_revenue is None`) -- never from
+    `extract_valuation_inputs`, and never for a caller that leaves
+    `capex_pct_revenue` at its default -- so a default valuation neither
+    runs this derivation nor is affected by anything it might encounter.
+
+    Periods are matched between the two statements by their exact column
+    date (a `pandas.Timestamp`), never by column position -- the two
+    statements are not guaranteed to have the same number of columns (an
+    empirically observed case: Caterpillar's `income_stmt` carried 5
+    columns against `cash_flow`'s 5, while three other tickers checked
+    during this feature's design carried 4 usable columns in each), so
+    aligning by position rather than by date could silently pair one
+    company's FY2024 revenue with a different fiscal year's CapEx.
+
+    **Row selection**: when more than one of `CAPEX_HISTORICAL_ROW_CANDIDATES`
+    is present in `cash_flow.index`, each present candidate is evaluated
+    independently (its own usable-period count, against the same revenue
+    row), and the candidate with the MOST usable aligned periods is
+    selected -- not simply the first name match. Ties are broken by
+    `CAPEX_HISTORICAL_ROW_CANDIDATES`'s documented priority order (favoring
+    `"Capital Expenditure Reported"` first). This avoids the row
+    preference silently discarding a fuller row's data: e.g. a ticker
+    where `"Capital Expenditure Reported"` exists but is populated for
+    only one year, while `"Capital Expenditure"` is populated for four,
+    must select the latter. Once a row is selected, every period in this
+    result comes from that SAME row -- row definitions are never mixed
+    within one derivation. The chosen row is reported in `capex_row`
+    (`None` only when no candidate row was present at all).
+
+    A candidate period is excluded (recorded in `excluded_periods`, not
+    silently dropped) rather than used, if: the CapEx value is a *positive*
+    number (yfinance's own convention for every historical CapEx row
+    checked during this feature's design was a negative outflow; a
+    positive value contradicts that observed convention and is treated as
+    a data-quality problem, not a sign to correct); the CapEx or revenue
+    value is present but not a genuine finite number (a `bool`, a
+    non-numeric type, NaN, or +-infinity); or revenue is not strictly
+    positive. A period missing from one of the two statements entirely is
+    not "malformed" -- it is silently absent from consideration, the same
+    way `_get_row_value` treats a missing cell elsewhere in this module.
+
+    **Robustness**: this function never raises. A duplicate fiscal-period-
+    end column in either statement (observed as a real, if rare, yfinance
+    data-quality issue) makes per-date lookups ambiguous for every row --
+    detected upfront and reported as `status="malformed_data"` rather than
+    letting the resulting pandas `ValueError` (ambiguous Series truth
+    value) propagate. Any other unexpected shape/indexing failure while
+    evaluating a candidate row is caught the same way, scoped to that one
+    candidate, so one malformed row cannot prevent a better one from being
+    selected.
+
+    Args:
+        cash_flow: Annual cash flow statement DataFrame (rows = line
+            items, columns = fiscal-period-end dates), or None.
+        income_stmt: Annual income statement DataFrame, same shape, or
+            None.
+        minimum_periods: Fewest usable periods required to derive a ratio
+            (default `MIN_HISTORICAL_CAPEX_PERIODS`) -- below this, the
+            result reports `status="insufficient_history"` rather than
+            averaging too few data points to mean anything.
+
+    Returns:
+        A `HistoricalCapexDerivation`. `ratio` is `None` unless
+        `status == "derived"`. Never raises.
+    """
+    if cash_flow is None or cash_flow.empty or income_stmt is None or income_stmt.empty:
+        return HistoricalCapexDerivation(
+            ratio=None, capex_row=None, source_periods=(), excluded_periods=(),
+            status="missing_data",
+            reason="Cash flow statement or income statement is unavailable.",
+        )
+
+    revenue_row = next(
+        (name for name in ("Total Revenue", "TotalRevenue") if name in income_stmt.index), None
+    )
+    if revenue_row is None:
+        return HistoricalCapexDerivation(
+            ratio=None, capex_row=None, source_periods=(), excluded_periods=(),
+            status="missing_data",
+            reason="No usable revenue row found in the income statement.",
+        )
+
+    capex_row_candidates = [name for name in CAPEX_HISTORICAL_ROW_CANDIDATES if name in cash_flow.index]
+    if not capex_row_candidates:
+        return HistoricalCapexDerivation(
+            ratio=None, capex_row=None, source_periods=(), excluded_periods=(),
+            status="missing_data",
+            reason="No usable capital-expenditure row found in the cash flow statement.",
+        )
+
+    # Duplicate fiscal-period-end columns make every per-date `.loc[row][date]`
+    # lookup below ambiguous (returns a Series, not a scalar) for EVERY row,
+    # not just the ones this function reads -- checked once, upfront, rather
+    # than per candidate.
+    if income_stmt.columns.duplicated().any() or cash_flow.columns.duplicated().any():
+        return HistoricalCapexDerivation(
+            ratio=None, capex_row=None, source_periods=(), excluded_periods=(),
+            status="malformed_data",
+            reason=(
+                "Income statement or cash flow statement has duplicate fiscal-period-end "
+                "columns, making per-period values ambiguous."
+            ),
+        )
+
+    try:
+        revenue_by_period = income_stmt.loc[revenue_row]
+    except (KeyError, TypeError, ValueError, AttributeError) as exc:
+        return HistoricalCapexDerivation(
+            ratio=None, capex_row=None, source_periods=(), excluded_periods=(),
+            status="malformed_data",
+            reason=f"Could not read the revenue row ({type(exc).__name__}).",
+        )
+
+    best: Optional[dict] = None
+    for candidate_row in capex_row_candidates:
+        try:
+            capex_by_period = cash_flow.loc[candidate_row]
+            used_periods, excluded_periods, ratios = _usable_capex_periods_for_row(
+                capex_by_period, revenue_by_period
+            )
+        except (KeyError, TypeError, ValueError, AttributeError):
+            # This one candidate row is unusable in some unexpected shape;
+            # a better candidate may still exist, so keep evaluating rather
+            # than failing the whole derivation.
+            continue
+        candidate_result = {
+            "row": candidate_row, "used": used_periods, "excluded": excluded_periods, "ratios": ratios,
+        }
+        # Most usable periods wins; CAPEX_HISTORICAL_ROW_CANDIDATES' own
+        # order (capex_row_candidates preserves it) breaks ties, since the
+        # loop only replaces `best` on a STRICT improvement.
+        if best is None or len(used_periods) > len(best["used"]):
+            best = candidate_result
+
+    if best is None:
+        return HistoricalCapexDerivation(
+            ratio=None, capex_row=None, source_periods=(), excluded_periods=(),
+            status="malformed_data",
+            reason="Every candidate capital-expenditure row was unusable in an unexpected shape.",
+        )
+
+    capex_row, used_periods, excluded_periods, ratios = (
+        best["row"], best["used"], best["excluded"], best["ratios"]
+    )
+    malformed_seen = bool(excluded_periods)
+
+    if not ratios:
+        status = "malformed_data" if malformed_seen else "missing_data"
+        reason = (
+            f"Every period with both a revenue and a CapEx value in '{capex_row}' was excluded "
+            "as malformed (see excluded_periods)."
+            if malformed_seen else
+            f"No period had both a usable revenue value and a usable CapEx value in '{capex_row}'."
+        )
+        return HistoricalCapexDerivation(
+            ratio=None, capex_row=capex_row, source_periods=(), excluded_periods=tuple(excluded_periods),
+            status=status, reason=reason,
+        )
+
+    if len(ratios) < minimum_periods:
+        reason = (
+            f"Only {len(ratios)} usable historical period(s) available in '{capex_row}'"
+            + (f" after excluding {len(excluded_periods)} malformed period(s)" if malformed_seen else "")
+            + f"; at least {minimum_periods} are required to average out single-year noise."
+        )
+        return HistoricalCapexDerivation(
+            ratio=None, capex_row=capex_row, source_periods=tuple(used_periods),
+            excluded_periods=tuple(excluded_periods), status="insufficient_history", reason=reason,
+        )
+
+    ratio = sum(ratios) / len(ratios)
+    reason = f"Simple average of CapEx / revenue across {len(ratios)} usable annual period(s) in '{capex_row}'."
+    return HistoricalCapexDerivation(
+        ratio=ratio, capex_row=capex_row, source_periods=tuple(used_periods),
+        excluded_periods=tuple(excluded_periods), status="derived", reason=reason,
+    )
+
+
 def extract_valuation_inputs(financial_data: dict) -> dict:
     """
     Pull the specific line items the DCF needs out of raw financial data.
@@ -325,6 +634,14 @@ def extract_valuation_inputs(financial_data: dict) -> dict:
         available periods, capped at MAX_REVENUE_GROWTH_RATE.
         `operating_margin` is the historical average Operating Margin
         (EBIT / Revenue) across all available periods.
+
+        Deliberately does NOT compute `derive_historical_capex_pct_revenue`
+        here — that derivation is genuinely opt-in: `run_dcf_valuation`
+        calls it directly, only inside its own
+        `assumptions.capex_pct_revenue is None` branch, so a caller that
+        never touches that field (the default path, and every existing
+        caller before this derivation existed) neither runs it nor can be
+        affected by anything it might encounter in a malformed statement.
     """
     income_stmt = financial_data.get("income_statement")
     balance_sheet = financial_data.get("balance_sheet")
@@ -1245,6 +1562,19 @@ class DCFAssumptions:
     facing slider) to override the historical calculation for that run.
     If historical data can't be derived either, the engine falls back to
     DEFAULT_REVENUE_GROWTH_RATE_FALLBACK / DEFAULT_OPERATING_MARGIN_FALLBACK.
+
+    `capex_pct_revenue` DEFAULTS to the flat DEFAULT_CAPEX_PCT_REVENUE
+    constant (4% of revenue), unchanged from prior behavior — nothing
+    about existing callers changes unless they opt in. Pass `None`
+    explicitly to opt into deriving it instead from the company's own
+    historical CapEx/revenue ratio (see `derive_historical_capex_pct_revenue`);
+    if fewer than MIN_HISTORICAL_CAPEX_PERIODS usable historical periods
+    are available, `run_dcf_valuation` falls back to
+    DEFAULT_CAPEX_PCT_REVENUE and reports why via `capex_pct_revenue_source`/
+    `capex_derivation` in its return value. Unlike `revenue_growth_rate`/
+    `operating_margin`, this derivation is opt-in (explicit `None`), not
+    the default, because it is new and its data coverage has not been
+    exercised in production the way the growth/margin derivation has.
     """
 
     revenue_growth_rate: Optional[float] = None
@@ -1256,7 +1586,9 @@ class DCFAssumptions:
     risk_free_rate: float = DEFAULT_RISK_FREE_RATE
     market_risk_premium: float = DEFAULT_MARKET_RISK_PREMIUM
     da_pct_revenue: float = DEFAULT_DA_PCT_REVENUE
-    capex_pct_revenue: float = DEFAULT_CAPEX_PCT_REVENUE
+    # Default UNCHANGED (still the flat 4% constant, not None) -- pass
+    # capex_pct_revenue=None explicitly to opt into historical derivation.
+    capex_pct_revenue: Optional[float] = DEFAULT_CAPEX_PCT_REVENUE
     nwc_pct_revenue_change: float = DEFAULT_NWC_PCT_REVENUE_CHANGE
     forecast_policy: Optional[MultiStageForecastPolicy] = None
 
@@ -1311,6 +1643,12 @@ class DCFAssumptions:
         self.cost_of_debt = _require_finite_numeric_or_none(
             self.cost_of_debt, "cost_of_debt"
         )
+        # `None` => opt into historical derivation (see
+        # `derive_historical_capex_pct_revenue`); a present value must
+        # still be a genuine finite, non-bool, non-negative number.
+        self.capex_pct_revenue = _require_finite_numeric_or_none(
+            self.capex_pct_revenue, "capex_pct_revenue"
+        )
 
         # Required (never legitimately `None`) fields — even though the
         # dataclass itself doesn't enforce that at runtime, a caller
@@ -1322,7 +1660,6 @@ class DCFAssumptions:
             "risk_free_rate",
             "market_risk_premium",
             "da_pct_revenue",
-            "capex_pct_revenue",
             "nwc_pct_revenue_change",
         ):
             setattr(self, field_name, _require_finite_numeric(getattr(self, field_name), field_name))
@@ -1332,6 +1669,10 @@ class DCFAssumptions:
         if self.cost_of_debt is not None and self.cost_of_debt < 0:
             raise ValueError(
                 f"cost_of_debt must be non-negative if set, got {self.cost_of_debt}."
+            )
+        if self.capex_pct_revenue is not None and self.capex_pct_revenue < 0:
+            raise ValueError(
+                f"capex_pct_revenue must be non-negative if set, got {self.capex_pct_revenue}."
             )
 
         if self.revenue_growth_rate is not None and not (
@@ -1375,12 +1716,26 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
         pv_terminal_value, enterprise_value, equity_value,
         intrinsic_value_per_share, current_market_price, total_debt,
         cash_and_equivalents, shares_outstanding, base_revenue, tax_rate,
-        cost_of_debt.
+        cost_of_debt, capex_pct_revenue, capex_pct_revenue_source,
+        capex_derivation.
 
         `revenue_growth_rate` and `operating_margin` reflect the starting
         values used for the projection: the explicit value from
         `assumptions` if provided, otherwise the historically-derived
         figure, otherwise the conservative fallback (see DCFAssumptions).
+
+        `capex_pct_revenue` is the RESOLVED value actually used in the
+        projection; `capex_pct_revenue_source` is one of "default" (the
+        caller left `assumptions.capex_pct_revenue` at its flat-4%
+        default), "custom" (an explicit non-default override), "historical"
+        (derived from the company's own CapEx/revenue history — only
+        reachable when `assumptions.capex_pct_revenue is None`), or
+        "fallback" (derivation was requested but unavailable, so the flat
+        default was used instead). `capex_derivation` is the full
+        `HistoricalCapexDerivation` (ratio, source/excluded periods,
+        status, reason) when derivation was attempted, else `None` — this
+        is how a caller learns *why* a fallback happened, not just that
+        one did.
 
         `total_debt`, `cash_and_equivalents`, and `shares_outstanding` are
         exactly the values already extracted from `financial_data` and
@@ -1459,6 +1814,41 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
                 operating_margin * 100,
             )
 
+    # An explicit `assumptions.capex_pct_revenue` always wins, exactly
+    # like tax_rate above — including the flat DEFAULT_CAPEX_PCT_REVENUE
+    # every existing caller gets by not touching this field at all, so
+    # that default behavior is completely unchanged by this branch's
+    # existence. `derive_historical_capex_pct_revenue` is called ONLY in
+    # the `else` branch below — genuinely opt-in, not merely unused-by-
+    # default: a default request never invokes it at all, so it cannot be
+    # affected by anything that function might encounter (see its own
+    # docstring's "Robustness" section for what it handles even when it
+    # IS invoked).
+    capex_derivation: Optional[HistoricalCapexDerivation] = None
+    if assumptions.capex_pct_revenue is not None:
+        capex_pct_revenue = assumptions.capex_pct_revenue
+        capex_pct_revenue_source = "custom" if capex_pct_revenue != DEFAULT_CAPEX_PCT_REVENUE else "default"
+    else:
+        capex_derivation = derive_historical_capex_pct_revenue(
+            financial_data.get("cash_flow"), financial_data.get("income_statement")
+        )
+        if capex_derivation.status == "derived":
+            capex_pct_revenue = capex_derivation.ratio
+            capex_pct_revenue_source = "historical"
+            logger.info(
+                "Using historical CapEx/revenue ratio of %.1f%% (from %d period(s): %s) "
+                "as the CapEx assumption.",
+                capex_pct_revenue * 100, len(capex_derivation.source_periods),
+                ", ".join(capex_derivation.source_periods),
+            )
+        else:
+            capex_pct_revenue = DEFAULT_CAPEX_PCT_REVENUE
+            capex_pct_revenue_source = "fallback"
+            logger.warning(
+                "Historical CapEx/revenue ratio unavailable (%s: %s); defaulting to %.1f%%.",
+                capex_derivation.status, capex_derivation.reason, DEFAULT_CAPEX_PCT_REVENUE * 100,
+            )
+
     resolved_cost_of_debt = (
         assumptions.cost_of_debt
         if assumptions.cost_of_debt is not None
@@ -1488,7 +1878,7 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
             base_revenue=inputs["revenue"], revenue_growth_rate=revenue_growth_rate,
             operating_margin=operating_margin, tax_rate=tax_rate,
             da_pct_revenue=assumptions.da_pct_revenue,
-            capex_pct_revenue=assumptions.capex_pct_revenue,
+            capex_pct_revenue=capex_pct_revenue,
             nwc_pct_revenue_change=assumptions.nwc_pct_revenue_change,
             years=assumptions.projection_years,
         )
@@ -1496,7 +1886,7 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
         fcf_projection = project_free_cash_flows_from_path(
             base_revenue=inputs["revenue"], forecast_path=forecast_path,
             tax_rate=tax_rate, da_pct_revenue=assumptions.da_pct_revenue,
-            capex_pct_revenue=assumptions.capex_pct_revenue,
+            capex_pct_revenue=capex_pct_revenue,
             nwc_pct_revenue_change=assumptions.nwc_pct_revenue_change,
         )
 
@@ -1563,6 +1953,9 @@ def run_dcf_valuation(financial_data: dict, assumptions: DCFAssumptions = None) 
             if resolved_cost_of_debt is not None
             else DEFAULT_COST_OF_DEBT
         ),
+        "capex_pct_revenue": capex_pct_revenue,
+        "capex_pct_revenue_source": capex_pct_revenue_source,
+        "capex_derivation": capex_derivation,
     }
 
 

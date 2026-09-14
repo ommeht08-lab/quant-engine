@@ -543,6 +543,25 @@ class SectorMedianProvenance(BaseModel):
     sector_sample_count: int
 
 
+class CapexDerivationModel(BaseModel):
+    """Mirrors `src.dcf_model.dcf.HistoricalCapexDerivation` — present only
+    when `capex_mode=historical` was requested (see `evaluate_ticker`),
+    whether or not derivation actually succeeded. `ratio` is null unless
+    `status == "derived"`; `reason` is always populated, including when
+    `status == "fallback"` explains why the flat default was used instead."""
+
+    ratio: Optional[float]
+    # The cash-flow row actually used (e.g. "Capital Expenditure Reported"),
+    # selected for having the most usable aligned annual periods among the
+    # candidates present, ties broken by documented row preference. Null
+    # only when no candidate row was present at all.
+    capex_row: Optional[str]
+    source_periods: List[str]
+    excluded_periods: List[str]
+    status: Literal["derived", "insufficient_history", "missing_data", "malformed_data"]
+    reason: str
+
+
 class EvaluationResponse(BaseModel):
     """Response payload for GET /api/evaluate/{ticker}."""
 
@@ -573,6 +592,15 @@ class EvaluationResponse(BaseModel):
     sector_median_snapshot: Optional[SectorMedianProvenance] = None
     revenue_growth_rate_source: str
     operating_margin_source: str
+    capex_pct_revenue: float
+    # "default" (flat-4% default, capex_mode left at its own default),
+    # "historical" (derived from the company's own CapEx/revenue history),
+    # or "fallback" (historical derivation was requested but unavailable,
+    # so the flat default was used instead) — never "custom", since this
+    # endpoint does not currently accept an explicit numeric override for
+    # this assumption the way it does for revenue_growth_rate/operating_margin.
+    capex_pct_revenue_source: str
+    capex_derivation: Optional[CapexDerivationModel] = None
     sensitivity: DCFSensitivityMatrix
     scenarios: DCFScenarioSet
 
@@ -691,6 +719,24 @@ def evaluate_ticker(
         0.025,
         description="Perpetual growth rate used in the terminal value calculation, as a decimal.",
     ),
+    capex_mode: Literal["default", "historical"] = Query(
+        "default",
+        description=(
+            "CapEx assumption policy. 'default' (unchanged from prior behavior) applies "
+            "the flat DEFAULT_CAPEX_PCT_REVENUE (4% of revenue) to every company. "
+            "'historical' derives the company's own CapEx/revenue ratio from its "
+            "historical annual cash-flow statement instead (see "
+            "`src.dcf_model.dcf.derive_historical_capex_pct_revenue`); if fewer than "
+            "MIN_HISTORICAL_CAPEX_PERIODS usable years are available, the response "
+            "still uses the flat default and reports why via `capex_pct_revenue_source`/"
+            "`capex_derivation` rather than silently substituting a weaker estimate. "
+            "EXPERIMENTAL and API-only: reachable only by passing this query parameter "
+            "directly — the dashboard UI has no control for it and does not display the "
+            "resulting fields, and its magnitude has not been economically validated "
+            "(mathematically tested only — see docs/limitations-register.md L-022). "
+            "Do not treat a 'historical' result as an investment conclusion."
+        ),
+    ),
 ) -> EvaluationResponse:
     """
     Run a full DCF valuation for a given ticker.
@@ -718,6 +764,27 @@ def evaluate_ticker(
             rate — always an explicit policy assumption (no per-company
             historical equivalent exists), so it has no omit-to-derive
             mode.
+        capex_mode: "default" (the default) retains the existing flat 4%
+            CapEx-of-revenue assumption for every caller that doesn't
+            touch this parameter — a default request never even calls the
+            historical-derivation function, so it cannot be affected by
+            anything that function might encounter. "historical" opts
+            into deriving it from the company's own historical
+            CapEx/revenue ratio instead — an explicit opt-in, unlike
+            `revenue_growth_rate`/`operating_margin`'s historical-by-
+            default behavior, since this derivation is new. Distinct from
+            the offline SEC fundamentals path
+            (`src.fundamentals.valuation_integration`), which already
+            derives CapEx from SEC filings but is not wired into this
+            live endpoint — this parameter derives from the SAME Yahoo
+            statements this endpoint already fetches, not from SEC data,
+            so no source is silently mixed. EXPERIMENTAL and reachable
+            only via this query parameter directly: the dashboard
+            frontend has no UI control for it and does not read the
+            resulting `capex_pct_revenue`/`capex_pct_revenue_source`/
+            `capex_derivation` fields — see `docs/limitations-register.md`
+            L-022 for what mathematical testing of this path does and
+            does not establish.
 
     The discount rate's CAPM risk-free leg uses a live 10-Year Treasury
     yield (`src.utils.macro.get_risk_free_rate`) rather than a static
@@ -789,13 +856,20 @@ def evaluate_ticker(
     operating_margin_source = "custom" if operating_margin is not None else "historical"
 
     try:
-        assumptions = DCFAssumptions(
+        assumptions_kwargs = dict(
             revenue_growth_rate=revenue_growth_rate,
             operating_margin=operating_margin,
             terminal_growth_rate=terminal_growth_rate,
             risk_free_rate=get_risk_free_rate(),
             forecast_policy=MultiStageForecastPolicy() if forecast_mode == "maturation" else None,
         )
+        if capex_mode == "historical":
+            # Only touch capex_pct_revenue when explicitly opted into --
+            # leaving it out entirely when capex_mode is left at its own
+            # "default" keeps DCFAssumptions' own flat-4% field default in
+            # effect, unchanged for every caller that doesn't pass this.
+            assumptions_kwargs["capex_pct_revenue"] = None
+        assumptions = DCFAssumptions(**assumptions_kwargs)
         result = run_dcf_valuation(financial_data, assumptions)
     except ValueError as exc:
         logger.warning("DCF valuation failed for %s: %s", ticker, exc)
@@ -863,7 +937,13 @@ def evaluate_ticker(
             baseline_terminal_growth_rate=assumptions.terminal_growth_rate,
             tax_rate=result["tax_rate"],
             da_pct_revenue=assumptions.da_pct_revenue,
-            capex_pct_revenue=assumptions.capex_pct_revenue,
+            # The RESOLVED value, not assumptions.capex_pct_revenue directly:
+            # that field is None whenever capex_mode=historical was
+            # requested (the opt-in sentinel), and ScenarioInputs requires
+            # a genuine float — result["capex_pct_revenue"] is what
+            # run_dcf_valuation actually resolved it to (derived ratio or
+            # fallback), the same value the top-level response reports.
+            capex_pct_revenue=result["capex_pct_revenue"],
             nwc_pct_revenue_change=assumptions.nwc_pct_revenue_change,
             projection_years=assumptions.projection_years,
             total_debt=result["total_debt"],
@@ -924,6 +1004,20 @@ def evaluate_ticker(
         sector_median_snapshot=sector_median_provenance,
         revenue_growth_rate_source=revenue_growth_rate_source,
         operating_margin_source=operating_margin_source,
+        capex_pct_revenue=result["capex_pct_revenue"],
+        capex_pct_revenue_source=result["capex_pct_revenue_source"],
+        capex_derivation=(
+            CapexDerivationModel(
+                ratio=result["capex_derivation"].ratio,
+                capex_row=result["capex_derivation"].capex_row,
+                source_periods=list(result["capex_derivation"].source_periods),
+                excluded_periods=list(result["capex_derivation"].excluded_periods),
+                status=result["capex_derivation"].status,
+                reason=result["capex_derivation"].reason,
+            )
+            if result["capex_derivation"] is not None
+            else None
+        ),
         sensitivity=DCFSensitivityMatrix(
             wacc_axis=SensitivityAxis(
                 label=sensitivity.wacc_axis.label,
