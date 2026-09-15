@@ -43,7 +43,7 @@ export default function TickerCommandBar({
           autoComplete="off"
           spellCheck={false}
           autoFocus
-          className="input-field px-4 py-3 font-mono text-base tracking-[.06em]"
+          className="input-field px-4 py-3 text-base font-semibold tracking-[.04em] tabular-nums"
         />
       </div>
 

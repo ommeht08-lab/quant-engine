@@ -57,7 +57,7 @@ export default function ProjectedCashFlows({ rows, forecastPath }: ProjectedCash
             </thead>
             <tbody>
               {rows.map((row) => (
-                <tr key={row.year} className="tabular-nums font-mono text-[var(--paper-muted)]">
+                <tr key={row.year} className="tabular-nums text-[var(--paper-muted)]">
                   <td className="sticky left-0 z-10 bg-[var(--ink-raised)] py-3 pr-4 font-sans text-[var(--paper-dim)]">
                     Year {row.year}
                   </td>

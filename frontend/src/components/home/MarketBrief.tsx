@@ -58,7 +58,7 @@ export default function MarketBrief({ ticker, status, sentiment, styles }: Marke
 
       {status === "ready" && sentiment && sentiment.headlines.length > 0 && (
         <ul className={styles.briefHeadlineList}>
-          {sentiment.headlines.map((headline, index) => {
+          {sentiment.headlines.slice(0, 4).map((headline, index) => {
             const href = safeHeadlineHref(headline.link);
             const time = formatHeadlineTime(headline.publishedAt);
             return (

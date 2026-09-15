@@ -13,6 +13,7 @@ import SectorRelativeValuation, {
   type SectorMedianSnapshot,
 } from "@/components/valuation/SectorRelativeValuation";
 import ProjectedCashFlows, { type FreeCashFlowYear } from "@/components/valuation/ProjectedCashFlows";
+import ForecastChart from "@/components/valuation/ForecastChart";
 import AssumptionsBridge from "@/components/valuation/AssumptionsBridge";
 import type { SectorMedianUnavailableCode } from "@/lib/sector-median-copy";
 import { qualityIssueCopy, type ValuationQuality } from "@/lib/valuation-quality";
@@ -93,6 +94,7 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
   // Valuation Spectrum instrument — one persisted choice, two places to
   // see and change it.
   const [selectedScenario, setSelectedScenario] = useState<CaseKey>("base");
+  const [activeDetail, setActiveDetail] = useState<"forecast" | "scenarios" | "sensitivity" | "comparison" | "assumptions">("forecast");
 
   async function runValuation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -148,6 +150,7 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
       }
       setResult(data);
       setSelectedScenario("base");
+      setActiveDetail("forecast");
 
       // Record this explicit, successful run for the research home
       // page's "Recent valuations" module — never for an automatic page
@@ -303,24 +306,14 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
         )}
 
         {result && (
-          <div className="panel mb-6 p-4 text-sm text-[var(--paper-muted)]" role="status">
-            <strong className="block text-[var(--paper)]">Multi-stage forecast</strong>
-            <span className="mt-1 block">
-              Growth holds for two near-term years, then excess growth fades toward a 3% mature ceiling.
-              A weak or declining growth rate is not turned into an assumed recovery. The financial
-              statements still come from the existing provider; this is not the SEC cutover.
-            </span>
-          </div>
-        )}
-
-        {result && (
           <div
-            className={`workspace-grid ${workspaceState === "ready" ? "result-enter" : ""} ${
+            className={`workspace-results ${workspaceState === "ready" ? "result-enter" : ""} ${
               isLoading || workspaceState === "previous-result" ? "result-stale" : ""
             }`}
             aria-busy={isLoading}
           >
-            <div className="workspace-rail-slot">
+            <div className="workspace-primary-grid">
+              <ForecastChart rows={result.projected_free_cash_flows} forecastPath={result.forecast_path} />
               <ThesisRail
                 ticker={result.ticker}
                 sector={result.sector}
@@ -333,7 +326,40 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
               />
             </div>
 
-            <div className="workspace-analysis-slot">
+            <div className="workspace-tabs" role="tablist" aria-label="Valuation detail">
+              {([
+                ["forecast", "Forecast"],
+                ["scenarios", "Scenarios"],
+                ["sensitivity", "Sensitivity"],
+                ["comparison", "Peer context"],
+                ["assumptions", "Assumptions"],
+              ] as const).map(([key, label]) => (
+                <button
+                  key={key}
+                  id={`workspace-tab-${key}`}
+                  type="button"
+                  role="tab"
+                  aria-controls="workspace-detail-panel"
+                  aria-selected={activeDetail === key}
+                  className="workspace-tab"
+                  onClick={() => setActiveDetail(key)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div
+              id="workspace-detail-panel"
+              className="workspace-detail"
+              role="tabpanel"
+              aria-labelledby={`workspace-tab-${activeDetail}`}
+            >
+              {activeDetail === "forecast" && (
+                <ProjectedCashFlows rows={result.projected_free_cash_flows} forecastPath={result.forecast_path} />
+              )}
+
+              {activeDetail === "scenarios" && (
               <ValuationSpectrum
                 scenarios={result.scenarios}
                 valuationQuality={result.valuation_quality}
@@ -341,13 +367,17 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
                 selectedScenario={selectedScenario}
                 onSelectScenario={setSelectedScenario}
               />
+              )}
 
+              {activeDetail === "sensitivity" && (
               <SensitivityMatrix
                 matrix={result.sensitivity}
                 marketPrice={result.valuation_quality.allows_market_comparison ? result.current_price : null}
                 comparisonWithheld={!result.valuation_quality.allows_market_comparison}
               />
+              )}
 
+              {activeDetail === "comparison" && (
               <SectorRelativeValuation
                 ticker={result.ticker}
                 sector={result.sector}
@@ -356,10 +386,9 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
                 sectorMedianUnavailableCode={result.sector_median_unavailable_code}
                 sectorMedianSnapshot={result.sector_median_snapshot}
               />
+              )}
 
-              <ProjectedCashFlows rows={result.projected_free_cash_flows} forecastPath={result.forecast_path} />
-
-              <AssumptionsBridge result={result} />
+              {activeDetail === "assumptions" && <AssumptionsBridge result={result} />}
             </div>
           </div>
         )}

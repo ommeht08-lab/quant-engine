@@ -43,7 +43,7 @@ export default function SearchBar({ className }: SearchBarProps) {
         autoComplete="off"
         spellCheck={false}
         aria-label="Ticker symbol — opens tear sheet"
-        className="input-field w-full py-2 pl-9 pr-3 font-mono text-xs tracking-wide"
+        className="input-field w-full py-2 pl-9 pr-3 text-xs font-medium tracking-wide tabular-nums"
       />
     </form>
   );
