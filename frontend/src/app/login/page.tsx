@@ -1,10 +1,20 @@
 "use client";
 
-import { useActionState } from "react";
+import { Suspense, useActionState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { login, type LoginState } from "./actions";
 
 const initialState: LoginState = {};
+
+// `next` is read client-side purely to echo it back as a hidden form
+// field — `actions.ts#login` is what actually validates it
+// (`safeInternalRedirectPath`) before ever redirecting anywhere; this
+// component makes no trust decision of its own.
+function NextDestinationField() {
+  const searchParams = useSearchParams();
+  return <input type="hidden" name="next" value={searchParams.get("next") ?? ""} />;
+}
 
 export default function LoginPage() {
   const [state, formAction, pending] = useActionState(login, initialState);
@@ -60,6 +70,9 @@ export default function LoginPage() {
           </p>
 
           <form action={formAction} className="mt-9 flex flex-col gap-4">
+            <Suspense fallback={null}>
+              <NextDestinationField />
+            </Suspense>
             <div>
               <label htmlFor="dashboard-password" className="data-label mb-2 block text-[var(--paper-dim)]">
                 Dashboard passphrase

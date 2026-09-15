@@ -6,17 +6,32 @@ import { usePathname } from "next/navigation";
 
 import SearchBar from "@/components/SearchBar";
 import { isPublicRoute } from "@/lib/public-route";
+import { DEFAULT_OVERVIEW_PATH } from "@/lib/default-route";
 
-const NAV_ITEMS = [
-  { href: "/", label: "Valuation" },
+interface NavItemConfig {
+  href: string;
+  label: string;
+  /**
+   * Defaults to `href` — set this when a nav item's active state
+   * should span a whole section rather than just the one page it links
+   * to. Overview links to the default ticker but must stay highlighted
+   * on every `/overview/{ticker}`, not only `/overview/MSFT`.
+   */
+  activePrefix?: string;
+}
+
+const NAV_ITEMS: NavItemConfig[] = [
+  { href: DEFAULT_OVERVIEW_PATH, label: "Overview", activePrefix: "/overview" },
+  { href: "/workspace", label: "Valuation" },
   { href: "/portfolio", label: "Portfolio" },
   { href: "/backtests", label: "Backtests" },
   { href: "/trades", label: "Trades" },
 ];
 
-function NavLink({ href, label }: { href: string; label: string }) {
+function NavLink({ href, label, activePrefix }: NavItemConfig) {
   const pathname = usePathname();
-  const active = href === "/" ? pathname === href : pathname.startsWith(href);
+  const prefix = activePrefix ?? href;
+  const active = pathname === prefix || pathname.startsWith(`${prefix}/`);
 
   return (
     <Link href={href} className="nav-link" aria-current={active ? "page" : undefined}>
@@ -34,7 +49,7 @@ export default function AppHeader() {
   return (
     <header className="app-header">
       <div className="shell-container flex flex-wrap items-center gap-x-4 gap-y-2 py-2.5">
-        <Link href="/workspace" className="brand-lockup" aria-label="Valuation Engine workspace home">
+        <Link href={DEFAULT_OVERVIEW_PATH} className="brand-lockup" aria-label="Valuation Engine overview home">
           <span className="brand-mark" aria-hidden="true">OM</span>
           <span>
             <strong>Valuation Engine</strong>
@@ -47,7 +62,7 @@ export default function AppHeader() {
           aria-label="Primary navigation"
         >
           {NAV_ITEMS.map((item) => (
-            <NavLink key={item.href} href={item.href} label={item.label} />
+            <NavLink key={item.href} href={item.href} label={item.label} activePrefix={item.activePrefix} />
           ))}
         </nav>
 
