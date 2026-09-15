@@ -1,5 +1,5 @@
 .chrome { --sidebar-width: 232px; --topbar-height: 72px; }
-.sidebar { position: fixed; inset: 0 auto 0 0; z-index: 50; width: var(--sidebar-width); display: flex; flex-direction: column; padding: 26px 18px 20px; background: #111418; color: #f7f8fa; border-right: 1px solid #252a31; }
+.sidebar { position: fixed; inset: 0 auto 0 0; z-index: 50; width: var(--sidebar-width); display: flex; flex-direction: column; padding: 26px 18px 20px; background: #0c0f12; color: #f7f8fa; border-right: 1px solid #20252c; }
 .brand { display: flex; align-items: center; gap: 11px; min-height: 44px; color: white; }
 .brandMark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 9px; background: #4968f2; color: white; font: 700 15px/1 var(--font-instrument-sans); }
 .brand strong, .brand small { display: block; }
@@ -9,8 +9,8 @@
 .nav { display: grid; gap: 5px; }
 .navLink { display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 12px; border-radius: 8px; color: #98a1af; font-size: 13px; font-weight: 500; transition: background 140ms ease, color 140ms ease; }
 .navLink svg { width: 18px; height: 18px; flex: none; }
-.navLink:hover { background: #191e25; color: white; }
-.navLink[aria-current="page"] { background: #202632; color: white; box-shadow: inset 3px 0 #5c78ff; }
+.navLink:hover { background: #171b21; color: white; }
+.navLink[aria-current="page"] { background: #1c2230; color: white; box-shadow: inset 3px 0 #5c78ff; }
 .sidebarFooter { margin-top: auto; display: grid; gap: 14px; }
 .systemStatus { display: flex; align-items: flex-start; gap: 9px; padding: 13px; border: 1px solid #2a3038; border-radius: 10px; background: #171b21; }
 .systemStatus > span { width: 7px; height: 7px; margin-top: 4px; border-radius: 50%; background: #26c281; box-shadow: 0 0 0 3px rgba(38,194,129,.12); }

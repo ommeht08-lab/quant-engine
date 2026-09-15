@@ -55,7 +55,7 @@ export default function AppHeader() {
       <aside className={styles.sidebar}>
         <Link href={DEFAULT_OVERVIEW_PATH} className={styles.brand} aria-label="Valuation Engine overview home">
           <span className={styles.brandMark}>V</span>
-          <span><strong>Valuation</strong><small>Research engine</small></span>
+          <span><strong>Valuation Engine</strong><small>Equity research</small></span>
         </Link>
 
         <p className={styles.navLabel}>Research</p>
@@ -75,7 +75,7 @@ export default function AppHeader() {
       </aside>
 
       <header className={styles.topbar}>
-        <div className={styles.mobileBrand}><span className={styles.brandMark}>V</span><strong>Valuation</strong></div>
+        <div className={styles.mobileBrand}><span className={styles.brandMark}>V</span><strong>Valuation Engine</strong></div>
         <SearchBar className={styles.search} />
         <div className={styles.topMeta}><span className={styles.liveDot} />Live research</div>
       </header>

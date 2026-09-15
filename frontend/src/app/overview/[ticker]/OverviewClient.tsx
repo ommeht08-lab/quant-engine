@@ -61,6 +61,14 @@ interface OverviewClientProps {
   initialTicker: string;
 }
 
+const QUICK_TICKERS = [
+  { ticker: "MSFT", company: "Microsoft" },
+  { ticker: "AAPL", company: "Apple" },
+  { ticker: "CAT", company: "Caterpillar" },
+  { ticker: "INTC", company: "Intel" },
+  { ticker: "VZ", company: "Verizon" },
+] as const;
+
 function TrendGlyph({ positive }: { positive: boolean }) {
   return <span aria-hidden="true">{positive ? "↗" : "↘"}</span>;
 }
@@ -171,6 +179,21 @@ export default function OverviewClient({ initialTicker }: OverviewClientProps) {
             </div>
           </form>
         </header>
+
+        <nav className={styles.tickerStrip} aria-label="Quick company selection">
+          <span>Coverage</span>
+          {QUICK_TICKERS.map(({ ticker, company }) => (
+            <button
+              key={ticker}
+              type="button"
+              aria-current={initialTicker === ticker ? "page" : undefined}
+              onClick={() => router.push(`/overview/${ticker}`)}
+            >
+              <strong>{ticker}</strong>
+              <small>{company}</small>
+            </button>
+          ))}
+        </nav>
 
         {error && (
           <div className={errorBannerTone(error.kind) === "warning" ? "status-warning" : "status-error"} role="alert">
