@@ -4,245 +4,319 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
-import type { ValuationRequestError } from "@/lib/valuation-errors";
-import { overviewRouteForTicker } from "@/lib/overview-response";
-import { fetchLiveResearchOverview } from "@/lib/overview-fetch";
-import type { ResearchOverviewViewModel } from "@/lib/research-overview-view-model";
-import ResearchShell, { type ResearchNavItem } from "@/components/research/ResearchShell";
-import ResearchOverviewContent from "@/components/research/ResearchOverviewContent";
-import styles from "@/components/research/FlagshipResearchPrototype.module.css";
+import AssumptionsBridge from "@/components/valuation/AssumptionsBridge";
+import ProjectedCashFlows, { type FreeCashFlowYear } from "@/components/valuation/ProjectedCashFlows";
+import SectorRelativeValuation, { type SectorMedianSnapshot } from "@/components/valuation/SectorRelativeValuation";
+import SensitivityMatrix, { type DCFSensitivityMatrix } from "@/components/valuation/SensitivityMatrix";
+import ThesisRail from "@/components/valuation/ThesisRail";
+import ValuationSpectrum, { type CaseKey, type DCFScenarioSet } from "@/components/valuation/ValuationSpectrum";
+import { formatPercent, formatPreciseCurrency } from "@/components/valuation/format";
+import { defaultInteractiveEvaluationParams } from "@/lib/evaluation-request-policy";
+import { overviewRouteForTicker, resolveMarginOfSafetyDisplay } from "@/lib/overview-response";
+import type { SectorMedianUnavailableCode } from "@/lib/sector-median-copy";
+import { valuationErrorFromResponse, type ValuationRequestError } from "@/lib/valuation-errors";
+import { errorBannerHeadline, errorBannerTone, resolveWorkspaceResultState } from "@/lib/valuation-state-copy";
+import { qualityIssueCopy, scenarioDisplayLabel, type ValuationQuality } from "@/lib/valuation-quality";
+import styles from "./OverviewDashboard.module.css";
 
-// If a request is still pending past this, the UI says so explicitly
-// rather than leaving the operator to wonder whether it is broken.
-const PENDING_NOTICE_DELAY_MS = 6000;
+interface OverviewEvaluationResponse {
+  ticker: string;
+  current_price: number | null;
+  wacc: number;
+  wacc_pre_clamp: number;
+  wacc_was_clamped: boolean;
+  enterprise_value: number;
+  equity_value: number;
+  intrinsic_value_per_share: number;
+  implies_negative_equity_value: boolean;
+  projected_free_cash_flows: FreeCashFlowYear[];
+  forecast_method: "constant" | "maturation";
+  forecast_path: {
+    year: number;
+    stage: "constant" | "near_term" | "maturation";
+    revenue_growth_rate: number;
+    operating_margin: number;
+  }[];
+  valuation_quality: ValuationQuality;
+  assumptions: {
+    revenue_growth_rate: number;
+    operating_margin: number;
+    terminal_growth_rate: number;
+    projection_years: number;
+  };
+  revenue_growth_rate_source: "historical" | "custom";
+  operating_margin_source: "historical" | "custom";
+  capex_pct_revenue: number;
+  capex_pct_revenue_source: "default" | "historical" | "fallback";
+  sector: string;
+  price_to_intrinsic_value: number | null;
+  sector_median_p_iv: number | null;
+  sector_median_unavailable_code: SectorMedianUnavailableCode | null;
+  sector_median_snapshot: SectorMedianSnapshot | null;
+  sensitivity: DCFSensitivityMatrix;
+  scenarios: DCFScenarioSet;
+}
 
 interface OverviewClientProps {
-  /** Already trimmed/uppercased by the server wrapper (`page.tsx`). */
   initialTicker: string;
 }
 
-type LoadState =
-  | { status: "loading" }
-  | { status: "ready"; viewModel: ResearchOverviewViewModel }
-  | { status: "error"; error: ValuationRequestError };
+const QUICK_TICKERS = [
+  { ticker: "MSFT", company: "Microsoft" },
+  { ticker: "AAPL", company: "Apple" },
+  { ticker: "CAT", company: "Caterpillar" },
+  { ticker: "INTC", company: "Intel" },
+  { ticker: "VZ", company: "Verizon" },
+] as const;
 
-function SkeletonBar({ className, style }: { className?: string; style?: React.CSSProperties }) {
-  return <span className={`${styles.skeletonBar} ${className ?? ""}`} style={style} aria-hidden="true" />;
+function TrendGlyph({ positive }: { positive: boolean }) {
+  return <span aria-hidden="true">{positive ? "↗" : "↘"}</span>;
 }
-
-/**
- * Sized and positioned like the real overview it stands in for (same
- * caseIntro/summaryBand/primaryGrid containers) — not one oversized
- * blank rectangle, and nothing here implies content that will never
- * arrive is still "loading forever": `PendingNotice` below takes over
- * that message after a real delay.
- */
-function LoadingSkeleton() {
-  return (
-    <>
-      <section className={styles.caseIntro}>
-        <div>
-          <div className={styles.companyLine}>
-            <SkeletonBar className={styles.companyMonogram} />
-            <p><SkeletonBar style={{ display: "inline-block", width: "9rem", height: "0.85rem" }} /></p>
-          </div>
-          <SkeletonBar style={{ display: "block", width: "16rem", height: "2.4rem", marginTop: "0.3rem" }} />
-        </div>
-      </section>
-      <section className={styles.summaryBand} aria-hidden="true">
-        {["Market price", "Intrinsic value", "Margin of safety", "Data quality"].map((label) => (
-          <div key={label}>
-            <span>{label}</span>
-            <SkeletonBar style={{ display: "block", width: "5rem", height: "1.4rem", marginTop: "0.42rem" }} />
-          </div>
-        ))}
-      </section>
-      <section className={styles.primaryGrid}>
-        <article className={styles.chartPanel}>
-          <SkeletonBar style={{ display: "block", width: "10rem", height: "1rem" }} />
-          <SkeletonBar style={{ display: "block", width: "100%", height: "12rem", marginTop: "1rem" }} />
-        </article>
-        <aside className={styles.modelPanel}>
-          <SkeletonBar style={{ display: "block", width: "8rem", height: "1rem" }} />
-          {[0, 1, 2].map((row) => (
-            <SkeletonBar key={row} style={{ display: "block", width: "100%", height: "2.2rem", marginTop: "0.7rem" }} />
-          ))}
-        </aside>
-      </section>
-    </>
-  );
-}
-
-function PendingNotice() {
-  return (
-    <p className={styles.pendingNotice} role="status">
-      Still waiting on a response from the live valuation service — this can take a few seconds for a ticker with
-      more financial history to process.
-    </p>
-  );
-}
-
-function ErrorPanel({ error, onRetry }: { error: ValuationRequestError; onRetry: () => void }) {
-  return (
-    <div className={styles.errorBanner} role="alert">
-      <strong>
-        {error.kind === "unavailable" ? "Live valuation is not connected" : error.kind === "input" ? "Check the ticker" : "Valuation could not run"}
-      </strong>
-      <p>{error.message}</p>
-      <button type="button" className={styles.errorRetry} onClick={onRetry}>
-        Retry
-      </button>
-    </div>
-  );
-}
-
-const NAV_ICON_OVERVIEW = (
-  <svg aria-hidden="true" viewBox="0 0 24 24">
-    <rect x="3.5" y="3.5" width="6.5" height="6.5" rx="1.2" />
-    <rect x="14" y="3.5" width="6.5" height="6.5" rx="1.2" />
-    <rect x="3.5" y="14" width="6.5" height="6.5" rx="1.2" />
-    <rect x="14" y="14" width="6.5" height="6.5" rx="1.2" />
-  </svg>
-);
-const NAV_ICON_VALUATION = (
-  <svg aria-hidden="true" viewBox="0 0 24 24">
-    <circle cx="12" cy="12" r="8.5" />
-    <path d="M14.7 8.7c-.7-.6-1.5-.9-2.6-.9-1.5 0-2.5.7-2.5 1.8 0 2.8 5.2 1.4 5.2 4.4 0 1.2-1 2.1-2.7 2.1-1.2 0-2.2-.4-3-1.1M12 6.3v11.4" />
-  </svg>
-);
-const NAV_ICON_METHODOLOGY = (
-  <svg aria-hidden="true" viewBox="0 0 24 24">
-    <path d="M4.5 5.5c2.6-.8 5.1-.5 7.5 1.1v13c-2.4-1.6-4.9-1.9-7.5-1.1zM19.5 5.5c-2.6-.8-5.1-.5-7.5 1.1v13c2.4-1.6 4.9-1.9 7.5-1.1z" />
-  </svg>
-);
-
-// Live mode's own workflow nav is deliberately smaller than the
-// fixture's six items — Statements/Forecast/Evidence have no live
-// equivalent yet (see ResearchOverviewContent's own note on this same
-// point), and pointing them at the static AAPL sub-pages while viewing
-// a different ticker would be exactly the "relabeled as another
-// company's data" mistake this slice exists to avoid. Valuation goes to
-// the real, functional assumption-editing surface; Methodology is a
-// real, ticker-agnostic page.
-const LIVE_NAV_ITEMS: Omit<ResearchNavItem, "active">[] = [
-  { id: "overview", href: "/overview", label: "Overview", description: "Live case summary", icon: NAV_ICON_OVERVIEW },
-  { id: "valuation", href: "/workspace", label: "Valuation", description: "Edit assumptions", icon: NAV_ICON_VALUATION },
-  { id: "methodology", href: "/methodology", label: "Methodology", description: "Methods and limits", icon: NAV_ICON_METHODOLOGY },
-];
 
 export default function OverviewClient({ initialTicker }: OverviewClientProps) {
   const router = useRouter();
   const [tickerInput, setTickerInput] = useState(initialTicker);
-  const [state, setState] = useState<LoadState>({ status: "loading" });
-  const [retryToken, setRetryToken] = useState(0);
-  const [pendingLong, setPendingLong] = useState(false);
+  const [result, setResult] = useState<OverviewEvaluationResponse | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<ValuationRequestError | null>(null);
+  const [selectedScenario, setSelectedScenario] = useState<CaseKey>("base");
 
   useEffect(() => {
-    const controller = new AbortController();
-    let active = true;
-    // No synchronous setState here — this effect's job is to start a
-    // fetch and react to ITS result. The "loading" reset for a retry
-    // happens in handleRetry below (a real event handler, not this
-    // effect); the very first render already starts at
-    // {status:"loading"} via useState's own initial value, so nothing
-    // needs to re-assert it on mount either.
-    const pendingTimer = setTimeout(() => {
-      if (active) setPendingLong(true);
-    }, PENDING_NOTICE_DELAY_MS);
+    let cancelled = false;
 
-    fetchLiveResearchOverview(initialTicker, controller.signal).then((result) => {
-      clearTimeout(pendingTimer);
-      if (!active || result.status === "aborted") return;
-      setPendingLong(false);
-      if (result.status === "success") {
-        setState({ status: "ready", viewModel: result.viewModel });
-      } else {
-        setState({ status: "error", error: result.error });
+    async function run() {
+      setIsLoading(true);
+      setError(null);
+      try {
+        const response = await fetch(
+          `/api/evaluate/${encodeURIComponent(initialTicker)}?${defaultInteractiveEvaluationParams().toString()}`,
+        );
+        if (!response.ok) {
+          const body = await response.json().catch(() => null);
+          throw valuationErrorFromResponse(response.status, body);
+        }
+        const data: OverviewEvaluationResponse = await response.json();
+        if (
+          data.forecast_method !== "maturation" ||
+          !Array.isArray(data.forecast_path) ||
+          !Array.isArray(data.projected_free_cash_flows) ||
+          data.forecast_path.length !== data.projected_free_cash_flows.length ||
+          !data.sensitivity ||
+          !data.scenarios ||
+          !data.valuation_quality
+        ) {
+          throw {
+            kind: "unavailable",
+            message: "The valuation service returned an incomplete research result.",
+          } satisfies ValuationRequestError;
+        }
+        if (!cancelled) {
+          setResult(data);
+          setSelectedScenario("base");
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err && typeof err === "object" && "kind" in err && "message" in err
+              ? (err as ValuationRequestError)
+              : { kind: "unavailable", message: "The valuation service did not respond." },
+          );
+        }
+      } finally {
+        if (!cancelled) setIsLoading(false);
       }
-    });
+    }
 
-    return () => {
-      active = false;
-      controller.abort();
-      clearTimeout(pendingTimer);
-    };
-  }, [initialTicker, retryToken]);
+    run();
+    return () => { cancelled = true; };
+  }, [initialTicker]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const target = overviewRouteForTicker(tickerInput);
-    if (!target) return;
-    router.push(target);
+    if (target) router.push(target);
   }
 
-  const navItems: ResearchNavItem[] = LIVE_NAV_ITEMS.map((item) => ({
-    ...item,
-    href: item.id === "overview" ? overviewRouteForTicker(initialTicker) ?? "/overview" : item.href,
-    active: item.id === "overview",
-  }));
-
-  const tickerControl = (
-    <form className={styles.tickerForm} onSubmit={handleSubmit}>
-      <label htmlFor="overview-ticker" className="sr-only">
-        Ticker
-      </label>
-      <input
-        id="overview-ticker"
-        type="text"
-        value={tickerInput}
-        onChange={(event) => setTickerInput(event.target.value.toUpperCase())}
-        placeholder="AAPL"
-        maxLength={10}
-        autoComplete="off"
-        spellCheck={false}
-        className={styles.tickerInput}
-      />
-      <button type="submit" disabled={state.status === "loading"} className={styles.tickerSubmit}>
-        {state.status === "loading" ? "…" : "View"}
-      </button>
-    </form>
-  );
+  const resultState = resolveWorkspaceResultState({
+    hasResult: result !== null,
+    isLoading,
+    hasError: error !== null,
+  });
+  const selectedCase = result?.scenarios[selectedScenario] ?? null;
+  const selectedValue = selectedCase?.is_valid ? selectedCase.intrinsic_value_per_share : null;
+  const marginOfSafety = result && selectedValue !== null
+    ? resolveMarginOfSafetyDisplay({
+        currentPrice: result.current_price,
+        intrinsicValuePerShare: selectedValue,
+        allowsMarketComparison: result.valuation_quality.allows_market_comparison,
+      })
+    : null;
 
   return (
-    <ResearchShell
-      navItems={navItems}
-      sidebarStatusLabel={
-        state.status === "ready" ? "Live valuation loaded" : state.status === "error" ? "Live valuation unavailable" : "Loading live valuation…"
-      }
-      sidebarStatusDetail={initialTicker}
-      breadcrumbSection="Overview"
-      breadcrumbTicker={initialTicker}
-      breadcrumbViewLabel="Overview"
-      noticeText="Live staged valuation case · policy output, not a recommendation or price target"
-      utilityActions={tickerControl}
-      footer={<span>Figures come from the current valuation response and can change with source data and model assumptions.</span>}
-    >
-      {state.status === "loading" && (
-        <>
-          <p className="sr-only" role="status" aria-live="polite">
-            Fetching live valuation data for {initialTicker}…
-          </p>
-          <div className={styles.loadingStatus} aria-hidden="true">
-            <span className={styles.loadingSpinner} />
-            Loading {initialTicker}…
+    <main className={styles.dashboard}>
+      <div className={styles.content}>
+        <header className={styles.hero}>
+          <div>
+            <p className={styles.eyebrow}>Company research overview</p>
+            <h1>{result?.ticker ?? initialTicker} <span>valuation dashboard</span></h1>
+            <p>{result ? `${result.sector} · Five-year staged DCF` : "Loading the latest company financials and valuation case."}</p>
           </div>
-          {pendingLong && <PendingNotice />}
-          <LoadingSkeleton />
-        </>
-      )}
+          <form onSubmit={handleSubmit} className={styles.tickerForm}>
+            <label htmlFor="overview-ticker">Change company</label>
+            <div>
+              <input
+                id="overview-ticker"
+                value={tickerInput}
+                onChange={(event) => setTickerInput(event.target.value.toUpperCase())}
+                placeholder="AAPL"
+                maxLength={10}
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <button type="submit" disabled={isLoading}>
+                {isLoading ? <><span className="spinner" aria-hidden="true" />Updating</> : "Open"}
+              </button>
+            </div>
+          </form>
+        </header>
 
-      {state.status === "error" && (
-        <ErrorPanel
-          error={state.error}
-          onRetry={() => {
-            setState({ status: "loading" });
-            setPendingLong(false);
-            setRetryToken((token) => token + 1);
-          }}
-        />
-      )}
+        <nav className={styles.tickerStrip} aria-label="Quick company selection">
+          <span>Coverage</span>
+          {QUICK_TICKERS.map(({ ticker, company }) => (
+            <button
+              key={ticker}
+              type="button"
+              aria-current={initialTicker === ticker ? "page" : undefined}
+              onClick={() => router.push(`/overview/${ticker}`)}
+            >
+              <strong>{ticker}</strong>
+              <small>{company}</small>
+            </button>
+          ))}
+        </nav>
 
-      {state.status === "ready" && <ResearchOverviewContent viewModel={state.viewModel} />}
-    </ResearchShell>
+        {error && (
+          <div className={errorBannerTone(error.kind) === "warning" ? "status-warning" : "status-error"} role="alert">
+            <strong>{errorBannerHeadline(error.kind)}</strong>
+            <span>{error.message}</span>
+          </div>
+        )}
+
+        {resultState === "first-loading" && (
+          <div className={styles.loadingGrid} aria-hidden="true">
+            {[0, 1, 2, 3].map((key) => <div key={key} className="skeleton-block" />)}
+            <div className="skeleton-block" />
+            <div className="skeleton-block" />
+          </div>
+        )}
+        {resultState === "first-loading" && <p className="sr-only" role="status">Fetching financial statements and running the model…</p>}
+
+        {result && (
+          <div className={resultState === "ready" ? "result-enter" : ""} aria-busy={isLoading}>
+            <section className={styles.metrics} aria-label="Valuation summary">
+              <article className={styles.metricCard}>
+                <div className={styles.metricTop}><span>Market price</span><i className={styles.blue}>Live</i></div>
+                <strong>{result.current_price === null ? "Unavailable" : formatPreciseCurrency(result.current_price)}</strong>
+                <small>Observed equity price</small>
+              </article>
+              <article className={styles.metricCard}>
+                <div className={styles.metricTop}><span>{scenarioDisplayLabel(selectedScenario, result.valuation_quality)} value</span><i className={styles.violet}>DCF</i></div>
+                <strong>{selectedValue === null ? "Not computable" : formatPreciseCurrency(selectedValue)}</strong>
+                <small>Intrinsic value per share</small>
+              </article>
+              <article className={styles.metricCard}>
+                <div className={styles.metricTop}><span>Market gap</span><i className={marginOfSafety?.hasMarginOfSafety ? styles.green : styles.red}>Spread</i></div>
+                <strong className={marginOfSafety?.hasMarginOfSafety ? styles.positive : styles.negative}>
+                  {marginOfSafety?.deltaPct == null ? "Withheld" : <><TrendGlyph positive={marginOfSafety.deltaPct >= 0} /> {formatPercent(marginOfSafety.deltaPct)}</>}
+                </strong>
+                <small>{marginOfSafety?.label ?? "Comparison unavailable"}</small>
+              </article>
+              <article className={styles.metricCard}>
+                <div className={styles.metricTop}><span>Discount rate</span><i className={styles.cyan}>WACC</i></div>
+                <strong>{formatPercent(result.wacc, 2)}</strong>
+                <small>{result.wacc_was_clamped ? `Bound from ${formatPercent(result.wacc_pre_clamp, 2)}` : "Model-derived capital cost"}</small>
+              </article>
+            </section>
+
+            {(result.wacc_was_clamped || result.implies_negative_equity_value || result.valuation_quality.level !== "ordinary") && (
+              <section className={styles.alerts} aria-label="Model cautions">
+                {result.wacc_was_clamped && <p><strong>Discount-rate bound applied.</strong> The model uses {formatPercent(result.wacc, 2)} instead of {formatPercent(result.wacc_pre_clamp, 2)}.</p>}
+                {result.implies_negative_equity_value && <p><strong>Negative modeled equity.</strong> Treat this result as a distress diagnostic rather than a tradable share price.</p>}
+                {result.valuation_quality.level !== "ordinary" && (
+                  <div>
+                    <strong>{result.valuation_quality.level === "diagnostic_only" ? "Diagnostic model output." : "Interpretation caution."}</strong>
+                    <span> Market and peer comparisons are withheld.</span>
+                    <ul>{result.valuation_quality.codes.map((code) => <li key={code}>{qualityIssueCopy(code)}</li>)}</ul>
+                  </div>
+                )}
+              </section>
+            )}
+
+            <section className={styles.primaryGrid}>
+              <div className={styles.panel}>
+                <div className={styles.panelHeading}>
+                  <div><p>Scenario analysis</p><h2>Valuation spectrum</h2></div>
+                  <span>Bear · Base · Bull · Market</span>
+                </div>
+                <ValuationSpectrum
+                  scenarios={result.scenarios}
+                  valuationQuality={result.valuation_quality}
+                  marketPrice={result.current_price}
+                  selectedScenario={selectedScenario}
+                  onSelectScenario={setSelectedScenario}
+                />
+              </div>
+              <div className={styles.thesisPanel}>
+                <ThesisRail
+                  ticker={result.ticker}
+                  sector={result.sector}
+                  marketPrice={result.current_price}
+                  scenarios={result.scenarios}
+                  valuationQuality={result.valuation_quality}
+                  selectedScenario={selectedScenario}
+                  onSelectScenario={setSelectedScenario}
+                  isUpdating={isLoading}
+                />
+              </div>
+            </section>
+
+            <section className={styles.secondaryGrid}>
+              <div className={styles.panel}>
+                <div className={styles.panelHeading}><div><p>Range of outcomes</p><h2>DCF sensitivity</h2></div><span>WACC × terminal growth</span></div>
+                <SensitivityMatrix
+                  matrix={result.sensitivity}
+                  marketPrice={result.valuation_quality.allows_market_comparison ? result.current_price : null}
+                  comparisonWithheld={!result.valuation_quality.allows_market_comparison}
+                />
+              </div>
+              <div className={styles.panel}>
+                <div className={styles.panelHeading}><div><p>Relative context</p><h2>Sector comparison</h2></div></div>
+                <SectorRelativeValuation
+                  ticker={result.ticker}
+                  sector={result.sector}
+                  priceToIntrinsicValue={result.price_to_intrinsic_value}
+                  sectorMedianPIV={result.sector_median_p_iv}
+                  sectorMedianUnavailableCode={result.sector_median_unavailable_code}
+                  sectorMedianSnapshot={result.sector_median_snapshot}
+                />
+              </div>
+            </section>
+
+            <section className={styles.panel}>
+              <div className={styles.panelHeading}>
+                <div><p>Five-year operating path</p><h2>Projected free cash flow</h2></div>
+                <span>CapEx {formatPercent(result.capex_pct_revenue)} of revenue · {result.capex_pct_revenue_source}</span>
+              </div>
+              <ProjectedCashFlows rows={result.projected_free_cash_flows} forecastPath={result.forecast_path} />
+            </section>
+
+            <section className={styles.panel}>
+              <div className={styles.panelHeading}><div><p>Audit trail</p><h2>Assumptions and equity bridge</h2></div><span>Company history + policy inputs</span></div>
+              <AssumptionsBridge result={result} />
+            </section>
+          </div>
+        )}
+      </div>
+    </main>
   );
 }

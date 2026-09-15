@@ -4,9 +4,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 import type { ResearchCaseFixture, ResearchFactFixture } from "@/lib/research-fixture";
-import { fixtureToResearchOverviewViewModel } from "@/lib/research-overview-view-model";
-import ResearchShell, { type ResearchNavItem } from "./ResearchShell";
-import ResearchOverviewContent from "./ResearchOverviewContent";
 import styles from "./FlagshipResearchPrototype.module.css";
 
 const WORKFLOW = [
@@ -327,11 +324,28 @@ function ViewContent({
 }) {
   if (view === "overview") {
     return (
-      <ResearchOverviewContent
-        viewModel={fixtureToResearchOverviewViewModel(researchCase)}
-        revenueChart={<RevenuePanel researchCase={researchCase} />}
-        onInspectProvenance={() => onInspect(researchCase.facts[0])}
-      />
+      <>
+        <section className={styles.caseIntro}>
+          <div>
+            <div className={styles.companyLine}>
+              <span className={styles.companyMonogram} aria-hidden="true">A</span>
+              <p><strong>{researchCase.companyName}</strong><span>{researchCase.ticker} · NASDAQ · {researchCase.sector}</span></p>
+            </div>
+            <h1>Point-in-time valuation case</h1>
+            <p className={styles.caseDeck}>A five-year operating forecast and DCF built only from facts eligible by the selected knowledge cutoff.</p>
+          </div>
+          <div className={styles.cutoffBlock}>
+            <span>Knowledge cutoff</span>
+            <strong>{researchCase.knowledgeCutoff}</strong>
+            <button type="button" onClick={() => onInspect(researchCase.facts[0])}>Inspect filing provenance <ArrowIcon /></button>
+          </div>
+        </section>
+        <SummaryBand researchCase={researchCase} />
+        <section className={styles.primaryGrid}>
+          <RevenuePanel researchCase={researchCase} />
+          <ValuationPanel researchCase={researchCase} />
+        </section>
+      </>
     );
   }
 
@@ -439,49 +453,73 @@ export default function FlagshipResearchPrototype({
   view?: ResearchView;
 }) {
   const [selectedFact, setSelectedFact] = useState<ResearchFactFixture | null>(null);
+  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   const activeLabel = WORKFLOW.find((item) => item.id === view)?.label ?? "Overview";
 
-  const navItems: ResearchNavItem[] = WORKFLOW.map((item) => ({
-    id: item.id,
-    href: item.href,
-    label: item.label,
-    description: item.description,
-    icon: <WorkflowIcon name={item.id} />,
-    active: item.id === view,
-  }));
-
   return (
-    <>
-      <ResearchShell
-        backgroundHidden={selectedFact !== null}
-        navItems={navItems}
-        sidebarStatusLabel="Fixture artifact loaded"
-        sidebarStatusDetail={researchCase.artifactVersion}
-        breadcrumbSection="Research"
-        breadcrumbTicker={researchCase.ticker}
-        breadcrumbViewLabel={activeLabel}
-        noticeText="UI prototype · illustrative fixture data · no live valuation request"
-        utilityActions={
-          <>
+    <div className={styles.prototypeShell} data-research-shell>
+      <aside className={`${styles.sidebar} ${mobileNavigationOpen ? styles.sidebarOpen : ""}`} aria-hidden={selectedFact ? true : undefined}>
+        <div className={styles.brand}><span className={styles.brandMark} aria-hidden="true">VE</span><span><strong>Valuation Engine</strong><small>Research system</small></span></div>
+        <p className={styles.navEyebrow}>Research workflow</p>
+        <nav className={styles.workflowNav} aria-label="Research workflow">
+          {WORKFLOW.map((item) => (
+            <Link
+              key={item.id}
+              href={item.href}
+              prefetch
+              aria-current={item.id === view ? "page" : undefined}
+              className={item.id === view ? styles.activeNavItem : styles.navItem}
+              onClick={(event) => {
+                setMobileNavigationOpen(false);
+                if (item.id === view) event.preventDefault();
+              }}
+            >
+              <span className={styles.navIcon}><WorkflowIcon name={item.id} /></span>
+              <span className={styles.navCopy}><strong>{item.label}</strong><small>{item.description}</small></span>
+              <span className={styles.navArrow}><NavArrowIcon /></span>
+            </Link>
+          ))}
+        </nav>
+        <div className={styles.sidebarStatus}><span className={styles.verifiedDot} aria-hidden="true" /><div><strong>Fixture artifact loaded</strong><small>{researchCase.artifactVersion}</small></div></div>
+      </aside>
+
+      {mobileNavigationOpen && (
+        <button
+          type="button"
+          className={styles.navigationScrim}
+          aria-label="Close research navigation"
+          onClick={() => setMobileNavigationOpen(false)}
+        />
+      )}
+
+      <div className={styles.workspace} aria-hidden={selectedFact ? true : undefined}>
+        <header className={styles.utilityBar}>
+          <button type="button" className={styles.menuButton} aria-label="Toggle research navigation" aria-expanded={mobileNavigationOpen} onClick={() => setMobileNavigationOpen((open) => !open)}><span /><span /><span /></button>
+          <div className={styles.mobileBrand}>Valuation Engine</div>
+          <div className={styles.breadcrumb}><span>Research</span><b>/</b><span>{researchCase.ticker}</span><b>/</b>{activeLabel}</div>
+          <div className={styles.utilityActions}>
             <Link className={styles.evidenceLink} href="/research/aapl/evidence" prefetch>
               <SearchIcon />
               <span>Inspect evidence</span>
               <ArrowIcon />
             </Link>
             <Link className={styles.workspaceLink} href="/workspace" prefetch>Open workspace</Link>
-          </>
-        }
-        footer={
-          <>
+          </div>
+        </header>
+
+        <main className={styles.main}>
+          <div className={styles.prototypeNotice} role="note">UI prototype · illustrative fixture data · no live valuation request</div>
+          <div className={styles.viewContent}>
+            <ViewContent researchCase={researchCase} view={view} onInspect={setSelectedFact} />
+          </div>
+          <footer className={styles.footer}>
             <span>{researchCase.artifactVersion}</span>
             {view === "methodology" ? <Link href="/research/aapl" prefetch>Return to overview <ArrowIcon /></Link> : <Link href="/methodology" prefetch>Methodology & limitations <ArrowIcon /></Link>}
-          </>
-        }
-      >
-        <ViewContent researchCase={researchCase} view={view} onInspect={setSelectedFact} />
-      </ResearchShell>
+          </footer>
+        </main>
+      </div>
 
       {selectedFact && <AuditDrawer fact={selectedFact} onClose={() => setSelectedFact(null)} />}
-    </>
+    </div>
   );
 }
