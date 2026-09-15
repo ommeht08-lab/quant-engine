@@ -95,8 +95,8 @@ body:has([data-app-chrome]) {
   --instrument-text-dim: #9da9ba;
   --line: rgba(151, 164, 184, 0.16);
   --line-strong: rgba(151, 164, 184, 0.28);
-  --display: var(--font-outfit, "Outfit"), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --body: var(--font-outfit, "Outfit"), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --display: var(--font-instrument-sans, "Instrument Sans"), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --body: var(--font-plex-sans, "IBM Plex Sans"), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: #0c0f12;
 }
 
@@ -132,7 +132,7 @@ input {
 }
 
 .tabular-mono {
-  font-family: var(--utility);
+  font-family: var(--display);
   font-variant-numeric: tabular-nums;
 }
 
@@ -1182,8 +1182,8 @@ input {
    canvas; the remaining tools receive the same sidebar/topbar offsets
    without changing their internal layouts. */
 body:has([data-app-chrome]) > .page-shell {
-  padding-top: 72px;
-  padding-left: 232px;
+  padding-top: 64px;
+  padding-left: 188px;
   background: #0c0f12;
 }
 
@@ -1193,4 +1193,150 @@ body:has([data-app-chrome]) > .page-shell {
     padding-bottom: 72px;
     padding-left: 0;
   }
+}
+
+/* Compact research terminal -------------------------------------------------
+   The authenticated valuation workflow keeps the command surface, live chart,
+   and thesis in one visual field. Supporting schedules are tabs instead of a
+   long sequence of equally weighted panels. */
+body:has([data-app-chrome]) .shell-container {
+  width: min(100% - 48px, 1320px);
+}
+
+body:has([data-app-chrome]) .page-header {
+  margin-bottom: .85rem;
+  padding-block: 1rem .8rem;
+}
+
+body:has([data-app-chrome]) .display-title {
+  font-size: 1.25rem;
+  letter-spacing: -.025em;
+}
+
+body:has([data-app-chrome]) .page-deck {
+  max-width: 35rem;
+  font-size: .76rem;
+}
+
+body:has([data-app-chrome]) .run-bar {
+  gap: .75rem;
+  margin-bottom: .85rem;
+  padding-bottom: .85rem;
+}
+
+body:has([data-app-chrome]) .assumption-tray {
+  display: grid;
+  grid-template-columns: 108px minmax(0, 1fr);
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  padding: .65rem .85rem;
+  border-radius: 7px;
+  background: #10151b;
+}
+
+body:has([data-app-chrome]) .assumption-tray-label { margin: 0; }
+body:has([data-app-chrome]) .assumption-tray-fields { gap: .8rem 1.2rem; }
+body:has([data-app-chrome]) .numeric-slider-field label { font-size: .68rem; }
+body:has([data-app-chrome]) .numeric-slider-field .numeric-input {
+  font-family: var(--display);
+  font-variant-numeric: tabular-nums;
+}
+
+.workspace-results { display: grid; gap: 1rem; }
+.workspace-primary-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 1rem;
+  align-items: stretch;
+}
+
+.forecast-chart {
+  min-width: 0;
+  padding: 1.05rem 1.1rem .75rem;
+  border: 1px solid var(--instrument-edge);
+  border-radius: 10px;
+  background: #111720;
+  color: var(--instrument-text);
+}
+.forecast-chart-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.forecast-chart-heading h2 { margin-top: .18rem; font: 600 1rem/1.2 var(--display); letter-spacing: -.015em; }
+.forecast-chart-legend { display: flex; gap: .8rem; color: var(--instrument-text-dim); font-size: .66rem; }
+.forecast-chart-legend span { display: inline-flex; align-items: center; gap: .35rem; }
+.forecast-chart-legend i { display: block; width: .55rem; height: .55rem; border-radius: 2px; }
+.forecast-legend-revenue { background: #7890ff; }
+.forecast-legend-fcf { background: #35c997; }
+.forecast-chart-canvas { width: 100%; height: 270px; margin-top: .5rem; }
+.forecast-chart-note { margin-top: .25rem; color: var(--instrument-text-dim); font-size: .64rem; }
+.forecast-tooltip { min-width: 180px; border: 1px solid #354150; border-radius: 7px; background: #111720; padding: .7rem .8rem; box-shadow: 0 12px 28px rgba(0,0,0,.3); }
+.forecast-tooltip > p { margin-bottom: .5rem; color: #9eabc0; font-size: .63rem; text-transform: uppercase; letter-spacing: .06em; }
+.forecast-tooltip dl { display: grid; gap: .3rem; }
+.forecast-tooltip dl > div { display: flex; justify-content: space-between; gap: 1rem; font-size: .7rem; }
+.forecast-tooltip dt { color: #8995a7; }
+.forecast-tooltip dd { color: #f2f5f8; font-family: var(--display); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.workspace-primary-grid .thesis-rail { height: 100%; padding: 1.05rem 1.1rem .9rem; border-radius: 10px; box-shadow: none; }
+.workspace-primary-grid .thesis-rail-byline { margin-bottom: .75rem; }
+.workspace-primary-grid .thesis-rail-primary { padding-block: .65rem .75rem; }
+.workspace-primary-grid .thesis-rail-row { padding-block: .35rem; }
+.workspace-primary-grid .thesis-rail-value,
+.workspace-primary-grid .thesis-rail-delta,
+.workspace-primary-grid .thesis-rail-row-value,
+.workspace-primary-grid .thesis-rail-ticker {
+  font-family: var(--display);
+  font-variant-numeric: tabular-nums;
+}
+.workspace-primary-grid .thesis-rail-value { font-size: 1.75rem; }
+.workspace-primary-grid .thesis-rail-footnote { display: none; }
+
+.workspace-tabs {
+  display: flex;
+  gap: 1.25rem;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+  scrollbar-width: none;
+}
+.workspace-tab {
+  min-height: 40px;
+  border-bottom: 2px solid transparent;
+  color: var(--paper-dim);
+  font-size: .72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.workspace-tab:hover { color: var(--paper); }
+.workspace-tab[aria-selected="true"] { border-bottom-color: #6e86ff; color: var(--paper); }
+.workspace-detail { min-width: 0; }
+.workspace-detail > div > .section-title,
+.workspace-detail > .section-title { margin-top: 0; padding-top: 0; border-top: 0; }
+.workspace-detail .instrument-caption { margin-bottom: .85rem; }
+.workspace-detail .instrument-panel { padding: 1.1rem; border-radius: 9px; box-shadow: none; }
+
+body:has([data-app-chrome]) .status-warning { color: #e6bd76; background: rgba(146,64,14,.12); }
+body:has([data-app-chrome]) .status-error { color: #ff9c96; background: rgba(179,38,30,.12); }
+
+@media (max-width: 1050px) {
+  .workspace-primary-grid { grid-template-columns: minmax(0, 1fr) 270px; }
+}
+
+@media (max-width: 900px) {
+  .workspace-primary-grid { grid-template-columns: 1fr; }
+  .forecast-chart-canvas { height: 240px; }
+}
+
+@media (max-width: 820px) {
+  body:has([data-app-chrome]) .shell-container { width: min(100% - 28px, 1320px); }
+}
+
+@media (max-width: 640px) {
+  body:has([data-app-chrome]) .assumption-tray { grid-template-columns: 1fr; gap: .65rem; }
+  .workspace-tabs { gap: 1rem; }
+  .forecast-chart { padding-inline: .75rem; }
+  .forecast-chart-heading { flex-direction: column; }
+  .forecast-chart-canvas { height: 220px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .result-enter { animation: none; }
+  .skeleton-block::after, .spinner { animation: none; }
 }
