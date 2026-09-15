@@ -81,6 +81,23 @@ body:has([data-research-shell]) {
   overscroll-behavior-y: none;
 }
 
+body:has([data-app-chrome]) {
+  --ink: #0c0f12;
+  --ink-raised: #131820;
+  --ledger: #1b222c;
+  --paper: #f1f4f8;
+  --paper-muted: #a0aaba;
+  --paper-dim: #748093;
+  --instrument: #131820;
+  --instrument-raised: #18202a;
+  --instrument-edge: #2a3442;
+  --instrument-text: #f1f4f8;
+  --instrument-text-dim: #9da9ba;
+  --line: rgba(151, 164, 184, 0.16);
+  --line-strong: rgba(151, 164, 184, 0.28);
+  background: #0c0f12;
+}
+
 ::selection {
   background: rgba(49, 95, 229, 0.18);
   color: var(--paper);
@@ -1160,6 +1177,7 @@ input {
 body:has([data-app-chrome]) > .page-shell {
   padding-top: 72px;
   padding-left: 232px;
+  background: #0c0f12;
 }
 
 @media (max-width: 820px) {
