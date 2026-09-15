@@ -1153,3 +1153,19 @@ input {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Authenticated application chrome. The overview owns its dashboard
+   canvas; the remaining tools receive the same sidebar/topbar offsets
+   without changing their internal layouts. */
+body:has([data-app-chrome]) > .page-shell {
+  padding-top: 72px;
+  padding-left: 232px;
+}
+
+@media (max-width: 820px) {
+  body:has([data-app-chrome]) > .page-shell {
+    padding-top: 64px;
+    padding-bottom: 72px;
+    padding-left: 0;
+  }
+}
