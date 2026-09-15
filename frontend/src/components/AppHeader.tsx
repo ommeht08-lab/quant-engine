@@ -7,7 +7,6 @@ import { usePathname } from "next/navigation";
 import SearchBar from "@/components/SearchBar";
 import { isPublicRoute } from "@/lib/public-route";
 import { DEFAULT_OVERVIEW_PATH } from "@/lib/default-route";
-import { usesStandaloneResearchShell } from "@/lib/standalone-research-route";
 
 interface NavItemConfig {
   href: string;
@@ -45,7 +44,7 @@ export default function AppHeader() {
   const pathname = usePathname();
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
 
-  if (pathname === "/login" || isPublicRoute(pathname) || usesStandaloneResearchShell(pathname)) return null;
+  if (pathname === "/login" || isPublicRoute(pathname)) return null;
 
   return (
     <header className="app-header">
