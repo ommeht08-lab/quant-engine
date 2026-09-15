@@ -9,11 +9,15 @@ import { isPublicRoute, publicRedirectPath } from "@/lib/public-route";
  * `src/lib/auth.ts` for why a shared-passphrase session (rather than a
  * full auth library / user table) is the right scope here.
  *
- * `/` redirects to the public flagship research case. `/login`, curated
- * `/research/*` cases, and `/methodology` remain open; everything else
- * requires a valid session cookie. API routes get a 401 JSON response —
- * they're called from client-side `fetch()`, not navigated to — page
- * routes get redirected to `/login`.
+ * `/` redirects to the default live overview (`default-route.ts`) —
+ * itself session-protected, same as every other page not explicitly
+ * listed as public below. `/login`, curated `/research/*` cases, and
+ * `/methodology` remain open; everything else requires a valid session
+ * cookie. API routes get a 401 JSON response — they're called from
+ * client-side `fetch()`, not navigated to — page routes get redirected
+ * to `/login?next=<the page they were headed to>`, so a successful
+ * login can return them there (see `login/actions.ts`,
+ * `lib/safe-redirect.ts`) instead of always landing on the default.
  *
  * Per the Next.js docs' own caution, Proxy is an optimistic first line
  * of defense, not the only one: each private API route handler
@@ -56,6 +60,12 @@ export function proxy(request: NextRequest) {
   }
 
   const loginUrl = new URL("/login", request.url);
+  // `pathname` is THIS request's own path — never attacker-suppliable,
+  // never a cross-origin value — but the login action still validates
+  // it again on the way back out (`safeInternalRedirectPath`), since
+  // anyone can navigate straight to `/login?next=...` with any value at
+  // all, bypassing this proxy entirely.
+  loginUrl.searchParams.set("next", pathname);
   return NextResponse.redirect(loginUrl);
 }
 

@@ -16,6 +16,7 @@ import ProjectedCashFlows, { type FreeCashFlowYear } from "@/components/valuatio
 import AssumptionsBridge from "@/components/valuation/AssumptionsBridge";
 import type { SectorMedianUnavailableCode } from "@/lib/sector-median-copy";
 import { qualityIssueCopy, type ValuationQuality } from "@/lib/valuation-quality";
+import { DEFAULT_TERMINAL_GROWTH_RATE, STAGED_FORECAST_MODE } from "@/lib/evaluation-request-policy";
 
 interface EvaluationResponse {
   ticker: string;
@@ -69,7 +70,7 @@ export default function Home() {
   const [useCustomAssumptions, setUseCustomAssumptions] = useState(false);
   const [revenueGrowthRate, setRevenueGrowthRate] = useState(0.08);
   const [operatingMargin, setOperatingMargin] = useState(0.25);
-  const [terminalGrowthRate, setTerminalGrowthRate] = useState(0.025);
+  const [terminalGrowthRate, setTerminalGrowthRate] = useState(DEFAULT_TERMINAL_GROWTH_RATE);
 
   const [result, setResult] = useState<EvaluationResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -93,7 +94,7 @@ export default function Home() {
 
     try {
       const params = new URLSearchParams({
-        forecast_mode: "maturation",
+        forecast_mode: STAGED_FORECAST_MODE,
         terminal_growth_rate: String(terminalGrowthRate),
       });
       // Only send explicit growth/margin overrides in custom mode — in

@@ -101,7 +101,9 @@ cache-codec edge case identified on review); items 10–13 are a SECOND correcti
 gaps an adversarial read-only probe found in items 6 and 9's own fixes (an `OverflowError`
 leak in the cache codec, a loopback-hostname-canonicalization bypass in the destination
 validator, insufficiently strict secret-format checks, and test-claim precision for the
-Lua-based rate limiter).
+Lua-based rate limiter). Item 14 introduces a new authentication-adjacent boundary (the
+login return-destination) with its own adversarial hardening found and fixed during its own
+review, rather than correcting an earlier item.
 
 1. **Cache deserialization** (`src/utils/cache.py`) — replaced `pickle.loads(base64.b64decode(...))`
    with a versioned, schema-validated JSON envelope. See `tests/utils/test_cache.py` for the
@@ -246,6 +248,55 @@ Lua-based rate limiter).
     scope explicit rather than implicit. A real local-Redis integration test (actually running
     `INCREMENT_WITH_TTL_LUA` through `redis-server`'s own `EVAL`) remains optional future work,
     not something this offline pass could add (no real Redis contact permitted).
+
+14. **Login return-destination validation** (`frontend/src/lib/safe-redirect.ts`,
+    `frontend/src/proxy.ts`, `frontend/src/app/login/actions.ts`,
+    `frontend/src/app/login/page.tsx`) — `/` now resolves to the protected default live
+    overview (`DEFAULT_OVERVIEW_PATH` = `/overview/MSFT`, `frontend/src/lib/default-route.ts`)
+    rather than the public curated research case; visiting any protected route while
+    unauthenticated redirects to `/login?next=<pathname>` (`proxy.ts`), carrying ONLY the
+    originally-requested pathname — its query string and fragment are intentionally not
+    preserved, since no current route needs either restored through a login round-trip. The
+    hidden `next` form field (`login/page.tsx`) is populated client-side from the URL and
+    makes no trust decision of its own; `login/actions.ts#login` is the sole authoritative
+    validator, calling `safeInternalRedirectPath` (a `string | null` return, not a boolean
+    guard, so the caller redirects to exactly the value that was checked, never a raw value
+    that merely passed a check on some other representation of the same string) before ever
+    calling `redirect()`. The validator accepts only a bounded (≤512 character), same-origin,
+    single-leading-slash canonical path — proven by resolving it against a fixed marker
+    origin with `new URL()` and requiring the resulting `.origin` to be unchanged, rather than
+    trusting a hand-written regex to anticipate every parser quirk — and rejects: absolute
+    URLs and embedded schemes (e.g. `javascript:`), protocol-relative (`//host`) and
+    leading-backslash (`/\host`) network-path references, encoded and double-encoded
+    separator tricks (`%2f`, `%5c`, `%25`), control characters and whitespace (checked by
+    Unicode code point, not a regex character class — see below), malformed percent-encoding,
+    any query string or fragment, and any destination that percent-decodes to `/login`
+    (case-insensitively, trailing slash stripped). Any invalid, absent, or malicious value
+    falls back to `DEFAULT_OVERVIEW_PATH`. `PUBLIC_ROUTE_PREFIXES`
+    (`frontend/src/lib/public-route.ts`) is unchanged — `/overview/**` is not in it and
+    remains session-gated — and `/research/aapl` remains directly public at its own URL; only
+    `/`'s redirect target changed. This adds a boundary; it does not remove the passphrase
+    gate or create a bypass.
+
+    During review, an earlier version of the control-character check embedded raw NUL (0x00)
+    and Unit-Separator (0x1F) *bytes* directly in a regex literal instead of `\u`-escape
+    source text — a tooling artifact, not intent — which made git classify the entire file as
+    binary: `git diff`/`git diff --check` produced no output for it at all, so nothing about
+    it was ever actually code-reviewed via a normal diff despite being reported as verified.
+    Rewritten using numeric code-point comparison instead of a Unicode-escape regex, confirmed
+    byte-clean and text-diffable. See `frontend/src/lib/safe-redirect.test.ts` (adversarial,
+    table-driven: encoded/double-encoded separators, every `/login` variant, control
+    characters built with `String.fromCharCode` rather than escape sequences in the test
+    source itself, malformed percent-encoding, the length bound, query/fragment rejection) and
+    `frontend/src/lib/public-route.test.ts` (a redirect-chain-termination trace built from
+    `proxy.ts`'s own real dependencies).
+
+    **Known automated-test-coverage gap, consistent with §6 below:** these are pure-function
+    tests only. `proxy.ts`'s actual middleware HTTP redirect, `login/actions.ts`'s
+    server-action `redirect()` call, and `login/page.tsx`'s React form/`Suspense` behavior
+    have no automated HTTP or component-rendering harness — the same class of gap §6 already
+    notes for `/api/evaluate/[ticker]` and the tear-sheet page. Verified by source review and
+    isolated local browser QA instead.
 
 ## 6. Open items (explicitly not addressed in this pass)
 
