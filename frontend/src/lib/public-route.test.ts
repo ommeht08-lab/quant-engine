@@ -4,10 +4,11 @@ import test from "node:test";
 import { isPublicRoute, publicRedirectPath } from "./public-route.ts";
 import { DEFAULT_OVERVIEW_PATH } from "./default-route.ts";
 
-test("the root path redirects to the default live overview, not the curated public case", () => {
+test("the root path redirects to the research home page, not the curated public case", () => {
   assert.equal(publicRedirectPath("/"), DEFAULT_OVERVIEW_PATH);
-  assert.equal(publicRedirectPath("/"), "/overview/MSFT");
+  assert.equal(publicRedirectPath("/"), "/overview");
   assert.equal(publicRedirectPath("/workspace"), null);
+  assert.equal(publicRedirectPath("/overview"), null);
   assert.equal(publicRedirectPath("/overview/MSFT"), null);
   // The curated case is still a fixed direct URL, not a redirect target.
   assert.equal(publicRedirectPath("/research/aapl"), null);

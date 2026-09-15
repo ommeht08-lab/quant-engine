@@ -252,7 +252,7 @@ review, rather than correcting an earlier item.
 14. **Login return-destination validation** (`frontend/src/lib/safe-redirect.ts`,
     `frontend/src/proxy.ts`, `frontend/src/app/login/actions.ts`,
     `frontend/src/app/login/page.tsx`) — `/` now resolves to the protected default live
-    overview (`DEFAULT_OVERVIEW_PATH` = `/overview/MSFT`, `frontend/src/lib/default-route.ts`)
+    overview (`DEFAULT_OVERVIEW_PATH` = `/overview`, `frontend/src/lib/default-route.ts`)
     rather than the public curated research case; visiting any protected route while
     unauthenticated redirects to `/login?next=<pathname>` (`proxy.ts`), carrying ONLY the
     originally-requested pathname — its query string and fragment are intentionally not
