@@ -95,7 +95,14 @@ body:has([data-app-chrome]) {
   --instrument-text-dim: #9da9ba;
   --line: rgba(151, 164, 184, 0.16);
   --line-strong: rgba(151, 164, 184, 0.28);
+  --display: var(--font-outfit, "Outfit"), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --body: var(--font-outfit, "Outfit"), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   background: #0c0f12;
+}
+
+body:has([data-app-chrome]) :is(.eyebrow, .data-label, .panel-kicker, .assumption-tray-label, .data-table th) {
+  font-family: var(--body);
+  letter-spacing: 0.07em;
 }
 
 ::selection {
