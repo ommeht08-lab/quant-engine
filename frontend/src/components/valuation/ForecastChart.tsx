@@ -53,8 +53,8 @@ export default function ForecastChart({ rows, forecastPath }: ForecastChartProps
     <section className="forecast-chart" aria-labelledby="forecast-chart-title">
       <div className="forecast-chart-heading">
         <div>
-          <p className="panel-kicker">Base case · five years</p>
           <h2 id="forecast-chart-title">Operating forecast</h2>
+          <p className="forecast-chart-subtitle">Base case · five-year operating path</p>
         </div>
         <div className="forecast-chart-legend" aria-label="Chart legend">
           <span><i className="forecast-legend-revenue" />Revenue</span>
@@ -65,24 +65,18 @@ export default function ForecastChart({ rows, forecastPath }: ForecastChartProps
       <div className="forecast-chart-canvas">
         <ResponsiveContainer width="100%" height="100%">
           <ComposedChart data={data} margin={{ top: 10, right: 8, bottom: 0, left: 0 }}>
-            <defs>
-              <linearGradient id="revenueFill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#6f86ff" stopOpacity={0.28} />
-                <stop offset="100%" stopColor="#6f86ff" stopOpacity={0.02} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid stroke="rgba(151,164,184,.12)" vertical={false} />
+            <CartesianGrid stroke="rgba(16,24,40,.08)" vertical={false} />
             <XAxis
               dataKey="year"
               tickFormatter={(year: number) => `Y${year}`}
-              tick={{ fill: "#8490a1", fontSize: 11 }}
+              tick={{ fill: "#667085", fontSize: 11 }}
               tickLine={false}
-              axisLine={{ stroke: "rgba(151,164,184,.18)" }}
+              axisLine={{ stroke: "rgba(16,24,40,.12)" }}
             />
             <YAxis
               yAxisId="revenue"
               tickFormatter={(value: number) => formatCompactCurrency(value)}
-              tick={{ fill: "#8490a1", fontSize: 10 }}
+              tick={{ fill: "#667085", fontSize: 10 }}
               tickLine={false}
               axisLine={false}
               width={66}
@@ -91,26 +85,26 @@ export default function ForecastChart({ rows, forecastPath }: ForecastChartProps
               yAxisId="fcf"
               orientation="right"
               tickFormatter={(value: number) => formatCompactCurrency(value)}
-              tick={{ fill: "#8490a1", fontSize: 10 }}
+              tick={{ fill: "#667085", fontSize: 10 }}
               tickLine={false}
               axisLine={false}
               width={66}
             />
-            <Tooltip content={(props) => <ForecastTooltip {...props} />} cursor={{ fill: "rgba(111,134,255,.05)" }} />
+            <Tooltip content={(props) => <ForecastTooltip {...props} />} cursor={{ fill: "rgba(70,95,255,.05)" }} />
             <Area
               yAxisId="revenue"
               type="monotone"
               dataKey="revenue"
-              stroke="#7890ff"
+              stroke="#3448d8"
               strokeWidth={2.25}
-              fill="url(#revenueFill)"
-              activeDot={{ r: 4, fill: "#9bacff", stroke: "#0f141b", strokeWidth: 2 }}
+              fill="#eef1ff"
+              activeDot={{ r: 4, fill: "#3448d8", stroke: "#ffffff", strokeWidth: 2 }}
             />
             <Bar
               yAxisId="fcf"
               dataKey="fcf"
-              fill="#35c997"
-              opacity={0.72}
+              fill="#7c8db5"
+              opacity={0.78}
               radius={[3, 3, 0, 0]}
               barSize={24}
             />

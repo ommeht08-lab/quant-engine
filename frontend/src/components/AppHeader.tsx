@@ -77,7 +77,7 @@ export default function AppHeader() {
       <header className={styles.topbar}>
         <div className={styles.mobileBrand}><span className={styles.brandMark}>V</span><strong>Valuation Engine</strong></div>
         <SearchBar className={styles.search} />
-        <div className={styles.topMeta}><span className={styles.liveDot} />Live research</div>
+        <div className={styles.topMeta}><span className={styles.liveDot} />Research workspace</div>
       </header>
 
       <nav className={styles.mobileNav} aria-label="Mobile navigation">

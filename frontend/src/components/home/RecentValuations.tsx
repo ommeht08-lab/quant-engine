@@ -79,8 +79,8 @@ export default function RecentValuations({ entries, styles }: RecentValuationsPr
     <div className={styles.panel}>
       <div className={styles.panelHeading}>
         <div>
-          <p>Saved in this browser</p>
           <h2>Recent valuations</h2>
+          <p>Saved privately in this browser</p>
         </div>
         <span>{entries.length} of 12 kept</span>
       </div>

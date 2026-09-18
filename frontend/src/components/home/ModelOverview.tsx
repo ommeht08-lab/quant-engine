@@ -16,8 +16,8 @@ export default function ModelOverview({ styles }: ModelOverviewProps) {
   return (
     <section className={styles.modelStrip} aria-labelledby="model-strip-title">
       <div className={styles.modelStripHeading}>
-        <p>Model in brief</p>
         <h2 id="model-strip-title">From company history to intrinsic value</h2>
+        <p>Three stages · one auditable chain</p>
       </div>
 
       <ol className={styles.modelSteps}>

@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import MarketBrief, { type MarketBriefStatus } from "@/components/home/MarketBrief";
+import HomeMetricCard from "@/components/home/HomeMetricCard";
 import ModelOverview from "@/components/home/ModelOverview";
 import RecentValuations from "@/components/home/RecentValuations";
 import { formatPercent, formatPreciseCurrency } from "@/components/valuation/format";
@@ -59,16 +60,13 @@ export default function ResearchHomeClient() {
   }
 
   const marketGap = mostRecent?.marketGapPct ?? null;
-  const hasMacro = sentiment?.macro.treasury10y != null || sentiment?.macro.vix != null;
-
   return (
     <main className={styles.home}>
       <div className={styles.content}>
         <header className={styles.hero}>
           <div className={styles.heroCopy}>
-            <p className={styles.eyebrow}>Research home</p>
             <h1>Your valuation desk</h1>
-            <p>Run a company through the staged DCF, revisit recent work, and scan the market context around it.</p>
+            <p>Run a staged DCF, recover recent work, and keep market context close to the model.</p>
           </div>
 
           <form onSubmit={handleValuationSubmit} className={styles.quickRun}>
@@ -88,35 +86,11 @@ export default function ResearchHomeClient() {
           </form>
         </header>
 
-        <section className={styles.researchTape} aria-label="Research summary">
-          <div className={styles.tapeLead}>
-            <span>Latest run</span>
-            <strong>{history === null ? "Loading" : mostRecent?.ticker ?? "No runs"}</strong>
-          </div>
-          <div>
-            <span>Base value</span>
-            <strong>{mostRecent?.baseIntrinsicValuePerShare == null ? "—" : formatPreciseCurrency(mostRecent.baseIntrinsicValuePerShare)}</strong>
-          </div>
-          <div>
-            <span>Market gap</span>
-            <strong className={marketGap == null ? undefined : marketGap >= 0 ? styles.positive : styles.negative}>
-              {marketGap == null ? "—" : formatPercent(marketGap)}
-            </strong>
-          </div>
-          <div>
-            <span>Saved runs</span>
-            <strong>{history === null ? "—" : history.length}</strong>
-          </div>
-          {hasMacro && (
-            <div className={styles.tapeMacro}>
-              <span>Market context</span>
-              <strong>
-                {sentiment?.macro.treasury10y != null ? `10Y ${(sentiment.macro.treasury10y * 100).toFixed(2)}%` : ""}
-                {sentiment?.macro.treasury10y != null && sentiment?.macro.vix != null ? " · " : ""}
-                {sentiment?.macro.vix != null ? `VIX ${sentiment.macro.vix.toFixed(1)}` : ""}
-              </strong>
-            </div>
-          )}
+        <section className={styles.metricGrid} aria-label="Research summary">
+          <HomeMetricCard label="Latest company" tag="Local" value={history === null ? "Loading" : mostRecent?.ticker ?? "No runs"} sublabel="Most recent valuation saved in this browser" cardClassName={styles.metricCard} tagClassName={styles.metricTagLocal} />
+          <HomeMetricCard label="Base intrinsic value" tag="DCF" value={mostRecent?.baseIntrinsicValuePerShare == null ? "—" : formatPreciseCurrency(mostRecent.baseIntrinsicValuePerShare)} sublabel="Per-share value from the latest base case" cardClassName={styles.metricCard} tagClassName={styles.metricTagModel} />
+          <HomeMetricCard label="Market gap" tag="Vs price" value={marketGap == null ? "—" : formatPercent(marketGap)} sublabel="Intrinsic value relative to observed market price" cardClassName={styles.metricCard} tagClassName={styles.metricTagMarket} valueClassName={marketGap == null ? undefined : marketGap >= 0 ? styles.positive : styles.negative} />
+          <HomeMetricCard label="Saved analyses" tag="Browser" value={history === null ? "—" : String(history.length)} sublabel="Private to this browser · up to 12 retained" cardClassName={styles.metricCard} tagClassName={styles.metricTagLocal} />
         </section>
 
         <section className={styles.mainGrid}>

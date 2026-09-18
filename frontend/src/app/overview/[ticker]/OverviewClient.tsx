@@ -273,6 +273,8 @@ export default function OverviewClient({ initialTicker }: OverviewClientProps) {
                   marketPrice={result.current_price}
                   scenarios={result.scenarios}
                   valuationQuality={result.valuation_quality}
+                  revenueGrowthSource={result.revenue_growth_rate_source}
+                  operatingMarginSource={result.operating_margin_source}
                   selectedScenario={selectedScenario}
                   onSelectScenario={setSelectedScenario}
                   isUpdating={isLoading}

@@ -26,22 +26,25 @@ function formatHeadlineTime(publishedAt: string | null): string | null {
  * endpoint and the existing headline-link sanitizer; this component owns
  * no fetching of its own and adds no second news provider.
  *
- * The 10-Year Treasury yield and VIX that same endpoint also returns are
- * deliberately NOT repeated here — they're already the two "Live" summary
- * cards at the top of the home page (`ResearchHomeClient`), and showing
- * the identical two numbers a second time here would only inflate macro
- * context's visual weight against the page's actual subject: valuation
- * activity. This panel is headlines only.
+ * Treasury yield and VIX stay compact context alongside the headlines;
+ * neither is a model input.
  */
 export default function MarketBrief({ ticker, status, sentiment, styles }: MarketBriefProps) {
   return (
     <div className={styles.panel}>
       <div className={styles.panelHeading}>
         <div>
-          <p>Supplemental, not a model input</p>
           <h2>Recent headlines — {ticker}</h2>
+          <p>Supplemental context · never a model input</p>
         </div>
       </div>
+
+      {status === "ready" && sentiment && (sentiment.macro.treasury10y != null || sentiment.macro.vix != null) && (
+        <div className={styles.macroGrid}>
+          <div><span>10-year Treasury</span><strong>{sentiment.macro.treasury10y == null ? "—" : `${(sentiment.macro.treasury10y * 100).toFixed(2)}%`}</strong></div>
+          <div><span>VIX</span><strong>{sentiment.macro.vix == null ? "—" : sentiment.macro.vix.toFixed(1)}</strong></div>
+        </div>
+      )}
 
       {status === "loading" && <p className={styles.briefStatusNote}>Loading headlines…</p>}
 

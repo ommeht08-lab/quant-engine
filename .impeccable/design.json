@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-18T00:00:00-04:00",
+  "title": "Design System: Valuation Engine",
+  "extensions": {
+    "colorMeta": {
+      "cobalt": { "role": "primary", "displayName": "Research Cobalt", "canonical": "#3448d8", "tonalRamp": ["oklch(18% 0.10 275)", "oklch(28% 0.14 275)", "oklch(38% 0.18 275)", "oklch(48% 0.21 275)", "#3448d8", "oklch(65% 0.19 275)", "oklch(78% 0.12 275)", "oklch(93% 0.04 275)"] },
+      "cobalt-field": { "role": "neutral", "displayName": "Pale Cobalt Field", "canonical": "#eef1ff", "tonalRamp": ["oklch(22% 0.06 275)", "oklch(34% 0.09 275)", "oklch(46% 0.12 275)", "oklch(58% 0.13 275)", "oklch(70% 0.10 275)", "oklch(82% 0.07 275)", "#eef1ff", "oklch(97% 0.02 275)"] },
+      "canvas": { "role": "neutral", "displayName": "Mineral Canvas", "canonical": "#f6f8fc", "tonalRamp": ["oklch(18% 0.01 260)", "oklch(30% 0.01 260)", "oklch(43% 0.01 260)", "oklch(56% 0.01 260)", "oklch(69% 0.01 260)", "oklch(80% 0.01 260)", "#f6f8fc", "oklch(98% 0.005 260)"] },
+      "ink": { "role": "neutral", "displayName": "Navy Ink", "canonical": "#101828", "tonalRamp": ["#101828", "oklch(25% 0.03 260)", "oklch(35% 0.03 260)", "oklch(45% 0.025 260)", "oklch(58% 0.02 260)", "oklch(70% 0.015 260)", "oklch(84% 0.01 260)", "oklch(96% 0.005 260)"] },
+      "success": { "role": "secondary", "displayName": "Verified Green", "canonical": "#027a48", "tonalRamp": ["oklch(18% 0.05 155)", "oklch(28% 0.08 155)", "#027a48", "oklch(50% 0.13 155)", "oklch(62% 0.13 155)", "oklch(75% 0.10 155)", "oklch(87% 0.06 155)", "oklch(96% 0.02 155)"] },
+      "warning": { "role": "tertiary", "displayName": "Caution Brass", "canonical": "#b54708", "tonalRamp": ["oklch(18% 0.05 55)", "oklch(28% 0.08 55)", "oklch(38% 0.11 55)", "#b54708", "oklch(62% 0.15 55)", "oklch(75% 0.11 55)", "oklch(87% 0.07 55)", "oklch(96% 0.03 55)"] },
+      "danger": { "role": "tertiary", "displayName": "Signal Red", "canonical": "#d92d20", "tonalRamp": ["oklch(18% 0.06 30)", "oklch(28% 0.10 30)", "oklch(40% 0.15 30)", "#d92d20", "oklch(62% 0.19 30)", "oklch(75% 0.14 30)", "oklch(87% 0.08 30)", "oklch(96% 0.03 30)"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Compact Decision Display", "purpose": "Page, section, and panel headings; select high-value figures." },
+      "body": { "displayName": "Operational Body", "purpose": "Navigation, explanatory copy, labels, and state messages." },
+      "utility": { "displayName": "Auditable Mono", "purpose": "Tickers, financial values, percentage figures, provenance, and compact data labels." }
+    },
+    "shadows": [
+      { "name": "brand-lift", "value": "0 4px 10px rgba(52,72,216,.2)", "purpose": "Small lift for the Valuation Engine brand mark." },
+      { "name": "selected-control", "value": "0 1px 2px rgba(21,28,38,.1)", "purpose": "Reserved lift for the selected mode segment." },
+      { "name": "forecast-tooltip", "value": "0 12px 28px rgba(16,24,40,.12)", "purpose": "Brief contextual elevation for the forecast tooltip." }
+    ],
+    "motion": [
+      { "name": "control-state", "value": "120ms ease", "purpose": "Hover, border, color, and press responses on controls." },
+      { "name": "selector-state", "value": "150ms ease", "purpose": "Scenario and selector feedback." },
+      { "name": "result-enter", "value": "220ms cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "A single fade-and-6px-lift when fresh workspace results arrive; disabled under reduced motion." }
+    ],
+    "breakpoints": [
+      { "name": "workspace-stack", "value": "900px", "purpose": "Forecast and thesis rail stack into one analytical column." },
+      { "name": "app-chrome-mobile", "value": "820px", "purpose": "Desktop sidebar becomes the bottom navigation; content gutter becomes 14px per side." },
+      { "name": "narrow-control", "value": "640px", "purpose": "Assumption tray and home action fields become single-column." },
+      { "name": "minimum-supported-width", "value": "320px", "purpose": "Authenticated pages must remain free of page-level horizontal overflow." }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The direct action that advances valuation work.",
+      "html": "<button class=\"ds-btn-primary\" type=\"button\">Run Valuation</button>",
+      "css": ".ds-btn-primary { min-height: 2.75rem; border: 1px solid #3448d8; border-radius: 7px; padding: 0 1.15rem; background: #3448d8; color: #fff; font: 600 .82rem/1 IBM Plex Sans, sans-serif; transition: background 120ms ease, border-color 120ms ease, transform 120ms ease; } .ds-btn-primary:hover { border-color: #3547d5; background: #3547d5; } .ds-btn-primary:focus-visible { outline: 2px solid #3448d8; outline-offset: 2px; } .ds-btn-primary:active { transform: translateY(1px); }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "A neutral supporting action that gains cobalt only when engaged.",
+      "html": "<button class=\"ds-btn-secondary\" type=\"button\">View details</button>",
+      "css": ".ds-btn-secondary { min-height: 2.75rem; border: 1px solid #d0d5dd; border-radius: 7px; padding: 0 1.15rem; background: #fff; color: #475467; font: 600 .82rem/1 IBM Plex Sans, sans-serif; transition: border-color 120ms ease, color 120ms ease; } .ds-btn-secondary:hover { border-color: #3448d8; color: #3448d8; } .ds-btn-secondary:focus-visible { outline: 2px solid #3448d8; outline-offset: 2px; } .ds-btn-secondary:active { transform: translateY(1px); }"
+    },
+    {
+      "name": "Ticker Input",
+      "kind": "input",
+      "refersTo": "input-default",
+      "description": "The durable white ledger field used for tickers and precise inputs.",
+      "html": "<label class=\"ds-input-label\">TICKER<input class=\"ds-input\" value=\"AAPL\" aria-label=\"Ticker\" /></label>",
+      "css": ".ds-input-label { display: grid; gap: .4rem; color: #667085; font: 600 .66rem/1 IBM Plex Mono, monospace; letter-spacing: .06em; } .ds-input { min-height: 2.75rem; border: 1px solid #d0d5dd; border-radius: 7px; padding: 0 1rem; background: #fff; color: #101828; font: 600 1rem/1 IBM Plex Mono, monospace; letter-spacing: .04em; } .ds-input:hover { border-color: #98a2b3; } .ds-input:focus { border-color: #3448d8; box-shadow: 0 0 0 3px rgba(70,95,255,.1); outline: none; }"
+    },
+    {
+      "name": "Active Navigation Link",
+      "kind": "nav",
+      "refersTo": "nav-active",
+      "description": "The selected route in the persistent desktop rail or mobile bottom navigation.",
+      "html": "<a class=\"ds-nav-link ds-nav-link-active\" href=\"#overview\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><rect x=\"3\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\" rx=\"1\"/></svg><span>Overview</span></a>",
+      "css": ".ds-nav-link { display: inline-flex; min-height: 42px; align-items: center; gap: 11px; border-radius: 8px; padding: 0 11px; color: #667085; font: 550 12px/1 IBM Plex Sans, sans-serif; text-decoration: none; transition: background 140ms ease, color 140ms ease; } .ds-nav-link svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; } .ds-nav-link:hover { background: #f5f7ff; color: #344054; } .ds-nav-link-active { background: #eef1ff; color: #3448d8; } .ds-nav-link:focus-visible { outline: 2px solid #3448d8; outline-offset: 2px; }"
+    },
+    {
+      "name": "Scenario Selector",
+      "kind": "chip",
+      "refersTo": "button-secondary",
+      "description": "A 44px shared-state selector for Bear, Base, and Bull scenarios.",
+      "html": "<div class=\"ds-scenarios\"><button class=\"ds-scenario\" type=\"button\">Bear</button><button class=\"ds-scenario ds-scenario-active\" type=\"button\">Base</button><button class=\"ds-scenario\" type=\"button\">Bull</button></div>",
+      "css": ".ds-scenarios { display: flex; gap: .4rem; } .ds-scenario { min-height: 44px; flex: 1 1 0; border: 1px solid #e4e7ec; border-radius: 6px; background: #fff; color: #667085; font: 600 .74rem/1 IBM Plex Sans, sans-serif; transition: border-color 150ms ease, color 150ms ease, background 150ms ease; } .ds-scenario:hover { border-color: #667085; color: #101828; } .ds-scenario-active { border-color: #3448d8; background: rgba(70,95,255,.1); color: #3448d8; } .ds-scenario:focus-visible { outline: 2px solid #3448d8; outline-offset: 2px; }"
+    },
+    {
+      "name": "Research Panel",
+      "kind": "card",
+      "refersTo": "card-default",
+      "description": "The flat, labeled white container for recent work, market context, and analytical modules.",
+      "html": "<section class=\"ds-panel\"><p class=\"ds-panel-label\">RECENT WORK</p><h3>Recent valuations</h3><p>Saved privately in this browser</p></section>",
+      "css": ".ds-panel { border: 1px solid #e4e7ec; border-radius: 11px; padding: 1.1rem; background: #fff; color: #101828; font-family: IBM Plex Sans, sans-serif; } .ds-panel-label { margin: 0 0 .65rem; color: #667085; font: 600 .66rem/1 IBM Plex Mono, monospace; letter-spacing: .07em; } .ds-panel h3 { margin: 0; font: 650 .98rem/1.2 Instrument Sans, sans-serif; letter-spacing: -.015em; } .ds-panel p:last-child { margin: .35rem 0 0; color: #667085; font-size: .72rem; } .ds-panel:hover { border-color: #d0d5dd; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Disciplined Research Desk",
+    "overview": "Valuation Engine is a compact, cool-white operating console: an operator should see the next decision, the current model state, and its evidence before seeing decoration. Its visual world belongs to the TailAdmin/NextAdmin family—quiet structural rules, dense but breathable labeled zones, navy ink, and a single cobalt interaction voice.\n\nThe interface treats market and model numbers as working evidence. Panels are flat white paper on a mineral canvas; the selected scenario, action, focus, and chart revenue line are all connected by cobalt. Positive, warning, and negative colors stay semantic so that case labels never imply a market outcome. The populated workspace makes the forecast and its compact thesis rail read as one cross-check field, without confusing absolute value with sector-relative context.",
+    "keyCharacteristics": [
+      "A persistent white navigation rail and utility bar organize the workspace without competing with the data.",
+      "Fine borders and labeled rows create hierarchy; empty decoration and ornamental card stacks do not.",
+      "Instrument Sans gives decision headings compact authority, IBM Plex Sans carries prose, and IBM Plex Mono identifies auditable figures and small data labels.",
+      "Cobalt is reserved for direct interaction, selection, and the primary forecast series.",
+      "Mobile retains the same operating sequence with a fixed bottom navigation and 44px interactive targets."
+    ],
+    "rules": [
+      { "name": "The One Interaction Voice Rule", "body": "Cobalt is the only non-semantic accent for interaction and selection. Do not color Bear, Base, and Bull as if they were outcome states.", "section": "colors" },
+      { "name": "The Figure-as-Evidence Rule", "body": "Tickers, currency, rates, and audit-oriented values use tabular numerals; prose and navigation do not imitate a trading terminal.", "section": "typography" },
+      { "name": "The Decision-First Rule", "body": "Put the operator's next action and the model cross-check before supporting schedules. Do not turn the workspace into a long document of equally weighted sections.", "section": "layout" },
+      { "name": "The Flat-by-Default Rule", "body": "A border and background change define a surface; elevation is reserved for a control state or brief contextual overlay.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do use the cool-white canvas, white surfaces, fine structural rules, and compact radii as the base grammar.",
+      "Do make the next action, selected scenario, source/provenance, and market/model distinction easy to scan in the first viewport.",
+      "Do use cobalt for interaction, selection, focus, and the primary forecast series; reserve green, brass, and red for real semantic status.",
+      "Do keep values tabular and use the mono face where data must be audited or compared.",
+      "Do preserve the desktop rail/topbar and the mobile bottom-navigation pattern when extending authenticated routes."
+    ],
+    "donts": [
+      "Don't introduce dark-terminal styling, gradients, glassmorphism, neon, or decorative dashboard ornament.",
+      "Don't replace fine structural borders with broad shadows or a stack of floating cards.",
+      "Don't color Bear/Base/Bull as favorable or unfavorable outcomes.",
+      "Don't hide provenance, cautions, empty/loading/error states, or the difference between absolute value and peer context.",
+      "Don't permit page-level horizontal overflow below 320px or reduce primary mobile targets below 44px."
+    ]
+  }
+}

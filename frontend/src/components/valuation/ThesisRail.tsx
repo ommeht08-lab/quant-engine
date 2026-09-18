@@ -11,6 +11,8 @@ export interface ThesisRailProps {
   marketPrice: number | null;
   scenarios: DCFScenarioSet;
   valuationQuality: ValuationQuality;
+  revenueGrowthSource: "historical" | "custom";
+  operatingMarginSource: "historical" | "custom";
   selectedScenario: CaseKey;
   onSelectScenario: (key: CaseKey) => void;
   isUpdating: boolean;
@@ -33,6 +35,8 @@ export default function ThesisRail({
   marketPrice,
   scenarios,
   valuationQuality,
+  revenueGrowthSource,
+  operatingMarginSource,
   selectedScenario,
   onSelectScenario,
   isUpdating,
@@ -50,12 +54,17 @@ export default function ThesisRail({
 
   return (
     <aside className="thesis-rail" aria-label="Valuation thesis" aria-busy={isUpdating}>
+      <div className="thesis-rail-heading"><h2>Valuation thesis</h2><span>Absolute model</span></div>
       <div className="thesis-rail-byline">
         <div>
           <p className="thesis-rail-ticker">{ticker}</p>
           <p className="thesis-rail-sector">{sector}</p>
         </div>
-        {isUpdating && <span className="thesis-rail-updating">Updating</span>}
+        <div className="thesis-rail-source">
+          {isUpdating && <span className="thesis-rail-updating">Updating</span>}
+          <strong>{revenueGrowthSource === "historical" && operatingMarginSource === "historical" ? "Company history" : "Custom override"}</strong>
+          <small>Recomputed this run</small>
+        </div>
       </div>
 
       <div className="thesis-rail-primary">
@@ -93,25 +102,27 @@ export default function ThesisRail({
         )}
       </div>
 
-      <div className="thesis-rail-row">
-        <span className="thesis-rail-row-label">Market price</span>
-        <span className="thesis-rail-row-value">{formatPreciseCurrency(marketPrice)}</span>
-      </div>
-      <div className="thesis-rail-row">
-        <span className="thesis-rail-row-label">Revenue growth</span>
-        <span className="thesis-rail-row-value">{formatPercent(fields.revenueGrowthRate)}</span>
-      </div>
-      <div className="thesis-rail-row">
-        <span className="thesis-rail-row-label">Operating margin</span>
-        <span className="thesis-rail-row-value">{formatPercent(fields.operatingMargin)}</span>
-      </div>
-      <div className="thesis-rail-row">
-        <span className="thesis-rail-row-label">WACC</span>
-        <span className="thesis-rail-row-value">{formatPercent(fields.wacc, 2)}</span>
-      </div>
-      <div className="thesis-rail-row">
-        <span className="thesis-rail-row-label">Terminal growth</span>
-        <span className="thesis-rail-row-value">{formatPercent(fields.terminalGrowthRate)}</span>
+      <div className="thesis-rail-metrics">
+        <div className="thesis-rail-row thesis-rail-row--market">
+          <span className="thesis-rail-row-label">Market price</span>
+          <span className="thesis-rail-row-value">{formatPreciseCurrency(marketPrice)}</span>
+        </div>
+        <div className="thesis-rail-row">
+          <span className="thesis-rail-row-label">Revenue growth</span>
+          <span className="thesis-rail-row-value">{formatPercent(fields.revenueGrowthRate)}</span>
+        </div>
+        <div className="thesis-rail-row">
+          <span className="thesis-rail-row-label">Operating margin</span>
+          <span className="thesis-rail-row-value">{formatPercent(fields.operatingMargin)}</span>
+        </div>
+        <div className="thesis-rail-row">
+          <span className="thesis-rail-row-label">WACC</span>
+          <span className="thesis-rail-row-value">{formatPercent(fields.wacc, 2)}</span>
+        </div>
+        <div className="thesis-rail-row">
+          <span className="thesis-rail-row-label">Terminal growth</span>
+          <span className="thesis-rail-row-value">{formatPercent(fields.terminalGrowthRate)}</span>
+        </div>
       </div>
 
       <div

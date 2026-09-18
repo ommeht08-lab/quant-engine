@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { FormEvent } from "react";
+import type { FormEvent, KeyboardEvent } from "react";
 import { valuationErrorFromResponse, type ValuationRequestError } from "@/lib/valuation-errors";
 import { errorBannerHeadline, errorBannerTone, resolveWorkspaceResultState } from "@/lib/valuation-state-copy";
 import TickerCommandBar from "@/components/valuation/TickerCommandBar";
@@ -74,6 +74,16 @@ export interface WorkspaceClientProps {
   initialTicker: string;
 }
 
+const DETAIL_TABS = [
+  ["forecast", "Forecast"],
+  ["scenarios", "Scenarios"],
+  ["sensitivity", "Sensitivity"],
+  ["comparison", "Peer context"],
+  ["assumptions", "Assumptions"],
+] as const;
+
+type DetailTab = (typeof DETAIL_TABS)[number][0];
+
 export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps) {
   const [ticker, setTicker] = useState(initialTicker);
   // Default mode: use each company's own historical revenue growth and
@@ -94,7 +104,22 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
   // Valuation Spectrum instrument — one persisted choice, two places to
   // see and change it.
   const [selectedScenario, setSelectedScenario] = useState<CaseKey>("base");
-  const [activeDetail, setActiveDetail] = useState<"forecast" | "scenarios" | "sensitivity" | "comparison" | "assumptions">("forecast");
+  const [activeDetail, setActiveDetail] = useState<DetailTab>("forecast");
+
+  function handleDetailTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, current: DetailTab) {
+    const currentIndex = DETAIL_TABS.findIndex(([key]) => key === current);
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % DETAIL_TABS.length;
+    if (event.key === "ArrowLeft") nextIndex = (currentIndex - 1 + DETAIL_TABS.length) % DETAIL_TABS.length;
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = DETAIL_TABS.length - 1;
+    if (nextIndex === null) return;
+
+    event.preventDefault();
+    const next = DETAIL_TABS[nextIndex][0];
+    setActiveDetail(next);
+    document.getElementById(`workspace-tab-${next}`)?.focus();
+  }
 
   async function runValuation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -199,8 +224,8 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
       <div className="shell-container pb-16">
         <header className="page-header">
           <div>
-            <p className="eyebrow mb-1.5">Valuation workspace</p>
-            <h1 className="display-title">Intrinsic value desk</h1>
+            <h1 className="display-title">Valuation workspace</h1>
+            <p className="mt-1 text-xs text-[var(--paper-dim)]">Intrinsic value, scenarios, and cash-flow evidence</p>
           </div>
           <p className="page-deck">
             Build a staged DCF case from company history or your own assumptions, then read it
@@ -235,11 +260,16 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
         )}
 
         {workspaceState === "empty" && (
-          <div className="empty-state px-5 py-10 text-center">
-            <strong className="block text-[var(--paper)]">No valuation on the desk yet.</strong>
-            <span className="mt-1.5 block">
-              Choose a ticker and run the model to compare market price with intrinsic value.
-            </span>
+          <div className="workspace-empty">
+            <div className="workspace-empty-copy">
+              <span className="workspace-empty-mark" aria-hidden="true">V</span>
+              <div><strong>Ready to build the first case</strong><p>Choose a ticker, confirm the assumptions above, and run the staged model.</p></div>
+            </div>
+            <ol className="workspace-empty-steps">
+              <li><span>1</span><div><strong>Resolve the operating case</strong><p>Use company history or explicit overrides.</p></div></li>
+              <li><span>2</span><div><strong>Project five years of FCFF</strong><p>Read the near-term and maturation path.</p></div></li>
+              <li><span>3</span><div><strong>Cross-check value</strong><p>Compare scenarios, market price, and peers.</p></div></li>
+            </ol>
           </div>
         )}
 
@@ -320,6 +350,8 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
                 marketPrice={result.current_price}
                 scenarios={result.scenarios}
                 valuationQuality={result.valuation_quality}
+                revenueGrowthSource={result.revenue_growth_rate_source}
+                operatingMarginSource={result.operating_margin_source}
                 selectedScenario={selectedScenario}
                 onSelectScenario={setSelectedScenario}
                 isUpdating={isLoading}
@@ -327,13 +359,7 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
             </div>
 
             <div className="workspace-tabs" role="tablist" aria-label="Valuation detail">
-              {([
-                ["forecast", "Forecast"],
-                ["scenarios", "Scenarios"],
-                ["sensitivity", "Sensitivity"],
-                ["comparison", "Peer context"],
-                ["assumptions", "Assumptions"],
-              ] as const).map(([key, label]) => (
+              {DETAIL_TABS.map(([key, label]) => (
                 <button
                   key={key}
                   id={`workspace-tab-${key}`}
@@ -341,8 +367,10 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
                   role="tab"
                   aria-controls="workspace-detail-panel"
                   aria-selected={activeDetail === key}
+                  tabIndex={activeDetail === key ? 0 : -1}
                   className="workspace-tab"
                   onClick={() => setActiveDetail(key)}
+                  onKeyDown={(event) => handleDetailTabKeyDown(event, key)}
                 >
                   {label}
                 </button>
