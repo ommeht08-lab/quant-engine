@@ -1,10 +1,9 @@
 "use client";
 
 import {
-  Area,
-  Bar,
   CartesianGrid,
   ComposedChart,
+  Line,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -48,6 +47,7 @@ function ForecastTooltip({ active, payload }: TooltipContentProps) {
 export default function ForecastChart({ rows, forecastPath }: ForecastChartProps) {
   const pathByYear = new Map(forecastPath.map((step) => [step.year, step]));
   const data = rows.map((row) => ({ ...row, ...pathByYear.get(row.year) }));
+  const latest = data.at(-1);
 
   return (
     <section className="forecast-chart" aria-labelledby="forecast-chart-title">
@@ -57,26 +57,26 @@ export default function ForecastChart({ rows, forecastPath }: ForecastChartProps
           <p className="forecast-chart-subtitle">Base case · five-year operating path</p>
         </div>
         <div className="forecast-chart-legend" aria-label="Chart legend">
-          <span><i className="forecast-legend-revenue" />Revenue</span>
-          <span><i className="forecast-legend-fcf" />Free cash flow</span>
+          <span><i className="forecast-legend-revenue" />Revenue {latest ? formatCompactCurrency(latest.revenue) : ""}</span>
+          <span><i className="forecast-legend-fcf" />Free cash flow {latest ? formatCompactCurrency(latest.fcf) : ""}</span>
         </div>
       </div>
 
       <div className="forecast-chart-canvas">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={data} margin={{ top: 10, right: 8, bottom: 0, left: 0 }}>
-            <CartesianGrid stroke="rgba(16,24,40,.08)" vertical={false} />
+          <ComposedChart data={data} margin={{ top: 10, right: 6, bottom: 0, left: 0 }}>
+            <CartesianGrid stroke="#202938" strokeDasharray="2 4" />
             <XAxis
               dataKey="year"
               tickFormatter={(year: number) => `Y${year}`}
-              tick={{ fill: "#667085", fontSize: 11 }}
+              tick={{ fill: "#7f8ba0", fontSize: 11 }}
               tickLine={false}
-              axisLine={{ stroke: "rgba(16,24,40,.12)" }}
+              axisLine={{ stroke: "#303c50" }}
             />
             <YAxis
               yAxisId="revenue"
               tickFormatter={(value: number) => formatCompactCurrency(value)}
-              tick={{ fill: "#667085", fontSize: 10 }}
+              tick={{ fill: "#7f8ba0", fontSize: 10 }}
               tickLine={false}
               axisLine={false}
               width={66}
@@ -85,33 +85,36 @@ export default function ForecastChart({ rows, forecastPath }: ForecastChartProps
               yAxisId="fcf"
               orientation="right"
               tickFormatter={(value: number) => formatCompactCurrency(value)}
-              tick={{ fill: "#667085", fontSize: 10 }}
+              tick={{ fill: "#7f8ba0", fontSize: 10 }}
               tickLine={false}
               axisLine={false}
               width={66}
             />
-            <Tooltip content={(props) => <ForecastTooltip {...props} />} cursor={{ fill: "rgba(70,95,255,.05)" }} />
-            <Area
+            <Tooltip content={(props) => <ForecastTooltip {...props} />} cursor={{ stroke: "#59667a", strokeWidth: 1, strokeDasharray: "4 4" }} />
+            <Line
               yAxisId="revenue"
-              type="monotone"
+              type="linear"
               dataKey="revenue"
-              stroke="#3448d8"
-              strokeWidth={2.25}
-              fill="#eef1ff"
-              activeDot={{ r: 4, fill: "#3448d8", stroke: "#ffffff", strokeWidth: 2 }}
+              stroke="#8292ff"
+              strokeWidth={2}
+              dot={false}
+              isAnimationActive={false}
+              activeDot={{ r: 3.5, fill: "#8292ff", stroke: "#0c1118", strokeWidth: 2 }}
             />
-            <Bar
+            <Line
               yAxisId="fcf"
+              type="linear"
               dataKey="fcf"
-              fill="#7c8db5"
-              opacity={0.78}
-              radius={[3, 3, 0, 0]}
-              barSize={24}
+              stroke="#53b7dc"
+              strokeWidth={2}
+              dot={false}
+              isAnimationActive={false}
+              activeDot={{ r: 3.5, fill: "#53b7dc", stroke: "#0c1118", strokeWidth: 2 }}
             />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
-      <p className="forecast-chart-note">Revenue uses the left scale; free cash flow uses the right. Hover a year for the assumptions behind it.</p>
+      <p className="forecast-chart-note">Annual forecast · left revenue / right free cash flow · hover to inspect</p>
     </section>
   );
 }

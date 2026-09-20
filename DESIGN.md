@@ -1,27 +1,34 @@
 ---
 name: Valuation Engine
-description: A disciplined, cool-white equity-research console for a private operator.
+description: An institutional graphite workspace for auditable intrinsic-value research.
 colors:
-  cobalt: "#3448d8"
-  cobalt-hover: "#3547d5"
-  cobalt-soft: "rgba(70,95,255,.1)"
-  cobalt-field: "#eef1ff"
-  canvas: "#f6f8fc"
-  surface: "#ffffff"
-  ledger: "#eef1f6"
-  ink: "#101828"
-  ink-muted: "#475467"
-  ink-dim: "#667085"
-  rule: "#e4e7ec"
-  rule-strong: "#d0d5dd"
-  success: "#027a48"
-  success-soft: "#ecfdf3"
-  warning: "#b54708"
-  warning-soft: "#fff4ed"
-  danger: "#d92d20"
-  danger-soft: "#fef3f2"
-  chart-cash-flow: "#7c8db5"
+  graphite-canvas: "#080b10"
+  graphite-chrome: "#090c11"
+  graphite-surface: "#0f141c"
+  graphite-instrument: "#0c1118"
+  graphite-raised: "#121923"
+  graphite-ledger: "#151c27"
+  rule: "#202938"
+  rule-strong: "#303c50"
+  ink-cool: "#e8edf6"
+  ink-strong: "#edf2f9"
+  ink-muted: "#a1adbf"
+  ink-dim: "#758196"
+  periwinkle: "#8292ff"
+  periwinkle-hover: "#9aa7ff"
+  periwinkle-soft: "rgba(130,146,255,.13)"
+  cash-flow-cyan: "#53b7dc"
+  positive: "#48cfa2"
+  caution: "#e2ad62"
+  negative: "#ff746d"
+  on-accent: "#ffffff"
 typography:
+  flagship:
+    fontFamily: "Outfit, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+    fontSize: "clamp(1.75rem, 2.7vw, 2.5rem)"
+    fontWeight: 600
+    lineHeight: 1.05
+    letterSpacing: "-0.04em"
   display:
     fontFamily: "Instrument Sans, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
     fontSize: "clamp(1.2rem, 1.6vw, 1.55rem)"
@@ -33,58 +40,76 @@ typography:
     fontSize: "0.8rem"
     fontWeight: 400
     lineHeight: 1.5
-  utility:
+  data:
     fontFamily: "IBM Plex Mono, SFMono-Regular, ui-monospace, Menlo, Consolas, monospace"
-    fontSize: "0.66rem"
+    fontSize: "0.82rem"
     fontWeight: 600
     lineHeight: 1.2
-    letterSpacing: "0.06em"
+    letterSpacing: "0.04em"
+  label:
+    fontFamily: "IBM Plex Sans, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif"
+    fontSize: "0.625rem"
+    fontWeight: 650
+    lineHeight: 1
+    letterSpacing: "0.07em"
 rounded:
-  control: "5px"
-  input: "7px"
-  nav: "8px"
-  panel: "11px"
+  micro: "3px"
+  control: "4px"
+  panel: "5px"
+  selector: "6px"
   pill: "999px"
 spacing:
-  micro: "0.2rem"
-  compact: "0.75rem"
-  control: "1.15rem"
-  panel: "1.1rem"
-  shell: "28px"
-  grid: "1rem"
+  micro: "0.25rem"
+  xs: "0.5rem"
+  sm: "0.75rem"
+  md: "1rem"
+  panel: "1.125rem"
+  lg: "1.5rem"
+  shell: "1.75rem"
 components:
   button-primary:
-    backgroundColor: "{colors.cobalt}"
-    textColor: "{colors.surface}"
-    rounded: "{rounded.input}"
+    backgroundColor: "{colors.periwinkle}"
+    textColor: "{colors.on-accent}"
+    typography: "{typography.body}"
+    rounded: "{rounded.control}"
     padding: "0 1.15rem"
     height: "2.75rem"
   button-primary-hover:
-    backgroundColor: "{colors.cobalt-hover}"
-    textColor: "{colors.surface}"
-    rounded: "{rounded.input}"
+    backgroundColor: "{colors.periwinkle-hover}"
+    textColor: "{colors.on-accent}"
+    typography: "{typography.body}"
+    rounded: "{rounded.control}"
     padding: "0 1.15rem"
     height: "2.75rem"
   button-secondary:
-    backgroundColor: "{colors.surface}"
+    backgroundColor: "{colors.graphite-surface}"
     textColor: "{colors.ink-muted}"
-    rounded: "{rounded.input}"
+    typography: "{typography.body}"
+    rounded: "{rounded.control}"
     padding: "0 1.15rem"
     height: "2.75rem"
   input-default:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.ink}"
-    rounded: "{rounded.input}"
+    backgroundColor: "{colors.graphite-surface}"
+    textColor: "{colors.ink-strong}"
+    typography: "{typography.data}"
+    rounded: "{rounded.control}"
     padding: "0 1rem"
-  card-default:
-    backgroundColor: "{colors.surface}"
-    textColor: "{colors.ink}"
+    height: "2.75rem"
+  panel-default:
+    backgroundColor: "{colors.graphite-surface}"
+    textColor: "{colors.ink-cool}"
+    rounded: "{rounded.panel}"
+    padding: "1.125rem"
+  instrument-panel:
+    backgroundColor: "{colors.graphite-instrument}"
+    textColor: "{colors.ink-strong}"
     rounded: "{rounded.panel}"
     padding: "1.1rem"
   nav-active:
-    backgroundColor: "{colors.cobalt-field}"
-    textColor: "{colors.cobalt}"
-    rounded: "{rounded.nav}"
+    backgroundColor: "{colors.periwinkle-soft}"
+    textColor: "{colors.periwinkle}"
+    typography: "{typography.body}"
+    rounded: "{rounded.control}"
     padding: "0 11px"
     height: "42px"
 ---
@@ -93,151 +118,175 @@ components:
 
 ## Overview
 
-**Creative North Star: "The Disciplined Research Desk"**
+**Creative North Star: "The Graphite Research Instrument"**
 
-Valuation Engine is a compact, cool-white operating console: an operator should see the next decision, the current model state, and its evidence before seeing decoration. Its visual world belongs to the TailAdmin/NextAdmin family—quiet structural rules, dense but breathable labeled zones, navy ink, and a single cobalt interaction voice.
+Valuation Engine is an edge-to-edge institutional charting workspace: near-black chrome and canvas hold dense blue-gray surfaces, cool-white data, and a single restrained periwinkle interaction voice. It should feel like purpose-built equity-research software for one serious operator, not a public market-data terminal, a decorative admin template, or a neon trading product.
 
-The interface treats market and model numbers as working evidence. Panels are flat white paper on a mineral canvas; the selected scenario, action, focus, and chart revenue line are all connected by cobalt. Positive, warning, and negative colors stay semantic so that case labels never imply a market outcome. The populated workspace makes the forecast and its compact thesis rail read as one cross-check field, without confusing absolute value with sector-relative context.
+TailAdmin V1/V2 and NextAdmin inform the information architecture only: persistent navigation, compact controls, clear grouping, and decision-first scanning. The visual world is darker, sharper, and flatter. Fine rules, tonal layering, tabular figures, and exact state feedback carry the hierarchy; ornament does not. Source visibility and honest financial distinctions remain part of the interface's visual discipline.
 
 **Key Characteristics:**
 
-- A persistent white navigation rail and utility bar organize the workspace without competing with the data.
-- Fine borders and labeled rows create hierarchy; empty decoration and ornamental card stacks do not.
-- Instrument Sans gives decision headings compact authority, IBM Plex Sans carries prose, and IBM Plex Mono identifies auditable figures and small data labels.
-- Cobalt is reserved for direct interaction, selection, and the primary forecast series.
-- Mobile retains the same operating sequence with a fixed bottom navigation and 44px interactive targets.
+- A near-black 220px desktop rail and 64px utility bar meet the canvas edge-to-edge.
+- Blue-gray panels use fine borders, 4–5px structural corners, and no resting shadow.
+- Cool-white data ink and restrained supporting copy make dense research legible without becoming loud.
+- Periwinkle identifies actions, focus, active navigation, selected scenarios, and the primary forecast series.
+- Green, amber, and red appear only for genuine favorable, cautionary, and unfavorable meaning.
+- Annual revenue and free cash flow appear as honest line series with separate labeled axes, a restrained grid, and an inspection crosshair.
 
 ## Colors
 
-The palette is a cool mineral shell with one assertive cobalt action color and strictly semantic outcome tones.
+The palette is a compact graphite stack with cool-white ink, one periwinkle interaction accent, one supporting chart series, and tightly governed semantic color.
 
 ### Primary
 
-- **Research Cobalt:** the sole action, selection, focus, and primary revenue-series color. Use it for the Run action, active navigation, selected modes/scenarios, and the forecast line.
-- **Cobalt Wash:** a translucent selection field for active navigation, scenario buttons, and focus support; it never becomes a full-page tint.
+- **Operator Periwinkle:** the only non-semantic interaction voice. Use it for the primary action, keyboard focus, active routes, selected scenarios, and the annual revenue series.
+- **Periwinkle Field:** a low-opacity selection field behind active or pressed controls. It supports the accent without turning whole panels blue.
 
 ### Secondary
 
-- **Cash-Flow Slate:** the quiet supporting series in the operating forecast. It is subordinate to cobalt and never signals state.
+- **Cash-Flow Cyan:** the supporting annual free-cash-flow series. It exists to distinguish the second scale from revenue and must not become a general-purpose action color.
+
+### Tertiary
+
+- **Verified Green:** genuine favorable outcomes, connected status, and positive market/model deltas only.
+- **Caution Amber:** model qualifications and interpretation cautions only.
+- **Signal Red:** genuine unfavorable outcomes, errors, and negative market/model deltas only.
 
 ### Neutral
 
-- **Mineral Canvas:** the cool working field behind the persistent shell and panels.
-- **White Surface:** the only resting panel and control surface.
-- **Ledger Fill:** the soft neutral fill for grouped inactive controls, disabled states, and low-emphasis tracks.
-- **Navy Ink:** primary headings, values, and decisive text.
-- **Slate Copy:** readable support copy; use dim slate for labels, timestamps, and metadata.
-- **Structural Rules:** fine cool-gray dividers distinguish zones without shadows.
+- **Graphite Canvas:** the edge-to-edge application field and page overscroll color.
+- **Graphite Chrome:** the persistent navigation and utility chrome, set just apart from the canvas by a fine rule.
+- **Graphite Surface:** the standard panel, card, control, and grouped-content surface.
+- **Instrument Black:** the analytical surface for the forecast, valuation spectrum, and Thesis Rail.
+- **Raised Graphite and Ledger:** quiet nested fields, inactive control groups, and provenance blocks.
+- **Cool White Ink:** primary text and figures; use the strong variant inside analytical instruments.
+- **Muted and Dim Ink:** secondary explanation, labels, timestamps, axes, and provenance.
+- **Structural Rules:** the normal and strong blue-gray borders that establish hierarchy without elevation.
 
-### Semantic
+**The One Interaction Voice Rule.** Periwinkle owns action and selection. Cash-flow cyan belongs only to its chart series; semantic colors never substitute for active state.
 
-- **Verified Green:** genuine favorable outcomes and connected status only.
-- **Caution Brass:** interpretive cautions and market-context attention states only.
-- **Signal Red:** genuine unfavorable outcomes and errors only.
-
-**The One Interaction Voice Rule.** Cobalt is the only non-semantic accent for interaction and selection. Do not color Bear, Base, and Bull as if they were outcome states.
+**The Semantic Restraint Rule.** Green, amber, and red must correspond to actual model, market, connectivity, caution, or error meaning. Never use them to decorate neutral categories.
 
 ## Typography
 
+**Flagship Interface Font:** Outfit, with the system sans stack as fallback.
 **Display Font:** Instrument Sans, with the system sans stack as fallback.
 **Body Font:** IBM Plex Sans, with the system sans stack as fallback.
-**Label/Mono Font:** IBM Plex Mono for financial data, tickers, audit-oriented labels, and tabular figures.
+**Data Font:** IBM Plex Mono, with the system mono stack as fallback.
 
-**Character:** The pairing is compact and legible rather than editorial or terminal-like. Display type gives titles a small amount of authority; body copy remains calm at dense dashboard sizes; mono type makes money, rates, and provenance easy to scan.
+**Character:** The system is compact, open, and deliberate rather than retro-terminal. Outfit gives the company dashboard calm geometric authority; Instrument Sans carries workspace and shell headings; IBM Plex Sans carries operational copy; IBM Plex Mono is reserved for figures that benefit from fixed-width comparison.
 
 ### Hierarchy
 
-- **Display:** used for page and panel headings, generally with a dense 650 weight, tight negative tracking, and compact leading.
-- **Headline:** the mobile and desktop workspace title stays prominent without becoming a marketing hero.
-- **Title:** compact Instrument Sans headings identify panels, forecast sections, and high-value summary modules.
-- **Body:** IBM Plex Sans carries explanatory and state copy at compact dashboard sizes with comfortable line-height.
-- **Label:** uppercase or compact utility labels use IBM Plex Mono with measured tracking; do not apply that treatment to ordinary prose.
+- **Flagship:** the company overview title and its major section headings use Outfit at medium-to-semibold weight with tight tracking.
+- **Display:** workspace, home, panel, and instrument headings use Instrument Sans at 600–650 weight and compact leading.
+- **Body:** navigation, explanatory copy, state messages, and ordinary control labels use IBM Plex Sans at dense dashboard sizes with clear line-height.
+- **Data:** tickers, money, rates, percentages, and compact audit figures use IBM Plex Mono with tabular numerals.
+- **Label:** small uppercase labels use the body face at 600–650 weight with measured tracking. They identify fields and groups, but never repeat a nearby title as an ornamental kicker.
 
-**The Figure-as-Evidence Rule.** Tickers, currency, rates, and audit-oriented values use tabular numerals; prose and navigation do not imitate a trading terminal.
+**The Figure-as-Evidence Rule.** Use mono or explicitly tabular numerals where comparison matters; do not turn all prose and navigation into faux-terminal typography.
+
+**The One-Title Rule.** A section gets one clear heading. Do not stack an eyebrow or kicker above a title when both say the same thing.
 
 ## Layout
 
-The desktop shell fixes a 220px white navigation rail and a 68px utility bar above a cool canvas. Main authenticated pages use a centered content field up to 1320px wide with a 28px side gutter; the home page starts with a title/action row, four compact metrics, then a weighted recent-work/context split.
+The authenticated desktop shell uses a fixed 220px rail and a fixed 64px utility bar. The research home keeps a centered 1320px maximum field with 28px side gutters; the company overview can widen to 1480px for denser analysis. The chrome and canvas remain edge-to-edge—there is no rounded page sheet around the application.
 
-The valuation workspace puts the command strip and assumption tray before results. When populated, its primary field pairs a dominant forecast with a 320px thesis rail; the rail becomes 270px at intermediate widths and remains sticky above 900px. At 900px and below the field becomes a single column. At 820px the sidebar yields to a mobile top bar and fixed five-item bottom navigation; narrow pages maintain a 14px side gutter and remain usable at 320px without page-level horizontal overflow.
+Home follows a decision sequence: title and ticker launcher, four compact summary cards, an 8/4 recent-work and market-context split, then the model process. The workspace places command and assumptions before a dominant analysis field. Its annual forecast pairs with a 320px sticky Thesis Rail, narrows the rail to 270px at intermediate widths, and stacks into one column at 900px and below.
 
-**The Decision-First Rule.** Put the operator's next action and the model cross-check before supporting schedules. Do not turn the workspace into a long document of equally weighted sections.
+At 820px the desktop rail yields to a 60px top bar and fixed five-item bottom navigation. Side gutters contract to 14px, then to 10px where the company overview requires it. Metrics collapse progressively while keeping the same reading order. Every authenticated page must remain free of page-level horizontal overflow at the 320px minimum width; locally scrollable data regions must advertise that behavior.
+
+**The Decision-First Rule.** Keep the next action, selected scenario, primary value, and supporting evidence in the first operating field. Supporting schedules may stack or move behind tabs, but they do not outrank the decision surface.
+
+**The Edge-to-Edge Shell Rule.** Persistent chrome meets the viewport edges. Do not wrap the product in an artificial white sheet, floating desktop frame, or oversized outer radius.
 
 ## Elevation & Depth
 
-Depth is predominantly tonal and structural, not atmospheric. Resting panels use white fill, a fine rule, and no shadow; this keeps a dense research screen calm. Small shadows are reserved for the brand mark, selected segmented-control surface, and transient forecast tooltip. The interface uses no gradients, glass, neon, or floating-card stacks.
+Depth comes from graphite tone changes and one-pixel structural rules. Standard panels, cards, navigation, inputs, and analytical instruments have no resting shadow. A compact shadow is permitted only for a transient forecast tooltip; focus uses a visible outline or periwinkle ring, not ambient glow. State changes may shift borders and backgrounds, but surfaces never float by default.
 
-**The Flat-by-Default Rule.** A border and background change define a surface; elevation is reserved for a control state or brief contextual overlay.
+### Shadow Vocabulary
+
+- **Forecast Tooltip:** a compact, high-contrast shadow may separate the temporary inspection overlay from the chart beneath it.
+
+**The Flat-by-Default Rule.** A border and a tonal step define every resting surface. Shadows are transient context, never the page's structural grammar.
 
 ## Shapes
 
-Forms are compact and softly squared: controls use a 5–7px radius, panels use an 11px radius, navigation uses 8px corners, and only status tags or compact labels become pills. Borders are fine and cool; geometry is reliable and operational, never rounded into a consumer-app aesthetic. Chart bars keep only their top corners softly rounded.
+The form language is sharp and structural. Inputs, buttons, tabs, alert fields, and nested blocks use 3–4px corners; panels, charts, navigation marks, and major containers use 5px corners. A 6px radius is allowed for compact scenario controls. Fully rounded geometry is reserved for true status tags, dots, and narrow badges, never for panels or primary controls.
+
+Borders are one pixel and blue-gray. Line samples in chart legends stay square. Graphs do not use faux candlestick silhouettes, decorative columns, or softened area fills to imply data the model does not possess.
+
+**The Structural Corner Rule.** Default to 4–5px. Use a pill only when the element is literally a compact tag or status indicator.
 
 ## Components
 
 ### Buttons
 
-**Character:** compact, direct controls with cobalt reserved for the action that advances the work.
+**Character:** compact, direct, and visibly stateful without glow.
 
-- **Shape:** gently squared input-radius controls with a consistent 44px minimum height for primary, secondary, segmented, and scenario actions.
-- **Primary:** cobalt surface with white 600-weight text. It darkens slightly on hover and moves down 1px when pressed.
-- **Secondary:** white with a stronger structural rule and slate text; hover changes its border and text to cobalt rather than filling it.
-- **Focus:** every keyboard focus state uses a visible cobalt outline; text fields add a soft cobalt ring.
+- **Shape:** 4px corners and a 44px minimum height for primary, secondary, segmented, and scenario actions.
+- **Primary:** periwinkle with white text; hover moves to the lighter periwinkle and press translates by one pixel.
+- **Secondary:** graphite surface, strong structural rule, and muted text; hover gains a periwinkle border and text.
+- **Focus:** a crisp 2px periwinkle outline with offset. Disabled actions fall back to ledger fill and dim text.
 
 ### Inputs / Fields
 
-**Character:** calm white work fields that look like part of the ledger rather than floating search widgets.
+**Character:** dark ledger fields embedded in the work, not floating search capsules.
 
-- **Style:** white fill, strong fine border, and compact squared radius. Ticker fields use tabular figures and clear uppercase treatment.
-- **Focus:** cobalt border plus a translucent cobalt ring.
-- **Disabled:** ledger fill and dim slate text, never hidden controls.
+- **Style:** graphite surface, strong one-pixel border, 4px corners, and cool-white content. Ticker and numerical inputs use the data face.
+- **Focus:** periwinkle border plus a restrained three-pixel field ring.
+- **Disabled:** ledger fill, dim text, and a standard rule; retain the control's location and label.
 
 ### Navigation
 
-**Character:** a persistent, low-noise route index.
+**Character:** a persistent route index with quiet default states and exact selection.
 
-- **Desktop:** the 220px left rail groups 42px icon-and-label links under a small uppercase section label; the active route receives a pale cobalt field and cobalt icon/text.
-- **Mobile:** the same five routes move to a fixed white bottom bar; active items retain the cobalt wash and all targets are at least 44px tall.
-- **Utility bar:** a slim white top bar holds tear-sheet search and quiet research status.
+- **Desktop:** a 220px near-black rail uses 42px icon-and-label rows. Hover adds a subtle blue-gray field and border; the active route uses a restrained periwinkle field, border, icon, and label.
+- **Mobile:** five routes move to a fixed near-black bottom bar with 50px targets. The utility bar remains fixed above the content.
+- **Status:** a small flat semantic dot may communicate connectivity; it never receives a halo or glow.
 
 ### Cards / Containers
 
-**Character:** flat ledger panels, not decorative cards.
+**Character:** flat operational modules that read as one system rather than a stack of promotional cards.
 
-- **Corner Style:** compact panel corners and fine rules define the module boundary.
-- **Background:** white on the mineral canvas; the forecast and thesis rail stay in this same visual family.
-- **Shadow Strategy:** no resting shadow; only stateful controls and the forecast tooltip lift.
-- **Internal Padding:** compact interior rhythm, tightened further in the paired forecast/thesis field.
+- **Corner Style:** 5px structural corners.
+- **Background:** standard modules use graphite surface; analytical instruments use instrument black; nested provenance uses raised graphite.
+- **Border:** a fine blue-gray rule is always the primary separator.
+- **Shadow Strategy:** none at rest.
+- **Internal Padding:** generally 16–20px, reduced only where dense readouts require it.
 
 ### Scenario & Mode Selectors
 
-**Character:** quiet, explicit state controls that never encode Bull or Bear as positive or negative.
+**Character:** explicit shared-state controls with a single selected voice.
 
-- **Unselected:** white or ledger-backed controls with slate labels and fine borders.
-- **Selected:** cobalt text and border on a pale cobalt field.
-- **Behavior:** historical/custom and Bear/Base/Bull controls retain a 44px touch target; the thesis selector remains the visible companion to the shared scenario state.
+- **Unselected:** raised graphite, structural border, and muted copy.
+- **Selected:** periwinkle border and text on a low-opacity periwinkle field.
+- **Behavior:** Bear, Base, and Bull retain a 44px target and the same shared selection across the Valuation Spectrum and Thesis Rail. Their names do not receive red, neutral, or green outcome colors.
 
 ### Forecast & Thesis Field
 
-**Character:** one primary analytical cross-check, not competing dashboard widgets.
+**Character:** one paired analytical instrument, not two competing dashboard cards.
 
-- **Forecast:** cobalt revenue line over a pale cobalt area with restrained cash-flow slate bars, faint horizontal gridlines, and an elevated tooltip for inspection.
-- **Thesis Rail:** a compact white companion panel with labeled rows, tabular values, provenance, market delta, and the shared scenario selector. It is sticky on larger screens and stacks with the forecast on smaller ones.
+- **Forecast:** annual Revenue and Free Cash Flow are two un-smoothed 2px line series with no point markers at rest. Revenue uses the left labeled axis; free cash flow uses the right. A restrained dashed grid, latest-value legend, dashed inspection crosshair, and exact tooltip expose the real five-year path.
+- **Thesis Rail:** a 320px sticky companion holds price, selected intrinsic value, delta, WACC, terminal growth, provenance, and the shared scenario selector. It stacks below or above the analysis according to the preserved reading order on narrower screens.
+- **Truthfulness:** never substitute candlesticks, OHLC marks, volume bars, fabricated intraday history, or interpolated curve drama for annual model data.
 
 ## Do's and Don'ts
 
 ### Do:
 
-- **Do** use the cool-white canvas, white surfaces, fine structural rules, and compact radii as the base grammar.
-- **Do** make the next action, selected scenario, source/provenance, and market/model distinction easy to scan in the first viewport.
-- **Do** use cobalt for interaction, selection, focus, and the primary forecast series; reserve green, brass, and red for real semantic status.
-- **Do** keep values tabular and use the mono face where data must be audited or compared.
-- **Do** preserve the desktop rail/topbar and the mobile bottom-navigation pattern when extending authenticated routes.
+- **Do** preserve the near-black edge-to-edge shell, blue-gray surfaces, cool-white ink, fine rules, and 4–5px structural corners.
+- **Do** use periwinkle consistently for action, focus, active navigation, selected scenarios, and the Revenue line.
+- **Do** keep financial values tabular, source and assumption provenance visible, and absolute valuation distinct from sector-relative context.
+- **Do** show Revenue and Free Cash Flow as honest annual dual-axis lines with a restrained grid and inspection crosshair.
+- **Do** preserve 44px primary touch targets, fixed mobile navigation, and usability without page-level overflow at 320px.
 
 ### Don't:
 
-- **Don't** introduce dark-terminal styling, gradients, glassmorphism, neon, or decorative dashboard ornament.
-- **Don't** replace fine structural borders with broad shadows or a stack of floating cards.
-- **Don't** color Bear/Base/Bull as favorable or unfavorable outcomes.
-- **Don't** hide provenance, cautions, empty/loading/error states, or the difference between absolute value and peer context.
-- **Don't** permit page-level horizontal overflow below 320px or reduce primary mobile targets below 44px.
+- **Don't** reintroduce a light palette because TailAdmin or NextAdmin were used as information-architecture references.
+- **Don't** add resting shadows, gradients, glass, blur, glow, neon accents, or rounded floating-card stacks.
+- **Don't** add redundant eyebrow or kicker copy above page, panel, or instrument titles.
+- **Don't** add halos around status dots or use semantic color as decoration.
+- **Don't** color Bear, Base, and Bull as favorable or unfavorable outcomes.
+- **Don't** fabricate candlesticks, intraday history, volume bars, or any chart encoding not supported by the annual model data.
+- **Don't** hide loading, empty, error, caution, or provenance states to make the workspace look populated.

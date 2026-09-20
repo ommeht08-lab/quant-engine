@@ -1,37 +1,207 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-18T00:00:00-04:00",
+  "generatedAt": "2026-09-20T12:47:55-04:00",
   "title": "Design System: Valuation Engine",
   "extensions": {
     "colorMeta": {
-      "cobalt": { "role": "primary", "displayName": "Research Cobalt", "canonical": "#3448d8", "tonalRamp": ["oklch(18% 0.10 275)", "oklch(28% 0.14 275)", "oklch(38% 0.18 275)", "oklch(48% 0.21 275)", "#3448d8", "oklch(65% 0.19 275)", "oklch(78% 0.12 275)", "oklch(93% 0.04 275)"] },
-      "cobalt-field": { "role": "neutral", "displayName": "Pale Cobalt Field", "canonical": "#eef1ff", "tonalRamp": ["oklch(22% 0.06 275)", "oklch(34% 0.09 275)", "oklch(46% 0.12 275)", "oklch(58% 0.13 275)", "oklch(70% 0.10 275)", "oklch(82% 0.07 275)", "#eef1ff", "oklch(97% 0.02 275)"] },
-      "canvas": { "role": "neutral", "displayName": "Mineral Canvas", "canonical": "#f6f8fc", "tonalRamp": ["oklch(18% 0.01 260)", "oklch(30% 0.01 260)", "oklch(43% 0.01 260)", "oklch(56% 0.01 260)", "oklch(69% 0.01 260)", "oklch(80% 0.01 260)", "#f6f8fc", "oklch(98% 0.005 260)"] },
-      "ink": { "role": "neutral", "displayName": "Navy Ink", "canonical": "#101828", "tonalRamp": ["#101828", "oklch(25% 0.03 260)", "oklch(35% 0.03 260)", "oklch(45% 0.025 260)", "oklch(58% 0.02 260)", "oklch(70% 0.015 260)", "oklch(84% 0.01 260)", "oklch(96% 0.005 260)"] },
-      "success": { "role": "secondary", "displayName": "Verified Green", "canonical": "#027a48", "tonalRamp": ["oklch(18% 0.05 155)", "oklch(28% 0.08 155)", "#027a48", "oklch(50% 0.13 155)", "oklch(62% 0.13 155)", "oklch(75% 0.10 155)", "oklch(87% 0.06 155)", "oklch(96% 0.02 155)"] },
-      "warning": { "role": "tertiary", "displayName": "Caution Brass", "canonical": "#b54708", "tonalRamp": ["oklch(18% 0.05 55)", "oklch(28% 0.08 55)", "oklch(38% 0.11 55)", "#b54708", "oklch(62% 0.15 55)", "oklch(75% 0.11 55)", "oklch(87% 0.07 55)", "oklch(96% 0.03 55)"] },
-      "danger": { "role": "tertiary", "displayName": "Signal Red", "canonical": "#d92d20", "tonalRamp": ["oklch(18% 0.06 30)", "oklch(28% 0.10 30)", "oklch(40% 0.15 30)", "#d92d20", "oklch(62% 0.19 30)", "oklch(75% 0.14 30)", "oklch(87% 0.08 30)", "oklch(96% 0.03 30)"] }
+      "graphite-canvas": {
+        "role": "neutral",
+        "displayName": "Graphite Canvas",
+        "canonical": "#080b10",
+        "tonalRamp": ["#080b10", "#111720", "#1d2633", "#303c4d", "#4b596d", "#718096", "#aab4c4", "#edf2f9"]
+      },
+      "graphite-chrome": {
+        "role": "neutral",
+        "displayName": "Graphite Chrome",
+        "canonical": "#090c11",
+        "tonalRamp": ["#090c11", "#121820", "#1e2733", "#313d4d", "#4c5a6c", "#728195", "#abb5c4", "#eef2f8"]
+      },
+      "graphite-surface": {
+        "role": "neutral",
+        "displayName": "Graphite Surface",
+        "canonical": "#0f141c",
+        "tonalRamp": ["#0a0d12", "#0f141c", "#1c2531", "#2f3b4b", "#4a586b", "#707f94", "#aab4c3", "#edf2f8"]
+      },
+      "graphite-instrument": {
+        "role": "neutral",
+        "displayName": "Instrument Black",
+        "canonical": "#0c1118",
+        "tonalRamp": ["#080b10", "#0c1118", "#19222e", "#2c3848", "#465568", "#6d7c91", "#a7b2c1", "#ebf0f7"]
+      },
+      "graphite-raised": {
+        "role": "neutral",
+        "displayName": "Raised Graphite",
+        "canonical": "#121923",
+        "tonalRamp": ["#090d12", "#121923", "#202a37", "#344151", "#4f5e71", "#758499", "#adb7c6", "#eef2f8"]
+      },
+      "graphite-ledger": {
+        "role": "neutral",
+        "displayName": "Graphite Ledger",
+        "canonical": "#151c27",
+        "tonalRamp": ["#0a0e13", "#151c27", "#232d3a", "#374452", "#526174", "#78879b", "#afb9c8", "#eff3f8"]
+      },
+      "rule": {
+        "role": "neutral",
+        "displayName": "Structural Rule",
+        "canonical": "#202938",
+        "tonalRamp": ["#0c1016", "#161d27", "#202938", "#354252", "#516174", "#78879a", "#afb9c7", "#eef2f7"]
+      },
+      "rule-strong": {
+        "role": "neutral",
+        "displayName": "Strong Structural Rule",
+        "canonical": "#303c50",
+        "tonalRamp": ["#0d1117", "#1b2330", "#303c50", "#46566a", "#617186", "#8492a5", "#b7c0cd", "#f0f3f7"]
+      },
+      "ink-cool": {
+        "role": "neutral",
+        "displayName": "Cool White Ink",
+        "canonical": "#e8edf6",
+        "tonalRamp": ["#111820", "#27323f", "#435162", "#657486", "#8997a8", "#aeb9c7", "#cfd7e2", "#e8edf6"]
+      },
+      "ink-strong": {
+        "role": "neutral",
+        "displayName": "Instrument White",
+        "canonical": "#edf2f9",
+        "tonalRamp": ["#111820", "#293440", "#465363", "#687789", "#8d9aaa", "#b2bdca", "#d3dbe5", "#edf2f9"]
+      },
+      "ink-muted": {
+        "role": "neutral",
+        "displayName": "Muted Blue-Gray Ink",
+        "canonical": "#a1adbf",
+        "tonalRamp": ["#111820", "#25303d", "#414e5e", "#606e80", "#7f8da0", "#a1adbf", "#c9d1dc", "#f0f3f8"]
+      },
+      "ink-dim": {
+        "role": "neutral",
+        "displayName": "Dim Blue-Gray Ink",
+        "canonical": "#758196",
+        "tonalRamp": ["#0f151c", "#222c38", "#3c4858", "#566477", "#758196", "#97a3b3", "#c3cbd6", "#edf1f6"]
+      },
+      "periwinkle": {
+        "role": "primary",
+        "displayName": "Operator Periwinkle",
+        "canonical": "#8292ff",
+        "tonalRamp": ["#171b42", "#242b67", "#34418f", "#4a5bb8", "#6475df", "#8292ff", "#b0b9ff", "#eef0ff"]
+      },
+      "periwinkle-hover": {
+        "role": "primary",
+        "displayName": "Operator Periwinkle Hover",
+        "canonical": "#9aa7ff",
+        "tonalRamp": ["#181c43", "#282f69", "#3c4992", "#5666bd", "#7384e4", "#9aa7ff", "#bec5ff", "#f0f2ff"]
+      },
+      "periwinkle-soft": {
+        "role": "primary",
+        "displayName": "Periwinkle Field",
+        "canonical": "rgba(130,146,255,.13)",
+        "tonalRamp": ["rgba(130,146,255,.04)", "rgba(130,146,255,.07)", "rgba(130,146,255,.10)", "rgba(130,146,255,.13)", "rgba(130,146,255,.17)", "rgba(130,146,255,.21)", "rgba(130,146,255,.26)", "rgba(130,146,255,.32)"]
+      },
+      "cash-flow-cyan": {
+        "role": "secondary",
+        "displayName": "Cash-Flow Cyan",
+        "canonical": "#53b7dc",
+        "tonalRamp": ["#102a35", "#163f50", "#1f5a6f", "#2c7892", "#3c98b6", "#53b7dc", "#91d5eb", "#e5f6fb"]
+      },
+      "positive": {
+        "role": "secondary",
+        "displayName": "Verified Green",
+        "canonical": "#48cfa2",
+        "tonalRamp": ["#102a23", "#153f34", "#1e5a48", "#29785f", "#379879", "#48cfa2", "#91e4c7", "#e5f9f2"]
+      },
+      "caution": {
+        "role": "tertiary",
+        "displayName": "Caution Amber",
+        "canonical": "#e2ad62",
+        "tonalRamp": ["#302411", "#4a3518", "#684a22", "#8a632f", "#b18243", "#e2ad62", "#f0d29c", "#fcf4e8"]
+      },
+      "negative": {
+        "role": "tertiary",
+        "displayName": "Signal Red",
+        "canonical": "#ff746d",
+        "tonalRamp": ["#381615", "#57201e", "#7a2e2a", "#a6403b", "#d4554f", "#ff746d", "#ffaaa6", "#ffedec"]
+      },
+      "on-accent": {
+        "role": "neutral",
+        "displayName": "On-Accent White",
+        "canonical": "#ffffff",
+        "tonalRamp": ["#171717", "#333333", "#555555", "#777777", "#999999", "#bbbbbb", "#dddddd", "#ffffff"]
+      }
     },
     "typographyMeta": {
-      "display": { "displayName": "Compact Decision Display", "purpose": "Page, section, and panel headings; select high-value figures." },
-      "body": { "displayName": "Operational Body", "purpose": "Navigation, explanatory copy, labels, and state messages." },
-      "utility": { "displayName": "Auditable Mono", "purpose": "Tickers, financial values, percentage figures, provenance, and compact data labels." }
+      "flagship": {
+        "displayName": "Flagship Interface",
+        "purpose": "Company overview title, panel headings, and supporting interface labels on the flagship route."
+      },
+      "display": {
+        "displayName": "Compact Research Display",
+        "purpose": "Workspace and home titles, panel headings, and analytical instrument titles."
+      },
+      "body": {
+        "displayName": "Operational Body",
+        "purpose": "Navigation, explanatory copy, state messages, and ordinary controls."
+      },
+      "data": {
+        "displayName": "Auditable Data",
+        "purpose": "Tickers, money, rates, percentages, and compact figures that benefit from fixed-width comparison."
+      },
+      "label": {
+        "displayName": "Utility Label",
+        "purpose": "Small field and group labels; never a redundant decorative kicker."
+      }
     },
     "shadows": [
-      { "name": "brand-lift", "value": "0 4px 10px rgba(52,72,216,.2)", "purpose": "Small lift for the Valuation Engine brand mark." },
-      { "name": "selected-control", "value": "0 1px 2px rgba(21,28,38,.1)", "purpose": "Reserved lift for the selected mode segment." },
-      { "name": "forecast-tooltip", "value": "0 12px 28px rgba(16,24,40,.12)", "purpose": "Brief contextual elevation for the forecast tooltip." }
+      {
+        "name": "forecast-tooltip",
+        "value": "0 14px 34px rgba(0,0,0,.42)",
+        "purpose": "Transient separation for the forecast inspection tooltip only; resting surfaces remain shadowless."
+      }
     ],
     "motion": [
-      { "name": "control-state", "value": "120ms ease", "purpose": "Hover, border, color, and press responses on controls." },
-      { "name": "selector-state", "value": "150ms ease", "purpose": "Scenario and selector feedback." },
-      { "name": "result-enter", "value": "220ms cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "A single fade-and-6px-lift when fresh workspace results arrive; disabled under reduced motion." }
+      {
+        "name": "control-state",
+        "value": "120ms ease",
+        "purpose": "Button, input, and compact control state changes."
+      },
+      {
+        "name": "navigation-state",
+        "value": "140ms ease",
+        "purpose": "Navigation and quick-company hover or selection changes."
+      },
+      {
+        "name": "selector-state",
+        "value": "150ms ease",
+        "purpose": "Scenario and segmented selector feedback."
+      },
+      {
+        "name": "result-enter",
+        "value": "220ms cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "The single six-pixel fade-and-lift when a fresh analysis result arrives; disabled under reduced motion."
+      }
     ],
     "breakpoints": [
-      { "name": "workspace-stack", "value": "900px", "purpose": "Forecast and thesis rail stack into one analytical column." },
-      { "name": "app-chrome-mobile", "value": "820px", "purpose": "Desktop sidebar becomes the bottom navigation; content gutter becomes 14px per side." },
-      { "name": "narrow-control", "value": "640px", "purpose": "Assumption tray and home action fields become single-column." },
-      { "name": "minimum-supported-width", "value": "320px", "purpose": "Authenticated pages must remain free of page-level horizontal overflow." }
+      {
+        "name": "dashboard-reflow",
+        "value": "1180px",
+        "purpose": "Summary metrics reduce to two columns and wide overview splits stack."
+      },
+      {
+        "name": "analysis-stack",
+        "value": "900px",
+        "purpose": "Forecast and Thesis Rail become one column."
+      },
+      {
+        "name": "chrome-mobile",
+        "value": "820px",
+        "purpose": "Desktop rail becomes the fixed five-item bottom navigation and gutters contract."
+      },
+      {
+        "name": "compact-controls",
+        "value": "640px",
+        "purpose": "Launchers, assumptions, charts, and supporting steps adapt for narrow screens."
+      },
+      {
+        "name": "minimum-supported-width",
+        "value": "320px",
+        "purpose": "Authenticated pages remain usable and free of page-level horizontal overflow."
+      }
     ]
   },
   "components": [
@@ -39,80 +209,135 @@
       "name": "Primary Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "The direct action that advances valuation work.",
-      "html": "<button class=\"ds-btn-primary\" type=\"button\">Run Valuation</button>",
-      "css": ".ds-btn-primary { min-height: 2.75rem; border: 1px solid #3448d8; border-radius: 7px; padding: 0 1.15rem; background: #3448d8; color: #fff; font: 600 .82rem/1 IBM Plex Sans, sans-serif; transition: background 120ms ease, border-color 120ms ease, transform 120ms ease; } .ds-btn-primary:hover { border-color: #3547d5; background: #3547d5; } .ds-btn-primary:focus-visible { outline: 2px solid #3448d8; outline-offset: 2px; } .ds-btn-primary:active { transform: translateY(1px); }"
+      "description": "The direct action that advances research work.",
+      "html": "<button class=\"ds-btn-primary\" type=\"button\">Run valuation</button>",
+      "css": ".ds-btn-primary { min-height: 2.75rem; border: 1px solid var(--cobalt, #8292ff); border-radius: 4px; padding: 0 1.15rem; background: var(--cobalt, #8292ff); color: #fff; font: 600 .82rem/1 var(--body, sans-serif); transition: background 120ms ease, border-color 120ms ease, transform 120ms ease; } .ds-btn-primary:hover { border-color: var(--cobalt-hover, #9aa7ff); background: var(--cobalt-hover, #9aa7ff); } .ds-btn-primary:focus-visible { outline: 2px solid var(--cobalt, #8292ff); outline-offset: 2px; } .ds-btn-primary:active { transform: translateY(1px); }"
     },
     {
       "name": "Secondary Button",
       "kind": "button",
       "refersTo": "button-secondary",
-      "description": "A neutral supporting action that gains cobalt only when engaged.",
+      "description": "A quiet supporting action that gains periwinkle only when engaged.",
       "html": "<button class=\"ds-btn-secondary\" type=\"button\">View details</button>",
-      "css": ".ds-btn-secondary { min-height: 2.75rem; border: 1px solid #d0d5dd; border-radius: 7px; padding: 0 1.15rem; background: #fff; color: #475467; font: 600 .82rem/1 IBM Plex Sans, sans-serif; transition: border-color 120ms ease, color 120ms ease; } .ds-btn-secondary:hover { border-color: #3448d8; color: #3448d8; } .ds-btn-secondary:focus-visible { outline: 2px solid #3448d8; outline-offset: 2px; } .ds-btn-secondary:active { transform: translateY(1px); }"
+      "css": ".ds-btn-secondary { min-height: 2.75rem; border: 1px solid var(--line-strong, #303c50); border-radius: 4px; padding: 0 1.15rem; background: var(--ink-raised, #0f141c); color: var(--paper-muted, #a1adbf); font: 600 .82rem/1 var(--body, sans-serif); transition: border-color 120ms ease, color 120ms ease, transform 120ms ease; } .ds-btn-secondary:hover { border-color: var(--cobalt, #8292ff); color: var(--cobalt, #8292ff); } .ds-btn-secondary:focus-visible { outline: 2px solid var(--cobalt, #8292ff); outline-offset: 2px; } .ds-btn-secondary:active { transform: translateY(1px); }"
     },
     {
       "name": "Ticker Input",
       "kind": "input",
       "refersTo": "input-default",
-      "description": "The durable white ledger field used for tickers and precise inputs.",
+      "description": "The embedded ledger field for company symbols and precise model inputs.",
       "html": "<label class=\"ds-input-label\">TICKER<input class=\"ds-input\" value=\"AAPL\" aria-label=\"Ticker\" /></label>",
-      "css": ".ds-input-label { display: grid; gap: .4rem; color: #667085; font: 600 .66rem/1 IBM Plex Mono, monospace; letter-spacing: .06em; } .ds-input { min-height: 2.75rem; border: 1px solid #d0d5dd; border-radius: 7px; padding: 0 1rem; background: #fff; color: #101828; font: 600 1rem/1 IBM Plex Mono, monospace; letter-spacing: .04em; } .ds-input:hover { border-color: #98a2b3; } .ds-input:focus { border-color: #3448d8; box-shadow: 0 0 0 3px rgba(70,95,255,.1); outline: none; }"
+      "css": ".ds-input-label { display: grid; gap: .45rem; color: var(--paper-dim, #758196); font: 650 .625rem/1 var(--body, sans-serif); letter-spacing: .07em; } .ds-input { min-height: 2.75rem; border: 1px solid var(--line-strong, #303c50); border-radius: 4px; padding: 0 1rem; background: var(--ink-raised, #0f141c); color: var(--paper, #e8edf6); font: 600 .82rem/1 var(--utility, monospace); letter-spacing: .04em; } .ds-input:hover { border-color: #59667a; } .ds-input:focus { border-color: var(--cobalt, #8292ff); box-shadow: 0 0 0 3px var(--cobalt-soft, rgba(130,146,255,.13)); outline: none; }"
     },
     {
       "name": "Active Navigation Link",
       "kind": "nav",
       "refersTo": "nav-active",
-      "description": "The selected route in the persistent desktop rail or mobile bottom navigation.",
+      "description": "The selected route in the persistent rail or fixed mobile navigation.",
       "html": "<a class=\"ds-nav-link ds-nav-link-active\" href=\"#overview\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><rect x=\"3\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\" rx=\"1\"/></svg><span>Overview</span></a>",
-      "css": ".ds-nav-link { display: inline-flex; min-height: 42px; align-items: center; gap: 11px; border-radius: 8px; padding: 0 11px; color: #667085; font: 550 12px/1 IBM Plex Sans, sans-serif; text-decoration: none; transition: background 140ms ease, color 140ms ease; } .ds-nav-link svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; } .ds-nav-link:hover { background: #f5f7ff; color: #344054; } .ds-nav-link-active { background: #eef1ff; color: #3448d8; } .ds-nav-link:focus-visible { outline: 2px solid #3448d8; outline-offset: 2px; }"
+      "css": ".ds-nav-link { display: inline-flex; min-height: 42px; align-items: center; gap: 11px; border: 1px solid transparent; border-radius: 4px; padding: 0 11px; color: #8490a4; font: 550 12px/1 var(--body, sans-serif); text-decoration: none; transition: border-color 140ms ease, background 140ms ease, color 140ms ease; } .ds-nav-link svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; } .ds-nav-link:hover { border-color: #273246; background: #101620; color: #dfe6f1; } .ds-nav-link-active { border-color: #354b79; background: #141d30; color: #8da1ff; } .ds-nav-link:focus-visible { outline: 2px solid var(--cobalt, #8292ff); outline-offset: 2px; }"
     },
     {
       "name": "Scenario Selector",
       "kind": "chip",
       "refersTo": "button-secondary",
-      "description": "A 44px shared-state selector for Bear, Base, and Bull scenarios.",
+      "description": "A shared-state Bear, Base, and Bull selector that avoids semantic case coloring.",
       "html": "<div class=\"ds-scenarios\"><button class=\"ds-scenario\" type=\"button\">Bear</button><button class=\"ds-scenario ds-scenario-active\" type=\"button\">Base</button><button class=\"ds-scenario\" type=\"button\">Bull</button></div>",
-      "css": ".ds-scenarios { display: flex; gap: .4rem; } .ds-scenario { min-height: 44px; flex: 1 1 0; border: 1px solid #e4e7ec; border-radius: 6px; background: #fff; color: #667085; font: 600 .74rem/1 IBM Plex Sans, sans-serif; transition: border-color 150ms ease, color 150ms ease, background 150ms ease; } .ds-scenario:hover { border-color: #667085; color: #101828; } .ds-scenario-active { border-color: #3448d8; background: rgba(70,95,255,.1); color: #3448d8; } .ds-scenario:focus-visible { outline: 2px solid #3448d8; outline-offset: 2px; }"
+      "css": ".ds-scenarios { display: flex; gap: .4rem; padding: .25rem; background: var(--instrument, #0c1118); } .ds-scenario { min-height: 44px; flex: 1 1 0; border: 1px solid var(--instrument-edge, #263143); border-radius: 6px; background: var(--instrument-raised, #121923); color: var(--instrument-text-dim, #8491a6); font: 600 .74rem/1 var(--body, sans-serif); transition: border-color 150ms ease, color 150ms ease, background 150ms ease; } .ds-scenario:hover { border-color: var(--instrument-text-dim, #8491a6); color: var(--instrument-text, #edf2f9); } .ds-scenario-active { border-color: var(--cobalt, #8292ff); background: var(--cobalt-soft, rgba(130,146,255,.13)); color: var(--cobalt, #8292ff); } .ds-scenario:focus-visible { outline: 2px solid var(--cobalt, #8292ff); outline-offset: 2px; }"
     },
     {
       "name": "Research Panel",
       "kind": "card",
-      "refersTo": "card-default",
-      "description": "The flat, labeled white container for recent work, market context, and analytical modules.",
-      "html": "<section class=\"ds-panel\"><p class=\"ds-panel-label\">RECENT WORK</p><h3>Recent valuations</h3><p>Saved privately in this browser</p></section>",
-      "css": ".ds-panel { border: 1px solid #e4e7ec; border-radius: 11px; padding: 1.1rem; background: #fff; color: #101828; font-family: IBM Plex Sans, sans-serif; } .ds-panel-label { margin: 0 0 .65rem; color: #667085; font: 600 .66rem/1 IBM Plex Mono, monospace; letter-spacing: .07em; } .ds-panel h3 { margin: 0; font: 650 .98rem/1.2 Instrument Sans, sans-serif; letter-spacing: -.015em; } .ds-panel p:last-child { margin: .35rem 0 0; color: #667085; font-size: .72rem; } .ds-panel:hover { border-color: #d0d5dd; }"
+      "refersTo": "panel-default",
+      "description": "The flat graphite container for summary, recent work, and supporting analysis.",
+      "html": "<section class=\"ds-panel\"><div class=\"ds-panel-heading\"><h3>Recent valuations</h3><span>Browser-local</span></div><div class=\"ds-panel-row\"><strong>AAPL</strong><span>$214.32</span><a href=\"#open\">Open</a></div></section>",
+      "css": ".ds-panel { border: 1px solid var(--line, #202938); border-radius: 5px; padding: 1.125rem; background: var(--ink-raised, #0f141c); color: var(--paper, #e8edf6); font-family: var(--body, sans-serif); } .ds-panel-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding-bottom: .75rem; border-bottom: 1px solid var(--line, #202938); } .ds-panel h3 { margin: 0; font: 650 .95rem/1.2 var(--display, sans-serif); letter-spacing: -.015em; } .ds-panel-heading span { color: var(--paper-dim, #758196); font-size: .625rem; } .ds-panel-row { display: grid; grid-template-columns: 1fr auto auto; gap: 1rem; padding-top: .85rem; color: var(--paper-muted, #a1adbf); font-size: .72rem; } .ds-panel-row strong, .ds-panel-row span { font-variant-numeric: tabular-nums; } .ds-panel-row a { color: var(--cobalt, #8292ff); text-decoration: none; } .ds-panel:hover { border-color: var(--line-strong, #303c50); } .ds-panel:focus-within { border-color: var(--cobalt, #8292ff); }"
+    },
+    {
+      "name": "Annual Forecast Instrument",
+      "kind": "custom",
+      "refersTo": "instrument-panel",
+      "description": "The honest annual Revenue and Free Cash Flow dual-line chart with separate scales.",
+      "html": "<section class=\"ds-forecast\"><div class=\"ds-forecast-head\"><div><h3>Operating forecast</h3><p>Base case · five-year operating path</p></div><div class=\"ds-forecast-legend\"><span><i class=\"ds-revenue\"></i>Revenue $482B</span><span><i class=\"ds-fcf\"></i>Free cash flow $112B</span></div></div><svg class=\"ds-forecast-chart\" viewBox=\"0 0 520 190\" role=\"img\" aria-label=\"Annual Revenue and Free Cash Flow forecast\"><g class=\"ds-grid\"><path d=\"M54 22H466M54 62H466M54 102H466M54 142H466\"/><path d=\"M54 142V22M466 142V22\"/></g><polyline class=\"ds-line-revenue\" points=\"54,126 157,108 260,84 363,58 466,35\"/><polyline class=\"ds-line-fcf\" points=\"54,132 157,119 260,106 363,88 466,67\"/><line class=\"ds-crosshair\" x1=\"363\" y1=\"22\" x2=\"363\" y2=\"142\"/><g class=\"ds-years\"><text x=\"54\" y=\"166\">Y1</text><text x=\"157\" y=\"166\">Y2</text><text x=\"260\" y=\"166\">Y3</text><text x=\"363\" y=\"166\">Y4</text><text x=\"466\" y=\"166\">Y5</text></g></svg><p class=\"ds-forecast-note\">Annual forecast · left revenue / right free cash flow · hover to inspect</p></section>",
+      "css": ".ds-forecast { border: 1px solid var(--instrument-edge, #263143); border-radius: 5px; padding: 1.05rem 1.1rem .75rem; background: var(--instrument, #0c1118); color: var(--instrument-text, #edf2f9); font-family: var(--body, sans-serif); transition: border-color 150ms ease; } .ds-forecast:hover { border-color: var(--line-strong, #303c50); } .ds-forecast:focus-within { border-color: var(--cobalt, #8292ff); } .ds-forecast-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; } .ds-forecast h3 { margin: 0; font: 650 1rem/1.2 var(--display, sans-serif); letter-spacing: -.015em; } .ds-forecast-head p, .ds-forecast-note { margin: .25rem 0 0; color: var(--instrument-text-dim, #8491a6); font-size: .64rem; } .ds-forecast-legend { display: flex; gap: .8rem; color: var(--instrument-text-dim, #8491a6); font-size: .66rem; } .ds-forecast-legend span { display: inline-flex; align-items: center; gap: .35rem; } .ds-forecast-legend i { width: .8rem; height: 2px; } .ds-revenue { background: var(--cobalt, #8292ff); } .ds-fcf { background: #53b7dc; } .ds-forecast-chart { width: 100%; margin-top: .5rem; overflow: visible; } .ds-grid path { fill: none; stroke: var(--line, #202938); stroke-width: 1; stroke-dasharray: 2 4; } .ds-line-revenue, .ds-line-fcf { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; } .ds-line-revenue { stroke: var(--cobalt, #8292ff); } .ds-line-fcf { stroke: #53b7dc; } .ds-crosshair { stroke: #59667a; stroke-width: 1; stroke-dasharray: 4 4; } .ds-years { fill: #7f8ba0; font: 11px var(--body, sans-serif); text-anchor: middle; }"
+    },
+    {
+      "name": "Thesis Rail",
+      "kind": "custom",
+      "refersTo": "instrument-panel",
+      "description": "The persistent decision companion for price, selected value, market gap, assumptions, and provenance.",
+      "html": "<aside class=\"ds-thesis\"><div class=\"ds-thesis-head\"><h3>Thesis</h3><span>Base</span></div><div class=\"ds-thesis-main\"><small>AAPL · Technology</small><strong>$228.40</strong><em>+6.6% above market</em></div><dl><div><dt>Market price</dt><dd>$214.32</dd></div><div><dt>WACC</dt><dd>8.42%</dd></div><div><dt>Terminal growth</dt><dd>2.50%</dd></div></dl><p class=\"ds-thesis-source\">Sources and assumptions remain visible with the decision.</p></aside>",
+      "css": ".ds-thesis { border: 1px solid var(--instrument-edge, #263143); border-radius: 5px; padding: .9rem; background: var(--instrument, #0c1118); color: var(--instrument-text, #edf2f9); font-family: var(--body, sans-serif); transition: border-color 150ms ease; } .ds-thesis:hover { border-color: var(--line-strong, #303c50); } .ds-thesis:focus-within { border-color: var(--cobalt, #8292ff); } .ds-thesis-head { display: flex; justify-content: space-between; gap: .75rem; padding-bottom: .55rem; border-bottom: 1px solid var(--instrument-edge, #263143); } .ds-thesis h3 { margin: 0; font: 650 .95rem/1.2 var(--display, sans-serif); } .ds-thesis-head span { padding: .3rem .45rem; border-radius: 999px; background: var(--cobalt-soft, rgba(130,146,255,.13)); color: var(--cobalt, #8292ff); font-size: .58rem; font-weight: 650; } .ds-thesis-main { padding: .65rem 0; border-bottom: 1px solid var(--instrument-edge, #263143); } .ds-thesis-main small { display: block; color: var(--instrument-text-dim, #8491a6); font-size: .62rem; } .ds-thesis-main strong { display: block; margin-top: .2rem; font: 600 1.65rem/1.05 var(--display, sans-serif); font-variant-numeric: tabular-nums; } .ds-thesis-main em { display: block; margin-top: .2rem; color: var(--positive, #48cfa2); font-style: normal; font-size: .72rem; } .ds-thesis dl { display: grid; margin: 0; } .ds-thesis dl div { display: flex; justify-content: space-between; gap: 1rem; padding: .4rem 0; border-bottom: 1px solid var(--instrument-edge, #263143); font-size: .68rem; } .ds-thesis dt { color: var(--instrument-text-dim, #8491a6); } .ds-thesis dd { margin: 0; font-family: var(--display, sans-serif); font-variant-numeric: tabular-nums; } .ds-thesis-source { margin: .7rem 0 0; padding: .65rem; border-radius: 4px; background: var(--instrument-raised, #121923); color: var(--instrument-text-dim, #8491a6); font-size: .62rem; line-height: 1.45; }"
     }
   ],
   "narrative": {
-    "northStar": "The Disciplined Research Desk",
-    "overview": "Valuation Engine is a compact, cool-white operating console: an operator should see the next decision, the current model state, and its evidence before seeing decoration. Its visual world belongs to the TailAdmin/NextAdmin family—quiet structural rules, dense but breathable labeled zones, navy ink, and a single cobalt interaction voice.\n\nThe interface treats market and model numbers as working evidence. Panels are flat white paper on a mineral canvas; the selected scenario, action, focus, and chart revenue line are all connected by cobalt. Positive, warning, and negative colors stay semantic so that case labels never imply a market outcome. The populated workspace makes the forecast and its compact thesis rail read as one cross-check field, without confusing absolute value with sector-relative context.",
+    "northStar": "The Graphite Research Instrument",
+    "overview": "Valuation Engine is an edge-to-edge institutional charting workspace: near-black chrome and canvas hold dense blue-gray surfaces, cool-white data, and a single restrained periwinkle interaction voice. It should feel like purpose-built equity-research software for one serious operator, not a public market-data terminal, a decorative admin template, or a neon trading product.\n\nTailAdmin V1/V2 and NextAdmin inform the information architecture only: persistent navigation, compact controls, clear grouping, and decision-first scanning. The visual world is darker, sharper, and flatter. Fine rules, tonal layering, tabular figures, and exact state feedback carry the hierarchy; ornament does not. Source visibility and honest financial distinctions remain part of the interface's visual discipline.",
     "keyCharacteristics": [
-      "A persistent white navigation rail and utility bar organize the workspace without competing with the data.",
-      "Fine borders and labeled rows create hierarchy; empty decoration and ornamental card stacks do not.",
-      "Instrument Sans gives decision headings compact authority, IBM Plex Sans carries prose, and IBM Plex Mono identifies auditable figures and small data labels.",
-      "Cobalt is reserved for direct interaction, selection, and the primary forecast series.",
-      "Mobile retains the same operating sequence with a fixed bottom navigation and 44px interactive targets."
+      "A near-black 220px desktop rail and 64px utility bar meet the canvas edge-to-edge.",
+      "Blue-gray panels use fine borders, 4–5px structural corners, and no resting shadow.",
+      "Cool-white data ink and restrained supporting copy make dense research legible without becoming loud.",
+      "Periwinkle identifies actions, focus, active navigation, selected scenarios, and the primary forecast series.",
+      "Green, amber, and red appear only for genuine favorable, cautionary, and unfavorable meaning.",
+      "Annual revenue and free cash flow appear as honest line series with separate labeled axes, a restrained grid, and an inspection crosshair."
     ],
     "rules": [
-      { "name": "The One Interaction Voice Rule", "body": "Cobalt is the only non-semantic accent for interaction and selection. Do not color Bear, Base, and Bull as if they were outcome states.", "section": "colors" },
-      { "name": "The Figure-as-Evidence Rule", "body": "Tickers, currency, rates, and audit-oriented values use tabular numerals; prose and navigation do not imitate a trading terminal.", "section": "typography" },
-      { "name": "The Decision-First Rule", "body": "Put the operator's next action and the model cross-check before supporting schedules. Do not turn the workspace into a long document of equally weighted sections.", "section": "layout" },
-      { "name": "The Flat-by-Default Rule", "body": "A border and background change define a surface; elevation is reserved for a control state or brief contextual overlay.", "section": "elevation" }
+      {
+        "name": "The One Interaction Voice Rule",
+        "body": "Periwinkle owns action and selection. Cash-flow cyan belongs only to its chart series; semantic colors never substitute for active state.",
+        "section": "colors"
+      },
+      {
+        "name": "The Semantic Restraint Rule",
+        "body": "Green, amber, and red must correspond to actual model, market, connectivity, caution, or error meaning. Never use them to decorate neutral categories.",
+        "section": "colors"
+      },
+      {
+        "name": "The Figure-as-Evidence Rule",
+        "body": "Use mono or explicitly tabular numerals where comparison matters; do not turn all prose and navigation into faux-terminal typography.",
+        "section": "typography"
+      },
+      {
+        "name": "The One-Title Rule",
+        "body": "A section gets one clear heading. Do not stack an eyebrow or kicker above a title when both say the same thing.",
+        "section": "typography"
+      },
+      {
+        "name": "The Decision-First Rule",
+        "body": "Keep the next action, selected scenario, primary value, and supporting evidence in the first operating field. Supporting schedules may stack or move behind tabs, but they do not outrank the decision surface.",
+        "section": "layout"
+      },
+      {
+        "name": "The Edge-to-Edge Shell Rule",
+        "body": "Persistent chrome meets the viewport edges. Do not wrap the product in an artificial white sheet, floating desktop frame, or oversized outer radius.",
+        "section": "layout"
+      },
+      {
+        "name": "The Flat-by-Default Rule",
+        "body": "A border and a tonal step define every resting surface. Shadows are transient context, never the page's structural grammar.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Structural Corner Rule",
+        "body": "Default to 4–5px. Use a pill only when the element is literally a compact tag or status indicator.",
+        "section": "shapes"
+      }
     ],
     "dos": [
-      "Do use the cool-white canvas, white surfaces, fine structural rules, and compact radii as the base grammar.",
-      "Do make the next action, selected scenario, source/provenance, and market/model distinction easy to scan in the first viewport.",
-      "Do use cobalt for interaction, selection, focus, and the primary forecast series; reserve green, brass, and red for real semantic status.",
-      "Do keep values tabular and use the mono face where data must be audited or compared.",
-      "Do preserve the desktop rail/topbar and the mobile bottom-navigation pattern when extending authenticated routes."
+      "Do preserve the near-black edge-to-edge shell, blue-gray surfaces, cool-white ink, fine rules, and 4–5px structural corners.",
+      "Do use periwinkle consistently for action, focus, active navigation, selected scenarios, and the Revenue line.",
+      "Do keep financial values tabular, source and assumption provenance visible, and absolute valuation distinct from sector-relative context.",
+      "Do show Revenue and Free Cash Flow as honest annual dual-axis lines with a restrained grid and inspection crosshair.",
+      "Do preserve 44px primary touch targets, fixed mobile navigation, and usability without page-level overflow at 320px."
     ],
     "donts": [
-      "Don't introduce dark-terminal styling, gradients, glassmorphism, neon, or decorative dashboard ornament.",
-      "Don't replace fine structural borders with broad shadows or a stack of floating cards.",
-      "Don't color Bear/Base/Bull as favorable or unfavorable outcomes.",
-      "Don't hide provenance, cautions, empty/loading/error states, or the difference between absolute value and peer context.",
-      "Don't permit page-level horizontal overflow below 320px or reduce primary mobile targets below 44px."
+      "Don't reintroduce a light palette because TailAdmin or NextAdmin were used as information-architecture references.",
+      "Don't add resting shadows, gradients, glass, blur, glow, neon accents, or rounded floating-card stacks.",
+      "Don't add redundant eyebrow or kicker copy above page, panel, or instrument titles.",
+      "Don't add halos around status dots or use semantic color as decoration.",
+      "Don't color Bear, Base, and Bull as favorable or unfavorable outcomes.",
+      "Don't fabricate candlesticks, intraday history, volume bars, or any chart encoding not supported by the annual model data.",
+      "Don't hide loading, empty, error, caution, or provenance states to make the workspace look populated."
     ]
   }
 }

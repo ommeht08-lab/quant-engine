@@ -1,45 +1,37 @@
 @import "tailwindcss";
 
 :root {
-  /* Canvas / surfaces — a cold, restrained mineral shell. Material
-     boldness (the dark "instrument" surfaces) is reserved for the
-     Valuation Spectrum and the Thesis Rail; every other surface here
-     stays flat and quiet. */
-  --ink: #f6f8fc;
-  --ink-raised: #ffffff;
-  --ledger: #eef1f6;
+  /* Canvas / surfaces — a restrained graphite market workspace. */
+  --ink: #080b10;
+  --ink-raised: #0f141c;
+  --ledger: #151c27;
 
-  /* Text — the SAME blue-black used for the dark instrument surfaces
-     below doubles as the primary text color on light surfaces; slate is
-     the one secondary/tertiary text tone. A deliberately small
-     vocabulary, not a five-step gray ramp. */
-  --paper: #101828;
-  --paper-muted: #475467;
-  --paper-dim: #667085;
+  /* Text — cool white with a compact blue-gray supporting scale. */
+  --paper: #e8edf6;
+  --paper-muted: #a1adbf;
+  --paper-dim: #758196;
 
-  /* Instrument — the dark, material surface shared by the Valuation
-     Spectrum and the Thesis Rail: the two places the workspace's core
-     numbers live. Nowhere else uses this surface. */
-  --instrument: #ffffff;
-  --instrument-raised: #f8f9ff;
-  --instrument-edge: #e4e7ec;
-  --instrument-text: #101828;
-  --instrument-text-dim: #667085;
+  /* Instrument — slightly lifted dark surfaces for model readouts. */
+  --instrument: #0c1118;
+  --instrument-raised: #121923;
+  --instrument-edge: #263143;
+  --instrument-text: #edf2f9;
+  --instrument-text-dim: #8491a6;
 
   /* Semantic accents */
-  --cobalt: #3448d8;
-  --cobalt-hover: #3547d5;
-  --cobalt-soft: rgba(70,95,255,.1);
-  --verdigris: #027a48;
-  --verdigris-soft: #ecfdf3;
-  --brass: #b54708;
-  --brass-soft: #fff4ed;
-  --signal: #d92d20;
-  --signal-soft: #fef3f2;
+  --cobalt: #8292ff;
+  --cobalt-hover: #9aa7ff;
+  --cobalt-soft: rgba(130,146,255,.13);
+  --verdigris: #48cfa2;
+  --verdigris-soft: rgba(72,207,162,.1);
+  --brass: #e2ad62;
+  --brass-soft: rgba(226,173,98,.1);
+  --signal: #ff746d;
+  --signal-soft: rgba(255,116,109,.1);
 
   /* Borders */
-  --line: #e4e7ec;
-  --line-strong: #d0d5dd;
+  --line: #202938;
+  --line-strong: #303c50;
 
   /* Type — loaded via next/font/google in layout.tsx, which defines the
      --font-instrument-sans / --font-plex-sans / --font-plex-mono custom
@@ -62,6 +54,7 @@
 
 html {
   background: var(--ink);
+  color-scheme: dark;
 }
 
 body {
@@ -82,22 +75,22 @@ body:has([data-research-shell]) {
 }
 
 body:has([data-app-chrome]) {
-  --ink: #f6f8fc;
-  --ink-raised: #ffffff;
-  --ledger: #eef1f6;
-  --paper: #101828;
-  --paper-muted: #475467;
-  --paper-dim: #667085;
-  --instrument: #ffffff;
-  --instrument-raised: #f8f9ff;
-  --instrument-edge: #e4e7ec;
-  --instrument-text: #101828;
-  --instrument-text-dim: #667085;
-  --line: #e4e7ec;
-  --line-strong: #d0d5dd;
+  --ink: #080b10;
+  --ink-raised: #0f141c;
+  --ledger: #151c27;
+  --paper: #e8edf6;
+  --paper-muted: #a1adbf;
+  --paper-dim: #758196;
+  --instrument: #0c1118;
+  --instrument-raised: #121923;
+  --instrument-edge: #263143;
+  --instrument-text: #edf2f9;
+  --instrument-text-dim: #8491a6;
+  --line: #202938;
+  --line-strong: #303c50;
   --display: var(--font-instrument-sans, "Instrument Sans"), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --body: var(--font-plex-sans, "IBM Plex Sans"), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #f6f8fc;
+  background: #080b10;
 }
 
 body:has([data-app-chrome]) :is(.eyebrow, .data-label, .panel-kicker, .assumption-tray-label, .data-table th) {
@@ -106,7 +99,7 @@ body:has([data-app-chrome]) :is(.eyebrow, .data-label, .panel-kicker, .assumptio
 }
 
 ::selection {
-  background: rgba(49, 95, 229, 0.18);
+  background: rgba(130,146,255,.24);
   color: var(--paper);
 }
 
@@ -178,14 +171,14 @@ input {
   height: 1.85rem;
   place-items: center;
   border: 1px solid var(--cobalt);
-  border-radius: 8px;
+  border-radius: 5px;
   background: var(--cobalt);
   color: #ffffff;
   font-family: var(--utility);
   font-size: 0.64rem;
   font-weight: 700;
   letter-spacing: 0.04em;
-  box-shadow: 0 4px 10px rgba(70, 95, 255, 0.18);
+  box-shadow: none;
 }
 
 .status-dot {
@@ -197,9 +190,9 @@ input {
   background: var(--verdigris);
 }
 
-.login-shell { display:grid; min-height:100vh; background:#fff; }
+.login-shell { display:grid; min-height:100vh; background:#080b10; }
 .login-story { display:none; }
-.login-access { display:flex; min-height:100vh; align-items:center; padding:2rem 1.25rem; background:#fff; }
+.login-access { display:flex; min-height:100vh; align-items:center; padding:2rem 1.25rem; background:#080b10; }
 .login-access-card { width:min(100%,27rem); margin-inline:auto; }
 .login-mobile-brand { margin-bottom:3.25rem; }
 .login-access-card h2 { color:var(--paper); font:650 clamp(2rem,5vw,2.55rem)/1.08 var(--display); letter-spacing:-.04em; }
@@ -211,7 +204,7 @@ input {
 .login-access-foot { margin-top:1.75rem; color:var(--paper-dim); font-family:var(--utility); font-size:.62rem; line-height:1.7; letter-spacing:.06em; text-transform:uppercase; }
 @media (min-width:1024px) {
   .login-shell { grid-template-columns:minmax(0,1.05fr) minmax(25rem,.95fr); }
-  .login-story { display:flex; min-height:100vh; flex-direction:column; justify-content:space-between; padding:2.25rem clamp(2.5rem,5vw,5rem); border-right:1px solid var(--line); background:#f6f8fc; }
+  .login-story { display:flex; min-height:100vh; flex-direction:column; justify-content:space-between; padding:2.25rem clamp(2.5rem,5vw,5rem); border-right:1px solid var(--line); background:#0b0f16; }
   .login-story-copy { max-width:36rem; }
   .login-story-copy h1 { color:var(--paper); font:650 clamp(3.1rem,5vw,5rem)/.98 var(--display); letter-spacing:-.04em; }
   .login-story-copy > p { max-width:33rem; margin-top:1.25rem; color:var(--paper-muted); font-size:.95rem; line-height:1.7; }
@@ -391,7 +384,7 @@ input {
   margin-bottom: 1.75rem;
   padding: 0.9rem 1.1rem 1rem;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 5px;
   background: var(--ink-raised);
 }
 
@@ -436,7 +429,7 @@ input {
    flat, told apart only by a hairline border. */
 .panel {
   border: 1px solid var(--line);
-  border-radius: 11px;
+  border-radius: 5px;
   background: var(--ink-raised);
 }
 
@@ -469,14 +462,14 @@ input {
 
 .metric-panel {
   border: 1px solid var(--line);
-  border-radius: 11px;
+  border-radius: 5px;
   background: var(--ink-raised);
 }
 
 .input-field {
   width: 100%;
   border: 1px solid var(--line-strong);
-  border-radius: 7px;
+  border-radius: 4px;
   background: var(--ink-raised);
   color: var(--paper);
   transition: border-color 120ms ease, box-shadow 120ms ease;
@@ -505,7 +498,7 @@ input {
   align-items: center;
   justify-content: center;
   min-height: 2.75rem;
-  border-radius: 7px;
+  border-radius: 4px;
   padding-inline: 1.15rem;
   font-size: 0.82rem;
   font-weight: 600;
@@ -554,7 +547,7 @@ input {
 .status-error,
 .status-warning {
   border: 1px solid var(--line);
-  border-radius: 7px;
+  border-radius: 4px;
   padding: 0.9rem 1.1rem;
   font-size: 0.83rem;
   line-height: 1.5;
@@ -611,7 +604,7 @@ input {
   display: inline-flex;
   gap: 0.2rem;
   border: 1px solid var(--line-strong);
-  border-radius: 7px;
+  border-radius: 4px;
   background: var(--ledger);
   padding: 0.2rem;
 }
@@ -748,7 +741,7 @@ input {
 
 .thesis-rail {
   position: relative;
-  border-radius: 11px;
+  border-radius: 5px;
   border: 1px solid var(--instrument-edge);
   background: var(--instrument);
   color: var(--instrument-text);
@@ -903,7 +896,7 @@ input {
   color: var(--cobalt);
 }
 
-.thesis-rail-provenance { display:grid; grid-template-columns:1fr auto; gap:.22rem .75rem; margin-top:.9rem; padding:.8rem; border-radius:8px; background:#f8f9ff; }
+.thesis-rail-provenance { display:grid; grid-template-columns:1fr auto; gap:.22rem .75rem; margin-top:.9rem; padding:.8rem; border-radius:4px; background:var(--instrument-raised); }
 .thesis-rail-provenance span,.thesis-rail-provenance small { color:var(--instrument-text-dim); font-size:.62rem; }
 .thesis-rail-provenance strong { color:var(--instrument-text); font-size:.65rem; font-weight:650; text-align:right; }
 .thesis-rail-provenance small { grid-column:1 / -1; }
@@ -954,7 +947,7 @@ input {
 .skeleton-block {
   position: relative;
   overflow: hidden;
-  border-radius: 8px;
+  border-radius: 5px;
   background: var(--ledger);
 }
 
@@ -962,7 +955,7 @@ input {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+  background: linear-gradient(90deg, transparent, rgba(130, 146, 255, 0.09), transparent);
   animation: skeleton-sweep 1.6s ease-in-out infinite;
 }
 
@@ -998,7 +991,7 @@ input {
 
 .instrument-panel {
   position: relative;
-  border-radius: 11px;
+  border-radius: 5px;
   border: 1px solid var(--instrument-edge);
   background: var(--instrument);
   padding: 1.5rem;
@@ -1073,7 +1066,7 @@ input {
   min-width: 44px;
   padding: 0.55rem 0.9rem;
   border: 1px solid var(--instrument-edge);
-  border-radius: 8px;
+  border-radius: 4px;
   color: var(--instrument-text-dim);
   font-size: 0.8rem;
   font-weight: 500;
@@ -1219,14 +1212,14 @@ input {
    canvas; the remaining tools receive the same sidebar/topbar offsets
    without changing their internal layouts. */
 body:has([data-app-chrome]) > .page-shell {
-  padding-top: 68px;
+  padding-top: 64px;
   padding-left: 220px;
-  background: #f6f8fc;
+  background: #080b10;
 }
 
 @media (max-width: 820px) {
   body:has([data-app-chrome]) > .page-shell {
-    padding-top: 64px;
+    padding-top: 60px;
     padding-bottom: 72px;
     padding-left: 0;
   }
@@ -1269,8 +1262,8 @@ body:has([data-app-chrome]) .assumption-tray {
   gap: 1rem;
   margin-bottom: .7rem;
   padding: .5rem .75rem;
-  border-radius: 10px;
-  background: #ffffff;
+  border-radius: 4px;
+  background: var(--ink-raised);
 }
 
 body:has([data-app-chrome]) .assumption-tray-label { margin: 0; }
@@ -1286,14 +1279,14 @@ body:has([data-app-chrome]) .numeric-slider-field .numeric-input {
 }
 
 .workspace-results { display: grid; gap: 1rem; }
-.workspace-empty { display:grid; grid-template-columns:minmax(260px,.8fr) minmax(0,1.2fr); align-items:center; gap:2rem; min-height:240px; padding:1.75rem; border:1px solid var(--line); border-radius:11px; background:#fff; }
+.workspace-empty { display:grid; grid-template-columns:minmax(260px,.8fr) minmax(0,1.2fr); align-items:center; gap:2rem; min-height:240px; padding:1.75rem; border:1px solid var(--line); border-radius:5px; background:var(--ink-raised); }
 .workspace-empty-copy { display:flex; align-items:flex-start; gap:1rem; }
-.workspace-empty-mark { display:grid; width:42px; height:42px; flex:none; place-items:center; border-radius:10px; background:var(--cobalt); color:#fff; font:700 .8rem/1 var(--display); }
+.workspace-empty-mark { display:grid; width:42px; height:42px; flex:none; place-items:center; border-radius:4px; background:#4f64e8; color:#fff; font:700 .8rem/1 var(--display); }
 .workspace-empty-copy strong { display:block; color:var(--paper); font:650 1rem/1.25 var(--display); }
 .workspace-empty-copy p { margin-top:.35rem; color:var(--paper-muted); font-size:.76rem; line-height:1.55; }
 .workspace-empty-steps { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem; list-style:none; }
-.workspace-empty-steps li { min-width:0; padding:1rem; border:1px solid var(--line); border-radius:9px; background:#f9fafb; }
-.workspace-empty-steps li > span { display:grid; width:24px; height:24px; place-items:center; border-radius:6px; background:#eef1ff; color:var(--cobalt); font:650 .62rem/1 var(--display); }
+.workspace-empty-steps li { min-width:0; padding:1rem; border:1px solid var(--line); border-radius:4px; background:#0b1017; }
+.workspace-empty-steps li > span { display:grid; width:24px; height:24px; place-items:center; border-radius:3px; background:var(--cobalt-soft); color:var(--cobalt); font:650 .62rem/1 var(--display); }
 .workspace-empty-steps strong { display:block; margin-top:.75rem; color:var(--paper); font:650 .72rem/1.35 var(--display); }
 .workspace-empty-steps p { margin-top:.3rem; color:var(--paper-muted); font-size:.65rem; line-height:1.45; }
 .workspace-primary-grid {
@@ -1307,8 +1300,8 @@ body:has([data-app-chrome]) .numeric-slider-field .numeric-input {
   min-width: 0;
   padding: 1.05rem 1.1rem .75rem;
   border: 1px solid var(--instrument-edge);
-  border-radius: 10px;
-  background: #ffffff;
+  border-radius: 5px;
+  background: var(--instrument);
   color: var(--instrument-text);
 }
 .forecast-chart-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
@@ -1316,19 +1309,19 @@ body:has([data-app-chrome]) .numeric-slider-field .numeric-input {
 .forecast-chart-subtitle { margin-top:.25rem; color:var(--instrument-text-dim); font-size:.65rem; }
 .forecast-chart-legend { display: flex; gap: .8rem; color: var(--instrument-text-dim); font-size: .66rem; }
 .forecast-chart-legend span { display: inline-flex; align-items: center; gap: .35rem; }
-.forecast-chart-legend i { display: block; width: .55rem; height: .55rem; border-radius: 2px; }
-.forecast-legend-revenue { background:#3448d8; }
-.forecast-legend-fcf { background:#7c8db5; }
+.forecast-chart-legend i { display: block; width: .8rem; height: 2px; border-radius: 0; }
+.forecast-legend-revenue { background:#8292ff; }
+.forecast-legend-fcf { background:#53b7dc; }
 .forecast-chart-canvas { width: 100%; height: 270px; margin-top: .5rem; }
 .forecast-chart-note { margin-top: .25rem; color: var(--instrument-text-dim); font-size: .64rem; }
-.forecast-tooltip { min-width:180px; border:1px solid var(--line); border-radius:8px; background:#fff; padding:.7rem .8rem; box-shadow:0 12px 28px rgba(16,24,40,.12); }
+.forecast-tooltip { min-width:180px; border:1px solid var(--line-strong); border-radius:4px; background:#111822; padding:.7rem .8rem; box-shadow:0 14px 34px rgba(0,0,0,.42); }
 .forecast-tooltip > p { margin-bottom:.5rem; color:var(--paper-muted); font-size:.63rem; text-transform:uppercase; letter-spacing:.06em; }
 .forecast-tooltip dl { display: grid; gap: .3rem; }
 .forecast-tooltip dl > div { display: flex; justify-content: space-between; gap: 1rem; font-size: .7rem; }
 .forecast-tooltip dt { color:var(--paper-muted); }
 .forecast-tooltip dd { color:var(--paper); font-family:var(--display); font-weight:600; font-variant-numeric:tabular-nums; }
 
-.workspace-primary-grid .thesis-rail { height: 100%; padding: .75rem .9rem .7rem; border-radius: 10px; box-shadow: none; }
+.workspace-primary-grid .thesis-rail { height: 100%; padding: .75rem .9rem .7rem; border-radius: 5px; box-shadow: none; }
 .workspace-primary-grid .thesis-rail-heading { margin-bottom:.55rem; padding-bottom:.5rem; }
 .workspace-primary-grid .thesis-rail-byline { margin-bottom: .45rem; }
 .workspace-primary-grid .thesis-rail-primary { padding-block: .4rem .5rem; }
@@ -1373,10 +1366,10 @@ body:has([data-app-chrome]) .numeric-slider-field .numeric-input {
 .workspace-detail > div > .section-title,
 .workspace-detail > .section-title { margin-top: 0; padding-top: 0; border-top: 0; }
 .workspace-detail .instrument-caption { margin-bottom: .85rem; }
-.workspace-detail .instrument-panel { padding: 1.1rem; border-radius: 9px; box-shadow: none; }
+.workspace-detail .instrument-panel { padding: 1.1rem; border-radius: 5px; box-shadow: none; }
 
-body:has([data-app-chrome]) .status-warning { color:#7a2e0e; background:#fff6ed; }
-body:has([data-app-chrome]) .status-error { color:#912018; background:#fef3f2; }
+body:has([data-app-chrome]) .status-warning { color:#f0c27c; background:#1b160f; border-color:#49371d; }
+body:has([data-app-chrome]) .status-error { color:#ff9a94; background:#1d1112; border-color:#522326; }
 
 @media (max-width: 1050px) {
   .workspace-primary-grid { grid-template-columns: minmax(0, 1fr) 270px; }

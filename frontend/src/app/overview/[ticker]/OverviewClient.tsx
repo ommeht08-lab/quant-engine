@@ -157,7 +157,6 @@ export default function OverviewClient({ initialTicker }: OverviewClientProps) {
       <div className={styles.content}>
         <header className={styles.hero}>
           <div>
-            <p className={styles.eyebrow}>Company research overview</p>
             <h1>{result?.ticker ?? initialTicker} <span>valuation dashboard</span></h1>
             <p>{result ? `${result.sector} · Five-year staged DCF` : "Loading the latest company financials and valuation case."}</p>
           </div>
@@ -255,7 +254,7 @@ export default function OverviewClient({ initialTicker }: OverviewClientProps) {
             <section className={styles.primaryGrid}>
               <div className={styles.panel}>
                 <div className={styles.panelHeading}>
-                  <div><p>Scenario analysis</p><h2>Valuation spectrum</h2></div>
+                  <h2>Valuation spectrum</h2>
                   <span>Bear · Base · Bull · Market</span>
                 </div>
                 <ValuationSpectrum
@@ -284,7 +283,7 @@ export default function OverviewClient({ initialTicker }: OverviewClientProps) {
 
             <section className={styles.secondaryGrid}>
               <div className={styles.panel}>
-                <div className={styles.panelHeading}><div><p>Range of outcomes</p><h2>DCF sensitivity</h2></div><span>WACC × terminal growth</span></div>
+                <div className={styles.panelHeading}><h2>DCF sensitivity</h2><span>Range of outcomes · WACC × terminal growth</span></div>
                 <SensitivityMatrix
                   matrix={result.sensitivity}
                   marketPrice={result.valuation_quality.allows_market_comparison ? result.current_price : null}
@@ -292,7 +291,7 @@ export default function OverviewClient({ initialTicker }: OverviewClientProps) {
                 />
               </div>
               <div className={styles.panel}>
-                <div className={styles.panelHeading}><div><p>Relative context</p><h2>Sector comparison</h2></div></div>
+                <div className={styles.panelHeading}><h2>Sector comparison</h2></div>
                 <SectorRelativeValuation
                   ticker={result.ticker}
                   sector={result.sector}
@@ -306,14 +305,14 @@ export default function OverviewClient({ initialTicker }: OverviewClientProps) {
 
             <section className={styles.panel}>
               <div className={styles.panelHeading}>
-                <div><p>Five-year operating path</p><h2>Projected free cash flow</h2></div>
-                <span>CapEx {formatPercent(result.capex_pct_revenue)} of revenue · {result.capex_pct_revenue_source}</span>
+                <h2>Projected free cash flow</h2>
+                <span>Five-year operating path · CapEx {formatPercent(result.capex_pct_revenue)} of revenue · {result.capex_pct_revenue_source}</span>
               </div>
               <ProjectedCashFlows rows={result.projected_free_cash_flows} forecastPath={result.forecast_path} />
             </section>
 
             <section className={styles.panel}>
-              <div className={styles.panelHeading}><div><p>Audit trail</p><h2>Assumptions and equity bridge</h2></div><span>Company history + policy inputs</span></div>
+              <div className={styles.panelHeading}><h2>Assumptions and equity bridge</h2><span>Audit trail · company history + policy inputs</span></div>
               <AssumptionsBridge result={result} />
             </section>
           </div>

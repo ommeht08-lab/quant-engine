@@ -12,6 +12,8 @@ Valuation Engine is a private, single-operator equity-research workspace. It com
 
 ## Visual commitment
 
-The user pinned TailAdmin V1, TailAdmin V2, and NextAdmin as the reference family. The product therefore uses a cool-white financial dashboard shell: persistent white navigation, a slim utility bar, a cool gray canvas, navy data ink, cobalt actions and selection, semantic green/red only for genuine outcomes, compact radii, fine structural rules, and restrained depth. It avoids dark-terminal styling, gradients, glassmorphism, neon, decorative dashboards, and inflated card grids.
+The user pinned TailAdmin V1, TailAdmin V2, and NextAdmin for their information architecture, then explicitly chose a black interface. The product therefore uses an institutional graphite market workspace: near-black persistent navigation and utility chrome, blue-gray raised surfaces, cool-white data ink, restrained periwinkle actions and selection, semantic green/red only for genuine outcomes, sharp 4–5px structural corners, fine rules, and almost no resting shadow. It avoids generic neon-crypto styling, gradients, glassmorphism, decorative dashboards, and inflated card grids.
+
+Forecast visuals must be semantically honest. Annual revenue and free-cash-flow projections use clean line series, dual labeled scales, a restrained grid, and an inspection crosshair; they must never imitate candlesticks or intraday price history the model does not possess.
 
 The interface must remain usable and free of page-level horizontal overflow down to 320px.

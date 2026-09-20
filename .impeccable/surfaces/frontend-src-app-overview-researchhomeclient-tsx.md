@@ -15,12 +15,12 @@ Audience: the private operator returning to valuation work. Job: start a valuati
 
 THESIS: The home is a calm valuation command center, not a generic KPI gallery: company, intrinsic value, market gap, recent work, context, and method appear in their decision order.
 
-OWN-WORLD: A cool-white professional shell with navy ink, cobalt controls, fine dividers, compact radii, and semantic color used sparingly. Repeated modules feel labeled and operational, like a disciplined financial cassette rather than a decorative trading terminal.
+OWN-WORLD: An edge-to-edge graphite professional shell with cool-white ink, restrained periwinkle controls, fine blue-gray dividers, sharp 4–5px radii, and semantic color used sparingly. Repeated modules feel labeled and operational without drifting into neon trading-terminal decoration.
 
 STORY: The operator launches a company, reads the latest valuation state, reopens recent work, scans non-model market context, and can verify how the model turns history into value.
 
-FIRST VIEWPORT: A persistent 220px navigation rail and 68px utility bar frame a title/ticker launcher, four compact summary cards, an 8/4 recent-work and market-context split, and the beginning of the model process strip.
+FIRST VIEWPORT: A persistent 220px black navigation rail and 64px utility bar frame a title/ticker launcher, four compact summary cards, an 8/4 recent-work and market-context split, and the beginning of the model process strip. The chrome and canvas meet edge-to-edge, without a white sheet or artificial outer rounding.
 
-FORM: User-pinned TailAdmin V1/V2 and NextAdmin synthesis, with night-flight cross-check discipline and clearly labeled panel zones. Seed 03635783. Generated mocks are critique references, not user-approved pixel specifications.
+FORM: User-pinned TailAdmin V1/V2 and NextAdmin information architecture, revised by the user's explicit black-theme request. Seed b8aa9a83. Earlier light generated mocks are superseded critique references, not user-approved pixel specifications.
 
 FINISH: unreviewed and undocumented is unfinished; complete responsive visual QA, an independent finish review, and DESIGN.md.
