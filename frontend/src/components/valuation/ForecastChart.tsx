@@ -2,8 +2,9 @@
 
 import {
   CartesianGrid,
-  ComposedChart,
   Line,
+  LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -24,6 +25,17 @@ interface ForecastStep {
 interface ForecastChartProps {
   rows: FreeCashFlowYear[];
   forecastPath: ForecastStep[];
+}
+
+function chartDomain(values: number[]): [number, number] {
+  if (values.length === 0) return [0, 1];
+
+  const minimum = Math.min(...values);
+  const maximum = Math.max(...values);
+  const visibleSpan = Math.max(maximum - minimum, Math.abs(maximum) * 0.08, 1);
+  const padding = visibleSpan * 0.35;
+
+  return [Math.max(0, minimum - padding), maximum + padding];
 }
 
 function ForecastTooltip({ active, payload }: TooltipContentProps) {
@@ -48,73 +60,99 @@ export default function ForecastChart({ rows, forecastPath }: ForecastChartProps
   const pathByYear = new Map(forecastPath.map((step) => [step.year, step]));
   const data = rows.map((row) => ({ ...row, ...pathByYear.get(row.year) }));
   const latest = data.at(-1);
+  const maturationStart = data.find((point) => point.stage === "maturation")?.year;
+  const revenueDomain = chartDomain(data.map((point) => point.revenue));
+  const fcfDomain = chartDomain(data.map((point) => point.fcf));
 
   return (
     <section className="forecast-chart" aria-labelledby="forecast-chart-title">
       <div className="forecast-chart-heading">
         <div>
           <h2 id="forecast-chart-title">Operating forecast</h2>
-          <p className="forecast-chart-subtitle">Base case · five-year operating path</p>
+          <p className="forecast-chart-subtitle">Base case · annual USD forecast</p>
         </div>
-        <div className="forecast-chart-legend" aria-label="Chart legend">
-          <span><i className="forecast-legend-revenue" />Revenue {latest ? formatCompactCurrency(latest.revenue) : ""}</span>
-          <span><i className="forecast-legend-fcf" />Free cash flow {latest ? formatCompactCurrency(latest.fcf) : ""}</span>
+        <div className="forecast-chart-quotes" aria-label="Final forecast year values">
+          <div><span><i className="forecast-legend-revenue" />Revenue</span><strong>{latest ? formatCompactCurrency(latest.revenue) : "—"}</strong></div>
+          <div><span><i className="forecast-legend-fcf" />Free cash flow</span><strong>{latest ? formatCompactCurrency(latest.fcf) : "—"}</strong></div>
         </div>
       </div>
 
       <div className="forecast-chart-canvas">
         <ResponsiveContainer width="100%" height="100%">
-          <ComposedChart data={data} margin={{ top: 10, right: 6, bottom: 0, left: 0 }}>
-            <CartesianGrid stroke="#202938" strokeDasharray="2 4" />
+          <LineChart data={data} margin={{ top: 24, right: 8, bottom: 2, left: 4 }}>
+            <CartesianGrid stroke="#202938" strokeDasharray="2 5" vertical={false} />
             <XAxis
               dataKey="year"
               tickFormatter={(year: number) => `Y${year}`}
-              tick={{ fill: "#7f8ba0", fontSize: 11 }}
+              tick={{ fill: "#8491a6", fontSize: 10, fontFamily: "var(--utility)" }}
               tickLine={false}
               axisLine={{ stroke: "#303c50" }}
+              tickMargin={10}
             />
             <YAxis
               yAxisId="revenue"
+              domain={revenueDomain}
+              tickCount={4}
               tickFormatter={(value: number) => formatCompactCurrency(value)}
-              tick={{ fill: "#7f8ba0", fontSize: 10 }}
+              tick={{ fill: "#8491a6", fontSize: 10, fontFamily: "var(--utility)" }}
               tickLine={false}
               axisLine={false}
-              width={66}
+              width={62}
+              tickMargin={8}
             />
             <YAxis
               yAxisId="fcf"
               orientation="right"
+              domain={fcfDomain}
+              tickCount={4}
               tickFormatter={(value: number) => formatCompactCurrency(value)}
-              tick={{ fill: "#7f8ba0", fontSize: 10 }}
+              tick={{ fill: "#8491a6", fontSize: 10, fontFamily: "var(--utility)" }}
               tickLine={false}
               axisLine={false}
-              width={66}
+              width={62}
+              tickMargin={8}
             />
             <Tooltip content={(props) => <ForecastTooltip {...props} />} cursor={{ stroke: "#59667a", strokeWidth: 1, strokeDasharray: "4 4" }} />
+            {maturationStart !== undefined && (
+              <ReferenceLine
+                x={maturationStart}
+                stroke="#3b4658"
+                strokeDasharray="3 5"
+                label={{ value: "Maturation", fill: "#758196", fontSize: 9, position: "insideTopRight" }}
+              />
+            )}
             <Line
               yAxisId="revenue"
               type="linear"
               dataKey="revenue"
               stroke="#8292ff"
-              strokeWidth={2}
-              dot={false}
+              strokeWidth={2.25}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              dot={{ r: 2.25, fill: "#8292ff", stroke: "#0c1118", strokeWidth: 1.5 }}
               isAnimationActive={false}
-              activeDot={{ r: 3.5, fill: "#8292ff", stroke: "#0c1118", strokeWidth: 2 }}
+              activeDot={{ r: 4, fill: "#8292ff", stroke: "#0c1118", strokeWidth: 2 }}
             />
             <Line
               yAxisId="fcf"
               type="linear"
               dataKey="fcf"
               stroke="#53b7dc"
-              strokeWidth={2}
-              dot={false}
+              strokeWidth={2.25}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              dot={{ r: 2.25, fill: "#53b7dc", stroke: "#0c1118", strokeWidth: 1.5 }}
               isAnimationActive={false}
-              activeDot={{ r: 3.5, fill: "#53b7dc", stroke: "#0c1118", strokeWidth: 2 }}
+              activeDot={{ r: 4, fill: "#53b7dc", stroke: "#0c1118", strokeWidth: 2 }}
             />
-          </ComposedChart>
+          </LineChart>
         </ResponsiveContainer>
       </div>
-      <p className="forecast-chart-note">Annual forecast · left revenue / right free cash flow · hover to inspect</p>
+      <div className="forecast-chart-foot">
+        <span>Revenue · left scale</span>
+        <span>FCF · right scale</span>
+        <span>Independent axes · hover for values</span>
+      </div>
     </section>
   );
 }

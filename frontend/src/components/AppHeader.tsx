@@ -45,6 +45,7 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
 
 export default function AppHeader() {
   const pathname = usePathname();
+  const isValuationWorkspace = pathname === DEFAULT_APP_PATH;
   const usesStandaloneResearchShell = pathname === "/methodology"
     || pathname.startsWith("/methodology/")
     || pathname === "/research"
@@ -68,8 +69,15 @@ export default function AppHeader() {
 
       <header className={styles.topbar}>
         <div className={styles.mobileBrand}><span className={styles.brandMark}>V</span><strong>Valuation Engine</strong></div>
-        <SearchBar className={styles.search} />
-        <div className={styles.topMeta}><span className={styles.liveDot} />Research workspace</div>
+        {isValuationWorkspace ? (
+          <div className={styles.workspaceContext}>
+            <strong>Valuation workspace</strong>
+            <span>Public model</span>
+          </div>
+        ) : (
+          <SearchBar className={styles.search} />
+        )}
+        <div className={styles.topMeta}>Om Mehta Equity Research</div>
       </header>
 
       <nav className={styles.mobileNav} aria-label="Mobile navigation">

@@ -276,11 +276,11 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
         {workspaceState === "first-loading" && (
           <div className="workspace-grid" aria-hidden="true">
             <div className="workspace-rail-slot">
-              <div className="skeleton-block h-72 rounded-xl" />
+              <div className="skeleton-block skeleton-panel h-72" />
             </div>
             <div className="workspace-analysis-slot space-y-4">
-              <div className="skeleton-block h-56 rounded-xl" />
-              <div className="skeleton-block h-40 rounded-xl" />
+              <div className="skeleton-block skeleton-panel h-56" />
+              <div className="skeleton-block skeleton-panel h-40" />
             </div>
           </div>
         )}

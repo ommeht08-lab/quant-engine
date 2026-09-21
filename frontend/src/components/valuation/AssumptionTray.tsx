@@ -71,7 +71,7 @@ export default function AssumptionTray({
           step={0.001}
           precision={1}
           onChange={onTerminalGrowthRateChange}
-          helper={useCustomAssumptions ? undefined : "Always sent explicitly, regardless of mode."}
+          helper={useCustomAssumptions ? undefined : "Applied to every valuation run."}
         />
       </div>
     </div>
