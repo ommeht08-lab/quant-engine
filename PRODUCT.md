@@ -45,7 +45,7 @@ This is a working equity-research model, not a decorative dashboard or static ca
 - Product name: Valuation Engine.
 - Attribution: Om Mehta Equity Research.
 - The interface uses an institutional graphite market-workspace direction: near-black navigation and utility chrome, blue-gray raised surfaces, cool-white data ink, restrained periwinkle actions, and semantic green/red only for genuine outcomes.
-- TailAdmin V1, TailAdmin V2, and NextAdmin are information-architecture references, not palette or component copies.
+- TailAdmin V2, TailAdmin V1, and NextAdmin are the permanent visual reference set recorded in [`.impeccable/references/tailadmin-stock-dashboard.md`](.impeccable/references/tailadmin-stock-dashboard.md). They govern information architecture, hierarchy, spacing, density, and analytical composition, while the user's black-theme, sharp-corner, direct-entry, and honest-chart instructions override conflicting source details.
 - Copy is direct, restrained, and auditable rather than promotional.
 
 ## Evidence on Hand

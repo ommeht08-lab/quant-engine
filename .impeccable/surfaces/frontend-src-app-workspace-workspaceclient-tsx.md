@@ -21,6 +21,6 @@ STORY: A visitor opens the live model without an account, selects a company, ver
 
 FIRST VIEWPORT: The command and assumption strip sit above a two-column analysis field. A dominant dual-line annual forecast occupies the left with labeled axes, quiet grid, exact latest values, and inspection crosshair; a 320px sticky Thesis Rail on the right keeps market price, selected intrinsic value, delta, WACC, terminal growth, provenance, and the shared scenario selector visible. Supporting analysis continues below without changing visual grammar.
 
-FORM: User-pinned TailAdmin V1/V2 and NextAdmin information architecture, revised by the user's explicit black-theme and traditional-stock-chart direction. Seed b8aa9a83. Earlier light generated mocks are superseded critique references, not user-approved pixel specifications.
+FORM: The permanent TailAdmin V2, TailAdmin V1, and NextAdmin image set in `.impeccable/references/tailadmin-stock-dashboard.md` is the composition and craft benchmark, translated through the user's explicit black-theme, sharp-corner, direct-entry, and traditional-stock-chart direction. Seed b8aa9a83. Earlier light generated mocks are superseded critique references, not user-approved pixel specifications.
 
 FINISH: unreviewed and undocumented is unfinished; complete responsive visual QA, an independent finish review, and DESIGN.md.

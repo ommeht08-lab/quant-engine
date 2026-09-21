@@ -1,6 +1,6 @@
 # Quality bar — institutional graphite research console
 
-This is a code-led build calibrated against the user-pinned TailAdmin V1, TailAdmin V2, and NextAdmin information architecture, with the user's later explicit dark-theme and traditional-chart direction taking precedence over the earlier light decision references.
+This is a comp-first build calibrated against the permanent TailAdmin V2, TailAdmin V1, and NextAdmin image set in `.impeccable/references/tailadmin-stock-dashboard.md`. Those images set the composition and craft bar; the user's later explicit dark-theme, sharp-corner, direct-entry, and traditional-chart direction takes precedence wherever the source examples conflict.
 
 - **Frame:** a near-black 220px navigation rail, a 64px graphite utility bar, and an edge-to-edge `#080b10` working field. The shell remains legible and operational at 320px through a dark bottom navigation bar.
 - **Depth:** blue-black panels use fine structural borders and 4–5px corners; resting shadows are absent. No glass, neon, decorative gradients, fake bevels, or floating-card stacks.

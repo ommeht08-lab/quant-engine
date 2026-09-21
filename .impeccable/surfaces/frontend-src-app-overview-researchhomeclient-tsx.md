@@ -21,6 +21,6 @@ STORY: Signed-out and signed-in root visits and the brand link lead directly to 
 
 FIRST VIEWPORT: The first public viewport is the valuation workspace. The navigation contains four task routes and no redundant Overview item or session-status footer; operator-only routes retain their login boundary.
 
-FORM: User-pinned TailAdmin V1/V2 and NextAdmin information architecture, revised by the user's explicit black-theme request. Seed b8aa9a83. Earlier light generated mocks are superseded critique references, not user-approved pixel specifications.
+FORM: The permanent TailAdmin V2, TailAdmin V1, and NextAdmin image set in `.impeccable/references/tailadmin-stock-dashboard.md` is the composition and craft benchmark, translated through the user's explicit black-theme, sharp-corner, and direct-entry direction. Seed b8aa9a83. Earlier light generated mocks are superseded critique references, not user-approved pixel specifications.
 
 FINISH: unreviewed and undocumented is unfinished; complete responsive visual QA, an independent finish review, and DESIGN.md.
