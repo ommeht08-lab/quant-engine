@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-20T12:47:55-04:00",
+  "generatedAt": "2026-09-21T13:06:31-04:00",
   "title": "Design System: Valuation Engine",
   "extensions": {
     "colorMeta": {
@@ -132,7 +132,7 @@
       },
       "display": {
         "displayName": "Compact Research Display",
-        "purpose": "Workspace and home titles, panel headings, and analytical instrument titles."
+        "purpose": "Workspace and shell titles, panel headings, and analytical instrument titles."
       },
       "body": {
         "displayName": "Operational Body",
@@ -190,7 +190,7 @@
       {
         "name": "chrome-mobile",
         "value": "820px",
-        "purpose": "Desktop rail becomes the fixed five-item bottom navigation and gutters contract."
+        "purpose": "Desktop rail becomes the fixed four-route bottom navigation and gutters contract."
       },
       {
         "name": "compact-controls",
@@ -233,8 +233,8 @@
       "name": "Active Navigation Link",
       "kind": "nav",
       "refersTo": "nav-active",
-      "description": "The selected route in the persistent rail or fixed mobile navigation.",
-      "html": "<a class=\"ds-nav-link ds-nav-link-active\" href=\"#overview\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><rect x=\"3\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"14\" y=\"3\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"3\" y=\"14\" width=\"7\" height=\"7\" rx=\"1\"/><rect x=\"14\" y=\"14\" width=\"7\" height=\"7\" rx=\"1\"/></svg><span>Overview</span></a>",
+      "description": "The selected route within the shared four-route desktop rail and mobile navigation.",
+      "html": "<a class=\"ds-nav-link ds-nav-link-active\" href=\"/workspace\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M4 19V9\"/><path d=\"M10 19V5\"/><path d=\"M16 19v-7\"/><path d=\"M22 19H2\"/></svg><span>Valuation</span></a>",
       "css": ".ds-nav-link { display: inline-flex; min-height: 42px; align-items: center; gap: 11px; border: 1px solid transparent; border-radius: 4px; padding: 0 11px; color: #8490a4; font: 550 12px/1 var(--body, sans-serif); text-decoration: none; transition: border-color 140ms ease, background 140ms ease, color 140ms ease; } .ds-nav-link svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; } .ds-nav-link:hover { border-color: #273246; background: #101620; color: #dfe6f1; } .ds-nav-link-active { border-color: #354b79; background: #141d30; color: #8da1ff; } .ds-nav-link:focus-visible { outline: 2px solid var(--cobalt, #8292ff); outline-offset: 2px; }"
     },
     {
@@ -272,9 +272,9 @@
   ],
   "narrative": {
     "northStar": "The Graphite Research Instrument",
-    "overview": "Valuation Engine is an edge-to-edge institutional charting workspace: near-black chrome and canvas hold dense blue-gray surfaces, cool-white data, and a single restrained periwinkle interaction voice. It should feel like purpose-built equity-research software for one serious operator, not a public market-data terminal, a decorative admin template, or a neon trading product.\n\nTailAdmin V1/V2 and NextAdmin inform the information architecture only: persistent navigation, compact controls, clear grouping, and decision-first scanning. The visual world is darker, sharper, and flatter. Fine rules, tonal layering, tabular figures, and exact state feedback carry the hierarchy; ornament does not. Source visibility and honest financial distinctions remain part of the interface's visual discipline.",
+    "overview": "Valuation Engine is an edge-to-edge institutional charting workspace: near-black chrome and canvas hold dense blue-gray surfaces, cool-white data, and a single restrained periwinkle interaction voice. It should feel like purpose-built equity-research software for one serious operator, not a public market-data terminal, a decorative admin template, or a neon trading product.\n\nTailAdmin V1/V2 and NextAdmin inform the information architecture only: persistent navigation, compact controls, clear grouping, and decision-first scanning. The visual world is darker, sharper, and flatter. Fine rules, tonal layering, tabular figures, and exact state feedback carry the hierarchy; ornament does not. Source visibility and honest financial distinctions remain part of the interface's visual discipline.\n\nAuthenticated entry is deliberately direct: root visits, sign-ins without a preserved destination, the brand link, and old `/overview` bookmarks all open the valuation workspace. The former intermediary research-home dashboard is retired, keeping the operator's primary task one step closer without changing authentication or API protection.",
     "keyCharacteristics": [
-      "A near-black 220px desktop rail and 64px utility bar meet the canvas edge-to-edge.",
+      "A near-black 220px desktop rail and 64px utility bar meet the canvas edge-to-edge; the rail holds four task routes and no session footer.",
       "Blue-gray panels use fine borders, 4–5px structural corners, and no resting shadow.",
       "Cool-white data ink and restrained supporting copy make dense research legible without becoming loud.",
       "Periwinkle identifies actions, focus, active navigation, selected scenarios, and the primary forecast series.",
@@ -313,6 +313,11 @@
         "section": "layout"
       },
       {
+        "name": "The Direct-to-Work Rule",
+        "body": "The authenticated default is the valuation workspace. Do not place a summary dashboard or Overview route between entry and the operator's primary task.",
+        "section": "layout"
+      },
+      {
         "name": "The Flat-by-Default Rule",
         "body": "A border and a tonal step define every resting surface. Shadows are transient context, never the page's structural grammar.",
         "section": "elevation"
@@ -328,7 +333,8 @@
       "Do use periwinkle consistently for action, focus, active navigation, selected scenarios, and the Revenue line.",
       "Do keep financial values tabular, source and assumption provenance visible, and absolute valuation distinct from sector-relative context.",
       "Do show Revenue and Free Cash Flow as honest annual dual-axis lines with a restrained grid and inspection crosshair.",
-      "Do preserve 44px primary touch targets, fixed mobile navigation, and usability without page-level overflow at 320px."
+      "Do preserve 44px primary touch targets, fixed mobile navigation, and usability without page-level overflow at 320px.",
+      "Do open authenticated entry, fallback sign-in, the brand link, and old `/overview` bookmarks in the valuation workspace; keep Valuation, Portfolio, Backtests, and Trades as the four primary routes on desktop and mobile."
     ],
     "donts": [
       "Don't reintroduce a light palette because TailAdmin or NextAdmin were used as information-architecture references.",
@@ -337,7 +343,8 @@
       "Don't add halos around status dots or use semantic color as decoration.",
       "Don't color Bear, Base, and Bull as favorable or unfavorable outcomes.",
       "Don't fabricate candlesticks, intraday history, volume bars, or any chart encoding not supported by the annual model data.",
-      "Don't hide loading, empty, error, caution, or provenance states to make the workspace look populated."
+      "Don't hide loading, empty, error, caution, or provenance states to make the workspace look populated.",
+      "Don't reintroduce the intermediary Overview dashboard, an Overview navigation item, or the paper-environment/sign-out sidebar footer."
     ]
   }
 }

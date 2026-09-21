@@ -9,7 +9,7 @@ import { isPublicRoute, publicRedirectPath } from "@/lib/public-route";
  * `src/lib/auth.ts` for why a shared-passphrase session (rather than a
  * full auth library / user table) is the right scope here.
  *
- * `/` redirects to the default live overview (`default-route.ts`) —
+ * `/` redirects to the valuation workspace (`default-route.ts`) —
  * itself session-protected, same as every other page not explicitly
  * listed as public below. `/login`, curated `/research/*` cases, and
  * `/methodology` remain open; everything else requires a valid session

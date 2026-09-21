@@ -1,19 +1,8 @@
-import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
-import ResearchHomeClient from "./ResearchHomeClient";
+import { DEFAULT_APP_PATH } from "@/lib/default-route";
 
-export const metadata: Metadata = {
-  title: "Research Home | Valuation Engine",
-  description: "Summary cards, saved valuation history, and market context for the equity research desk.",
-};
-
-// The real authenticated landing destination (`DEFAULT_OVERVIEW_PATH`,
-// see `lib/default-route.ts`) — this used to redirect to a single
-// hardcoded company (`/overview/MSFT`) instead of being a home page in
-// its own right; see git history and that constant's own docstring.
-// Session protection is unaffected either way: this route isn't listed
-// in `PUBLIC_ROUTE_PREFIXES`, so `proxy.ts`'s default-deny still applies
-// before this component ever renders.
+// Preserve old bookmarks without keeping a redundant landing screen.
 export default function OverviewIndexPage() {
-  return <ResearchHomeClient />;
+  redirect(DEFAULT_APP_PATH);
 }

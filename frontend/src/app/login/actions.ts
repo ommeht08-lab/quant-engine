@@ -7,7 +7,7 @@ import { createSessionToken, deriveSubkey, verifyPassword, SESSION_COOKIE_NAME }
 import { hashIdentifierWithSubkey, LOGIN_RATE_LIMIT_IDENTIFIER_LABEL } from "@/lib/client-identifier";
 import { incrementRateLimitCounter, resetRateLimitCounter } from "@/lib/redis";
 import { shouldFailOpenWhenRateLimiterUnavailable, FAIL_OPEN_OVERRIDE_ENV_VAR } from "@/lib/rate-limit-policy";
-import { DEFAULT_OVERVIEW_PATH } from "@/lib/default-route";
+import { DEFAULT_APP_PATH } from "@/lib/default-route";
 import { safeInternalRedirectPath } from "@/lib/safe-redirect";
 
 export interface LoginState {
@@ -134,6 +134,6 @@ export async function login(_prevState: LoginState, formData: FormData): Promise
   // crafted to point off-site. `safeInternalRedirectPath` returns the
   // exact value that was validated (never the raw, merely-checked
   // input) — this is what actually gets redirected to.
-  const destination = safeInternalRedirectPath(formData.get("next")) ?? DEFAULT_OVERVIEW_PATH;
+  const destination = safeInternalRedirectPath(formData.get("next")) ?? DEFAULT_APP_PATH;
   redirect(destination);
 }

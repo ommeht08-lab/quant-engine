@@ -124,9 +124,11 @@ Valuation Engine is an edge-to-edge institutional charting workspace: near-black
 
 TailAdmin V1/V2 and NextAdmin inform the information architecture only: persistent navigation, compact controls, clear grouping, and decision-first scanning. The visual world is darker, sharper, and flatter. Fine rules, tonal layering, tabular figures, and exact state feedback carry the hierarchy; ornament does not. Source visibility and honest financial distinctions remain part of the interface's visual discipline.
 
+Authenticated entry is deliberately direct: root visits, sign-ins without a preserved destination, the brand link, and old `/overview` bookmarks all open the valuation workspace. The former intermediary research-home dashboard is retired, keeping the operator's primary task one step closer without changing authentication or API protection.
+
 **Key Characteristics:**
 
-- A near-black 220px desktop rail and 64px utility bar meet the canvas edge-to-edge.
+- A near-black 220px desktop rail and 64px utility bar meet the canvas edge-to-edge; the rail holds four task routes and no session footer.
 - Blue-gray panels use fine borders, 4–5px structural corners, and no resting shadow.
 - Cool-white data ink and restrained supporting copy make dense research legible without becoming loud.
 - Periwinkle identifies actions, focus, active navigation, selected scenarios, and the primary forecast series.
@@ -179,7 +181,7 @@ The palette is a compact graphite stack with cool-white ink, one periwinkle inte
 ### Hierarchy
 
 - **Flagship:** the company overview title and its major section headings use Outfit at medium-to-semibold weight with tight tracking.
-- **Display:** workspace, home, panel, and instrument headings use Instrument Sans at 600–650 weight and compact leading.
+- **Display:** workspace, shell, panel, and instrument headings use Instrument Sans at 600–650 weight and compact leading.
 - **Body:** navigation, explanatory copy, state messages, and ordinary control labels use IBM Plex Sans at dense dashboard sizes with clear line-height.
 - **Data:** tickers, money, rates, percentages, and compact audit figures use IBM Plex Mono with tabular numerals.
 - **Label:** small uppercase labels use the body face at 600–650 weight with measured tracking. They identify fields and groups, but never repeat a nearby title as an ornamental kicker.
@@ -190,15 +192,17 @@ The palette is a compact graphite stack with cool-white ink, one periwinkle inte
 
 ## Layout
 
-The authenticated desktop shell uses a fixed 220px rail and a fixed 64px utility bar. The research home keeps a centered 1320px maximum field with 28px side gutters; the company overview can widen to 1480px for denser analysis. The chrome and canvas remain edge-to-edge—there is no rounded page sheet around the application.
+The authenticated desktop shell uses a fixed 220px rail and a fixed 64px utility bar. It enters directly into the valuation workspace: authenticated root visits, successful sign-ins without a preserved destination, the brand link, and `/overview` all resolve to `/workspace`. The retired research-home summary dashboard is not part of the active information architecture. The detailed company overview can still widen to 1480px for denser analysis. The chrome and canvas remain edge-to-edge—there is no rounded page sheet around the application.
 
-Home follows a decision sequence: title and ticker launcher, four compact summary cards, an 8/4 recent-work and market-context split, then the model process. The workspace places command and assumptions before a dominant analysis field. Its annual forecast pairs with a 320px sticky Thesis Rail, narrows the rail to 270px at intermediate widths, and stacks into one column at 900px and below.
+The workspace places command and assumptions before a dominant analysis field. Its annual forecast pairs with a 320px sticky Thesis Rail, narrows the rail to 270px at intermediate widths, and stacks into one column at 900px and below.
 
-At 820px the desktop rail yields to a 60px top bar and fixed five-item bottom navigation. Side gutters contract to 14px, then to 10px where the company overview requires it. Metrics collapse progressively while keeping the same reading order. Every authenticated page must remain free of page-level horizontal overflow at the 320px minimum width; locally scrollable data regions must advertise that behavior.
+At 820px the desktop rail yields to a 60px top bar and fixed four-item bottom navigation. Desktop and mobile expose the same four routes—Valuation, Portfolio, Backtests, and Trades—with four equal mobile columns. Side gutters contract to 14px, then to 10px where the company overview requires it. Metrics collapse progressively while keeping the same reading order. Every authenticated page must remain free of page-level horizontal overflow at the 320px minimum width; locally scrollable data regions must advertise that behavior.
 
 **The Decision-First Rule.** Keep the next action, selected scenario, primary value, and supporting evidence in the first operating field. Supporting schedules may stack or move behind tabs, but they do not outrank the decision surface.
 
 **The Edge-to-Edge Shell Rule.** Persistent chrome meets the viewport edges. Do not wrap the product in an artificial white sheet, floating desktop frame, or oversized outer radius.
+
+**The Direct-to-Work Rule.** The authenticated default is the valuation workspace. Do not place a summary dashboard or Overview route between entry and the operator's primary task.
 
 ## Elevation & Depth
 
@@ -241,8 +245,9 @@ Borders are one pixel and blue-gray. Line samples in chart legends stay square. 
 
 **Character:** a persistent route index with quiet default states and exact selection.
 
-- **Desktop:** a 220px near-black rail uses 42px icon-and-label rows. Hover adds a subtle blue-gray field and border; the active route uses a restrained periwinkle field, border, icon, and label.
-- **Mobile:** five routes move to a fixed near-black bottom bar with 50px targets. The utility bar remains fixed above the content.
+- **Desktop:** a 220px near-black rail uses 42px icon-and-label rows for exactly four routes: Valuation, Portfolio, Backtests, and Trades. Hover adds a subtle blue-gray field and border; the active route uses a restrained periwinkle field, border, icon, and label. The brand opens Valuation directly.
+- **Mobile:** the same four routes move to four equal columns in a fixed near-black bottom bar with 50px targets. The utility bar remains fixed above the content.
+- **Rail ending:** the task-route list is the end of the desktop rail. Do not reserve a sidebar footer for paper-environment status or sign-out controls.
 - **Status:** a small flat semantic dot may communicate connectivity; it never receives a halo or glow.
 
 ### Cards / Containers
@@ -280,6 +285,7 @@ Borders are one pixel and blue-gray. Line samples in chart legends stay square. 
 - **Do** keep financial values tabular, source and assumption provenance visible, and absolute valuation distinct from sector-relative context.
 - **Do** show Revenue and Free Cash Flow as honest annual dual-axis lines with a restrained grid and inspection crosshair.
 - **Do** preserve 44px primary touch targets, fixed mobile navigation, and usability without page-level overflow at 320px.
+- **Do** open authenticated entry, fallback sign-in, the brand link, and old `/overview` bookmarks in the valuation workspace; keep Valuation, Portfolio, Backtests, and Trades as the four primary routes on desktop and mobile.
 
 ### Don't:
 
@@ -290,3 +296,4 @@ Borders are one pixel and blue-gray. Line samples in chart legends stay square. 
 - **Don't** color Bear, Base, and Bull as favorable or unfavorable outcomes.
 - **Don't** fabricate candlesticks, intraday history, volume bars, or any chart encoding not supported by the annual model data.
 - **Don't** hide loading, empty, error, caution, or provenance states to make the workspace look populated.
+- **Don't** reintroduce the intermediary Overview dashboard, an Overview navigation item, or the paper-environment/sign-out sidebar footer.

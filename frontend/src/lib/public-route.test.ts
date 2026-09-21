@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { isPublicRoute, publicRedirectPath } from "./public-route.ts";
-import { DEFAULT_OVERVIEW_PATH } from "./default-route.ts";
+import { DEFAULT_APP_PATH } from "./default-route.ts";
 
-test("the root path redirects to the research home page, not the curated public case", () => {
-  assert.equal(publicRedirectPath("/"), DEFAULT_OVERVIEW_PATH);
-  assert.equal(publicRedirectPath("/"), "/overview");
+test("the root path redirects directly to the valuation workspace", () => {
+  assert.equal(publicRedirectPath("/"), DEFAULT_APP_PATH);
+  assert.equal(publicRedirectPath("/"), "/workspace");
   assert.equal(publicRedirectPath("/workspace"), null);
   assert.equal(publicRedirectPath("/overview"), null);
   assert.equal(publicRedirectPath("/overview/MSFT"), null);
@@ -32,18 +32,18 @@ test("lookalike and private workspace paths remain private", () => {
   assert.equal(isPublicRoute("/api/evaluate/AAPL"), false);
 });
 
-test("the overview route is not classified as public — it must stay behind the session gate", () => {
+test("workspace and company overview routes stay behind the session gate", () => {
   assert.equal(isPublicRoute("/overview"), false);
   assert.equal(isPublicRoute("/overview/MSFT"), false);
-  assert.equal(isPublicRoute(DEFAULT_OVERVIEW_PATH), false);
+  assert.equal(isPublicRoute(DEFAULT_APP_PATH), false);
 });
 
 /**
  * Simulates proxy.ts's own decision tree using its real dependencies —
  * not a re-implementation of proxy.ts, just a trace through the two
  * pure functions it actually calls — to prove an unauthenticated
- * visitor's redirect chain among "/", "/login", "/overview", and
- * "/overview/MSFT" always terminates rather than cycling. Mirrors
+ * visitor's redirect chain among the root, workspace, login, and
+ * company overview always terminates rather than cycling. Mirrors
  * proxy.ts's exact order: a public-redirect hop first, then the
  * "/login or already-public, stop" check, otherwise (private,
  * unauthenticated) hop to "/login".
@@ -55,8 +55,8 @@ function nextHopForUnauthenticatedVisitor(pathname: string): string | null {
   return "/login";
 }
 
-test("no redirect loop among /, /login, /overview, and /overview/MSFT for an unauthenticated visitor", () => {
-  for (const start of ["/", "/overview", "/overview/MSFT", "/login"]) {
+test("no redirect loop among root, workspace, login, and company overview", () => {
+  for (const start of ["/", "/workspace", "/overview", "/overview/MSFT", "/login"]) {
     const visited = new Set<string>();
     let pathname = start;
     let hops = 0;

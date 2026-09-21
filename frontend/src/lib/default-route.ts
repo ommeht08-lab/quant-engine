@@ -1,23 +1,9 @@
 /**
- * The default AUTHENTICATED landing destination for this dashboard —
- * where `/` resolves (see `public-route.ts`), where login lands when no
- * safe requested destination was preserved (see `login/actions.ts`),
- * and what the "Overview" nav item and the app logo point to (see
- * `AppHeader.tsx`). One shared constant so these call sites can never
- * drift from each other.
- *
- * This is the research HOME page (`frontend/src/app/overview/page.tsx`)
- * — summary cards, recent valuations, market context, and a model
- * explainer — not a specific company. The detailed, ticker-selectable
- * live overview lives at `/overview/{TICKER}` and is reached from the
- * home page's own ticker field or "Open overview" links, never as the
- * shared default landing destination itself (an earlier revision of
- * this dashboard defaulted straight to `/overview/${DEFAULT_OVERVIEW_TICKER}`
- * — see git history — which meant "/" always opened one arbitrarily
- * chosen company rather than an actual home screen).
+ * The default authenticated destination. The valuation workflow is the
+ * product's primary job, so root visits, successful logins without a
+ * preserved destination, and the brand link all open it directly.
  */
-
-export const DEFAULT_OVERVIEW_PATH = "/overview";
+export const DEFAULT_APP_PATH = "/workspace";
 
 /**
  * The fallback ticker for the home page's market-context module (news +

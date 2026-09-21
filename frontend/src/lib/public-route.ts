@@ -1,4 +1,4 @@
-import { DEFAULT_OVERVIEW_PATH } from "./default-route.ts";
+import { DEFAULT_APP_PATH } from "./default-route.ts";
 
 const PUBLIC_ROUTE_PREFIXES = ["/research", "/methodology"] as const;
 
@@ -10,7 +10,7 @@ const PUBLIC_ROUTE_PREFIXES = ["/research", "/methodology"] as const;
 // below); it just isn't where "/" sends visitors anymore. See
 // `default-route.ts` for the shared constant.
 export function publicRedirectPath(pathname: string): string | null {
-  return pathname === "/" ? DEFAULT_OVERVIEW_PATH : null;
+  return pathname === "/" ? DEFAULT_APP_PATH : null;
 }
 
 export function isPublicRoute(pathname: string): boolean {
