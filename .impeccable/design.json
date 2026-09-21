@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-21T13:06:31-04:00",
+  "generatedAt": "2026-09-21T13:56:34-04:00",
   "title": "Design System: Valuation Engine",
   "extensions": {
     "colorMeta": {
@@ -78,13 +78,13 @@
       },
       "periwinkle": {
         "role": "primary",
-        "displayName": "Operator Periwinkle",
+        "displayName": "Research Periwinkle",
         "canonical": "#8292ff",
         "tonalRamp": ["#171b42", "#242b67", "#34418f", "#4a5bb8", "#6475df", "#8292ff", "#b0b9ff", "#eef0ff"]
       },
       "periwinkle-hover": {
         "role": "primary",
-        "displayName": "Operator Periwinkle Hover",
+        "displayName": "Research Periwinkle Hover",
         "canonical": "#9aa7ff",
         "tonalRamp": ["#181c43", "#282f69", "#3c4992", "#5666bd", "#7384e4", "#9aa7ff", "#bec5ff", "#f0f2ff"]
       },
@@ -200,7 +200,7 @@
       {
         "name": "minimum-supported-width",
         "value": "320px",
-        "purpose": "Authenticated pages remain usable and free of page-level horizontal overflow."
+        "purpose": "Application pages remain usable and free of page-level horizontal overflow."
       }
     ]
   },
@@ -272,7 +272,7 @@
   ],
   "narrative": {
     "northStar": "The Graphite Research Instrument",
-    "overview": "Valuation Engine is an edge-to-edge institutional charting workspace: near-black chrome and canvas hold dense blue-gray surfaces, cool-white data, and a single restrained periwinkle interaction voice. It should feel like purpose-built equity-research software for one serious operator, not a public market-data terminal, a decorative admin template, or a neon trading product.\n\nTailAdmin V1/V2 and NextAdmin inform the information architecture only: persistent navigation, compact controls, clear grouping, and decision-first scanning. The visual world is darker, sharper, and flatter. Fine rules, tonal layering, tabular figures, and exact state feedback carry the hierarchy; ornament does not. Source visibility and honest financial distinctions remain part of the interface's visual discipline.\n\nAuthenticated entry is deliberately direct: root visits, sign-ins without a preserved destination, the brand link, and old `/overview` bookmarks all open the valuation workspace. The former intermediary research-home dashboard is retired, keeping the operator's primary task one step closer without changing authentication or API protection.",
+    "overview": "Valuation Engine is an edge-to-edge institutional charting workspace: near-black chrome and canvas hold dense blue-gray surfaces, cool-white data, and a single restrained periwinkle interaction voice. It should feel like a real, publicly reviewable equity-research model with a private operator layer—not a generic market-data terminal, a decorative admin template, or a neon trading product.\n\nTailAdmin V1/V2 and NextAdmin inform the information architecture only: persistent navigation, compact controls, clear grouping, and decision-first scanning. The visual world is darker, sharper, and flatter. Fine rules, tonal layering, tabular figures, and exact state feedback carry the hierarchy; ornament does not. Source visibility and honest financial distinctions remain part of the interface's visual discipline.\n\nPublic entry is deliberately direct: signed-out and signed-in root visits, sign-ins without a preserved destination, the brand link, and old `/overview` bookmarks all open the valuation workspace. The former intermediary research-home dashboard is retired. Authentication appears only when someone enters portfolio, trades, risk, backtests, paper-trading telemetry, or another operator-data surface.",
     "keyCharacteristics": [
       "A near-black 220px desktop rail and 64px utility bar meet the canvas edge-to-edge; the rail holds four task routes and no session footer.",
       "Blue-gray panels use fine borders, 4–5px structural corners, and no resting shadow.",
@@ -314,7 +314,7 @@
       },
       {
         "name": "The Direct-to-Work Rule",
-        "body": "The authenticated default is the valuation workspace. Do not place a summary dashboard or Overview route between entry and the operator's primary task.",
+        "body": "The public default is the valuation workspace. Do not place a summary dashboard, login wall, or Overview route between entry and the visitor's primary task.",
         "section": "layout"
       },
       {
@@ -334,7 +334,7 @@
       "Do keep financial values tabular, source and assumption provenance visible, and absolute valuation distinct from sector-relative context.",
       "Do show Revenue and Free Cash Flow as honest annual dual-axis lines with a restrained grid and inspection crosshair.",
       "Do preserve 44px primary touch targets, fixed mobile navigation, and usability without page-level overflow at 320px.",
-      "Do open authenticated entry, fallback sign-in, the brand link, and old `/overview` bookmarks in the valuation workspace; keep Valuation, Portfolio, Backtests, and Trades as the four primary routes on desktop and mobile."
+      "Do open public entry, fallback sign-in, the brand link, and old `/overview` bookmarks in the valuation workspace; keep the working model public and operator data session-protected."
     ],
     "donts": [
       "Don't reintroduce a light palette because TailAdmin or NextAdmin were used as information-architecture references.",

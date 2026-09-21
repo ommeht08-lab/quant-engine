@@ -1,5 +1,5 @@
 /**
- * The default authenticated destination. The valuation workflow is the
+ * The default public destination. The valuation workflow is the
  * product's primary job, so root visits, successful logins without a
  * preserved destination, and the brand link all open it directly.
  */

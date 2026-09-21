@@ -6,7 +6,6 @@ import type { ReactNode } from "react";
 
 import SearchBar from "@/components/SearchBar";
 import { DEFAULT_APP_PATH } from "@/lib/default-route";
-import { isPublicRoute } from "@/lib/public-route";
 import styles from "./AppHeader.module.css";
 
 interface NavItem {
@@ -46,7 +45,11 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
 
 export default function AppHeader() {
   const pathname = usePathname();
-  if (pathname === "/login" || isPublicRoute(pathname)) return null;
+  const usesStandaloneResearchShell = pathname === "/methodology"
+    || pathname.startsWith("/methodology/")
+    || pathname === "/research"
+    || pathname.startsWith("/research/");
+  if (pathname === "/login" || usesStandaloneResearchShell) return null;
 
   return (
     <div className={styles.chrome} data-app-chrome>

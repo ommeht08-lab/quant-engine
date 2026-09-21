@@ -4,7 +4,11 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { createSessionToken, deriveSubkey, verifyPassword, SESSION_COOKIE_NAME } from "@/lib/auth";
-import { hashIdentifierWithSubkey, LOGIN_RATE_LIMIT_IDENTIFIER_LABEL } from "@/lib/client-identifier";
+import {
+  firstForwardedClientIdentifier,
+  hashIdentifierWithSubkey,
+  LOGIN_RATE_LIMIT_IDENTIFIER_LABEL,
+} from "@/lib/client-identifier";
 import { incrementRateLimitCounter, resetRateLimitCounter } from "@/lib/redis";
 import { shouldFailOpenWhenRateLimiterUnavailable, FAIL_OPEN_OVERRIDE_ENV_VAR } from "@/lib/rate-limit-policy";
 import { DEFAULT_APP_PATH } from "@/lib/default-route";
@@ -39,9 +43,7 @@ function isProductionEnvironment(): boolean {
  */
 async function getRawClientIdentifier(): Promise<string> {
   const headerStore = await headers();
-  const forwardedFor = headerStore.get("x-forwarded-for");
-  const ip = forwardedFor?.split(",")[0]?.trim();
-  return ip && ip.length > 0 ? ip : "unknown";
+  return firstForwardedClientIdentifier(headerStore.get("x-forwarded-for"));
 }
 
 /**

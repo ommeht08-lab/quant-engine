@@ -28,14 +28,12 @@ test("overviewRouteForTicker: URL-encodes an unusual ticker rather than concaten
   assert.equal(overviewRouteForTicker("brk.b"), "/overview/BRK.B");
 });
 
-test("/overview/[ticker] is not classified as a public route — regression guard for the prefix-matching landmine", () => {
-  // isPublicRoute matches by PREFIX ("/research" matches every
-  // "/research/*" path), which is exactly why the new overview route was
-  // deliberately placed outside both public prefixes rather than under
-  // "/research" — this proves that placement still holds.
-  assert.equal(isPublicRoute("/overview/AAPL"), false);
-  assert.equal(isPublicRoute("/overview/MSFT"), false);
-  assert.equal(isPublicRoute("/overview"), false);
+test("/overview/[ticker] is a public model route", () => {
+  assert.equal(isPublicRoute("/overview/AAPL"), true);
+  assert.equal(isPublicRoute("/overview/MSFT"), true);
+  assert.equal(isPublicRoute("/overview"), true);
+  // Prefix matching must not make a similarly named private path public.
+  assert.equal(isPublicRoute("/overview-private/AAPL"), false);
 });
 
 test("resolveMarginOfSafetyDisplay: withheld when market comparison is not allowed, even with real prices present", () => {

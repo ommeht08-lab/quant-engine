@@ -8,9 +8,8 @@ interface SearchBarProps {
   className?: string;
 }
 
-// Opens a security's tear sheet (`/ticker/[symbol]`) — a separate workflow
-// from the valuation workspace's own ticker field. "Open tear sheet" spells
-// that out until the two flows are unified.
+// Opens the public company-model summary. Private portfolio and trading
+// telemetry stay on their own session-protected routes.
 export default function SearchBar({ className }: SearchBarProps) {
   const router = useRouter();
   const [ticker, setTicker] = useState("");
@@ -19,7 +18,7 @@ export default function SearchBar({ className }: SearchBarProps) {
     event.preventDefault();
     const symbol = ticker.trim().toUpperCase();
     if (!symbol) return;
-    router.push(`/ticker/${symbol}`);
+    router.push(`/overview/${symbol}`);
     setTicker("");
   }
 
@@ -38,11 +37,11 @@ export default function SearchBar({ className }: SearchBarProps) {
         type="text"
         value={ticker}
         onChange={(event) => setTicker(event.target.value.toUpperCase())}
-        placeholder="Open tear sheet"
+        placeholder="Open company model"
         maxLength={10}
         autoComplete="off"
         spellCheck={false}
-        aria-label="Ticker symbol — opens tear sheet"
+        aria-label="Ticker symbol — opens company model"
         className="input-field w-full py-2 pl-9 pr-3 text-xs font-medium tracking-wide tabular-nums"
       />
     </form>

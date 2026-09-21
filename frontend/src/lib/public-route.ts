@@ -1,14 +1,17 @@
 import { DEFAULT_APP_PATH } from "./default-route.ts";
 
-const PUBLIC_ROUTE_PREFIXES = ["/research", "/methodology"] as const;
+// The valuation model is a public project surface. Operator telemetry,
+// trading controls, portfolio data, and their API routes remain private.
+const PUBLIC_ROUTE_PREFIXES = [
+  "/workspace",
+  "/overview",
+  "/api/evaluate",
+  "/research",
+  "/methodology",
+] as const;
 
-// `/` now resolves to the default live overview — itself session-
-// protected, same as every other page not listed in
-// PUBLIC_ROUTE_PREFIXES below — rather than the curated public
-// research case. The curated case remains fully reachable at its own
-// direct URL (`/research/aapl`, still covered by PUBLIC_ROUTE_PREFIXES
-// below); it just isn't where "/" sends visitors anymore. See
-// `default-route.ts` for the shared constant.
+// `/` resolves to the public valuation workspace. The curated research
+// case remains available at its direct URL.
 export function publicRedirectPath(pathname: string): string | null {
   return pathname === "/" ? DEFAULT_APP_PATH : null;
 }

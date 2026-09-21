@@ -4,7 +4,8 @@ Status: living document. Last updated alongside the security hardening pass on b
 `remediation/valuation-engine-production-quality`. This describes the system as coded on
 that branch, not a claim about any specific deployment's actual configuration.
 
-This project is a single-operator, paper-trading-only research/portfolio dashboard. It is
+This project exposes a public valuation model alongside a single-operator,
+paper-trading-only research/portfolio dashboard. It is
 not a regulated financial product, does not hold customer funds, and makes no claim of
 institutional-grade security. This document exists so that claim is never made implicitly
 either — every trust boundary and residual risk below is written down rather than assumed.
@@ -57,7 +58,7 @@ Trust boundaries an attacker would have to cross, and what currently guards each
 
 | Boundary | Guard |
 |---|---|
-| Browser → Next.js app | Session cookie (HMAC-signed, `httpOnly`, `secure` in production, `sameSite: lax`), enforced by `src/proxy.ts` for every route except `/login`, independently re-checked inside each private API route and the ticker tear-sheet page (defense in depth — see §5.4). |
+| Browser → Next.js app | The model surfaces (`/workspace`, `/overview/*`, and `/api/evaluate/*`) are public by design. Public evaluation calls are limited to 30 requests per client per 15 minutes through shared Redis. Operator routes use an HMAC-signed session cookie (`httpOnly`, `secure` in production, `sameSite: lax`), enforced by `src/proxy.ts` and independently re-checked inside each private API route and the ticker tear-sheet page (defense in depth — see §5.4). |
 | Next.js app → Python FastAPI backend | `VALUATION_API_TOKEN` bearer token, constant-time compared, fails closed if unconfigured/placeholder/too-short (identical requirement enforced on both sides — §5.2). No CORS middleware — the API is never meant to be called by a browser. The backend's own origin (`VALUATION_API_URL`) is shape-validated before every request (`assertSafeValuationApiUrl`, §5.6) — HTTPS required in production, no embedded credentials/fragment/path/query, a bounded `AbortController` timeout. |
 | Next.js app → Alpaca | Exact-hostname/HTTPS validation before any credentialed fetch (`assertSafeAlpacaBaseUrl`, §5.3), mirroring the equivalent Python-side check in `src/trading/alpaca_execution.py`. |
 | GitHub Actions → Alpaca/Postgres/Upstash | Weekday schedule on GitHub-hosted infrastructure; manual runs remain dry-run by default and require explicit `execute` for paper orders. Every scheduled/manual order rechecks Alpaca's market clock, and application code accepts only the paper endpoint (§5.5). |
@@ -75,6 +76,7 @@ Trust boundaries an attacker would have to cross, and what currently guards each
 | 6 | Attacker who can reach the ticker tear-sheet URL directly (e.g. a leaked link, or a bug/regression in `src/proxy.ts`'s route matcher) tries to view trade telemetry without a valid session. | The page independently calls `requireSession()` before querying Postgres/Redis — the same check used by every private API route — rather than relying solely on the proxy layer. | None known beyond the general risk of `SESSION_SECRET` compromise (asset #4 above). |
 | 7 | Compromised or malicious GitHub Actions runner/dependency submits paper orders. | The repository owner explicitly chose autonomous weekday paper execution. The workflow runs only after its isolation-safe suite passes, is concurrency-serialized, and requires the engine's terminal completion receipt. Every order rechecks Alpaca's market clock; `load_config()` accepts only the exact paper hostname. Manual runs remain dry-run by default and need explicit `execute` for orders. | Real money is never at risk, but a compromised workflow/dependency could corrupt the paper account and research record. Standard GitHub Actions supply-chain risk (Action tag pinning rather than SHA pinning) remains open — see §6. |
 | 8 | Dependency confusion / supply-chain compromise via an unpinned `requirements.txt`. | Not mitigated in this pass — see §6 (open item, requires a reviewed, hash-locked dependency pass, deliberately out of scope for this offline-capable batch). | Open. Treat as the top remaining risk in this document until addressed. |
+| 9 | A bot floods the public `/api/evaluate/{ticker}` proxy with arbitrary ticker/query combinations, exhausting Vercel runtime or upstream Yahoo/SEC capacity. | A shared Upstash fixed-window quota allows 30 requests per HMAC-keyed client per 15 minutes, runs before backend configuration or fetch work, and returns `429` with `Retry-After` above the limit. Raw client addresses are never stored. Production fails closed if Redis or `SESSION_SECRET` is unavailable; `PUBLIC_EVALUATION_RATE_LIMIT_FAIL_OPEN=true` is the explicit emergency availability override. | The client identifier trusts Vercel's overwritten `x-forwarded-for` header, the same deployment assumption as the login throttle. A distributed attacker can still use many source addresses, and the fixed-window design permits a boundary burst. |
 
 ## 4. Credential roles and least privilege
 
@@ -82,11 +84,12 @@ Trust boundaries an attacker would have to cross, and what currently guards each
 |---|---|---|---|
 | `APCA_API_KEY_ID`/`SECRET_KEY` | `src/trading/alpaca_execution.py`, `frontend/src/app/api/positions/route.ts` | Paper trading only | Should be a **paper-only** Alpaca key pair — Alpaca's own account model already prevents a paper key from touching a live account, which is the primary real-money safety net beneath this project's own hostname checks. |
 | `DATABASE_URL` | `src/utils/db.py`, `frontend/src/app/ticker/[symbol]/page.tsx` | Read/write `trade_logs`, `backtest_curve` only | Currently a single role for both read (dashboard) and write (execution engine) paths — role separation (a read-only role for the dashboard, write-only for the execution engine) is a recommended follow-up, tracked in §6. |
-| `UPSTASH_REDIS_REST_URL`/`TOKEN` | `src/utils/cache.py`, `frontend/src/lib/redis.ts` | Cache + rate-limit-counter read/write only | Shared between the Python backend and Next.js app; a leak affects both. **Not uniformly optional**: genuinely optional for the yfinance/statement CACHE (every consumer there degrades to a safe passthrough if unset/unreachable), but NOT optional for the login rate limiter in PRODUCTION specifically — see scenario #4 and `LOGIN_RATE_LIMIT_FAIL_OPEN` below. |
-| `SESSION_SECRET` | `frontend/src/lib/auth.ts` | Sign/verify + subkey derivation | Never transmitted; used server-side to compute/verify the session HMAC, and (via `deriveSubkey`, domain-separated by a fixed label) to key the login rate limiter's client-identifier HMAC (`src/lib/client-identifier.ts`) — a second, cryptographically independent use of the same underlying secret, never the raw secret reused directly for both purposes. Validated at first use (`src/lib/secret-validation.ts`): must be set, not the example placeholder, at least 32 characters. |
+| `UPSTASH_REDIS_REST_URL`/`TOKEN` | `src/utils/cache.py`, `frontend/src/lib/redis.ts` | Cache + rate-limit-counter read/write only | Shared between the Python backend and Next.js app; a leak affects both. **Not uniformly optional**: genuinely optional for the yfinance/statement cache, but not optional for either the login throttle or public-evaluation quota in production — see scenarios #4 and #9. |
+| `SESSION_SECRET` | `frontend/src/lib/auth.ts` | Sign/verify + subkey derivation | Never transmitted; used server-side to compute/verify the session HMAC and, via separately labeled `deriveSubkey` calls, to key the login and public-evaluation client-identifier HMACs. Raw client addresses never reach Redis. Validated at first use (`src/lib/secret-validation.ts`): must be set, not the example placeholder, at least 32 characters. |
 | `DASHBOARD_PASSWORD` | `frontend/src/lib/auth.ts` | Compare only | Compared in constant time; never logged. Validated at first use: must be set; not whitespace-only or whitespace-padded; not the example placeholder; not a single character repeated; at least 12 characters (raised from an initial 8). |
 | `VALUATION_API_TOKEN` | `src/api/main.py`, `frontend/src/app/api/evaluate/[ticker]/route.ts` | Shared secret between exactly these two services | Never sent to, or readable by, the browser. Validated identically on BOTH sides at first use: must be set; not whitespace-only or whitespace-padded; not the example placeholder; not a single character repeated; at least 32 characters — a value either side would accept, the other side accepts too. |
 | `LOGIN_RATE_LIMIT_FAIL_OPEN` | `frontend/src/lib/rate-limit-policy.ts` | N/A (a policy flag, not a credential) | Unset/anything other than the exact string `"true"` = fail closed in production (the default). Included here because it directly controls whether the login rate limiter's failure mode is safe or not — see scenario #4. |
+| `PUBLIC_EVALUATION_RATE_LIMIT_FAIL_OPEN` | `frontend/src/lib/public-evaluation-rate-limit.ts` | N/A (a policy flag, not a credential) | Unset/anything other than exact `"true"` = fail closed in production. This emergency override deliberately trades public-model abuse protection for availability; see scenario #9. |
 
 **Credential rotation and role separation are explicitly deferred** to a follow-up pass
 after this hardened code/configuration lands — see the handoff's non-negotiable rules and
@@ -341,11 +344,11 @@ Until the items in §6 are resolved, this project should only be operated:
   session) if any of these is missing, still the `.env.example` placeholder, or shorter
   than its required minimum length — but a deployment should still set these correctly
   the first time rather than relying on that validation as the only line of defense.
-- With `UPSTASH_REDIS_REST_URL`/`TOKEN` genuinely configured in production, and
-  `LOGIN_RATE_LIMIT_FAIL_OPEN` left unset. Without Upstash configured, PRODUCTION login is
-  entirely blocked (fails closed by design — see scenario #4) rather than silently
-  unprotected; setting `LOGIN_RATE_LIMIT_FAIL_OPEN=true` trades that away for availability
-  and should be a deliberate, temporary operator decision, not a default configuration.
+- With `UPSTASH_REDIS_REST_URL`/`TOKEN` genuinely configured in production, and both
+  `LOGIN_RATE_LIMIT_FAIL_OPEN` and `PUBLIC_EVALUATION_RATE_LIMIT_FAIL_OPEN` left unset.
+  Without Upstash, production login and public valuation runs are blocked by design rather
+  than silently unprotected; either fail-open setting should be a deliberate, temporary
+  operator decision, never the default configuration.
 - Without any claim of profitability, institutional quality, regulatory compliance, or
   investment suitability — this system is a research and learning project, not investment
   advice, and must never be presented as more than that (see

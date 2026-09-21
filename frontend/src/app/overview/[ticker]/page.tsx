@@ -15,11 +15,9 @@ export const dynamic = "force-dynamic";
 
 // Thin server wrapper resolving the dynamic route param, mirroring
 // `workspace/page.tsx`'s own split between route plumbing and the
-// actual interactive component. Deliberately NOT under `/research` (see
-// `overview-response.test.ts`'s prefix-matching regression test) — this
-// route relies on `src/proxy.ts`'s default-deny behavior for every path
-// not explicitly listed in `PUBLIC_ROUTE_PREFIXES`, so it stays session-
-// protected without any auth-file change.
+// actual interactive component. `/overview/*` is an intentionally
+// public company-model surface; operator data remains on separately
+// session-protected routes.
 export default async function OverviewPage({
   params,
 }: {

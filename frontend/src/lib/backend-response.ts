@@ -2,9 +2,7 @@
 // fetch (frontend/src/app/api/evaluate/[ticker]/route.ts) into one
 // small, framework-agnostic shape — kept separate from route.ts so it
 // can be unit-tested with plain Response objects and a mocked fetch,
-// without constructing a real authenticated Next.js request context
-// (route.ts's own `requireSession()` needs one; this module never
-// touches it).
+// without constructing a live Next.js request context.
 //
 // Every path here is deliberately conservative about what it exposes:
 // never the raw upstream body when it isn't valid JSON, never a raw

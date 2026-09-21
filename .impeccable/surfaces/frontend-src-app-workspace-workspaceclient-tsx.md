@@ -9,7 +9,7 @@ related_targets: ["frontend/src/app/globals.css","frontend/src/components/valuat
 
 Mode: Operate
 
-Audience: the private operator building and reviewing a company DCF. Job: choose a ticker, set or accept assumptions, run the model, compare Bear/Base/Bull outcomes, inspect sensitivity and projected cash flow, and understand source freshness. Primary action: run valuation. Constraints: preserve every existing calculation, API contract, scenario linkage, diagnostic state, and financial distinction.
+Audience: public reviewers evaluating the working model, including college-application reviewers, plus the private operator building and reviewing a company DCF. Job: choose a ticker, set or accept assumptions, run the model, compare Bear/Base/Bull outcomes, inspect sensitivity and projected cash flow, and understand source freshness. Primary action: run valuation. Constraints: the model and company analysis are public, while portfolio, trades, risk, backtests, paper-trading telemetry, and their APIs stay session-protected. Public evaluations are limited to 30 requests per client per 15 minutes; quota and temporary rate-limit-service failures remain honest 429/503 states rather than being visually hidden. Preserve every existing calculation, API contract, scenario linkage, diagnostic state, and financial distinction.
 
 ## Direction contract
 
@@ -17,7 +17,7 @@ THESIS: The workspace is an analyst's decision surface: price, scenario value, d
 
 OWN-WORLD: The same near-black graphite financial shell as the research home, with cool-white data ink, blue-gray raised surfaces, restrained periwinkle controls and selection fields, fine structural borders, sharp 4–5px radii, and one persistent Thesis Rail. It is institutional charting software, not a neon crypto terminal.
 
-STORY: The operator selects the company, verifies the operating assumptions, runs the model, cross-checks market price against the three cases, then drills into forecast, sensitivity, sector-relative context, and cash-flow evidence.
+STORY: A visitor opens the live model without an account, selects a company, verifies the operating assumptions, runs the model, cross-checks market price against the three cases, then drills into forecast, sensitivity, sector-relative context, and cash-flow evidence. Authentication appears only when the operator enters private data surfaces.
 
 FIRST VIEWPORT: The command and assumption strip sit above a two-column analysis field. A dominant dual-line annual forecast occupies the left with labeled axes, quiet grid, exact latest values, and inspection crosshair; a 320px sticky Thesis Rail on the right keeps market price, selected intrinsic value, delta, WACC, terminal growth, provenance, and the shared scenario selector visible. Supporting analysis continues below without changing visual grammar.
 

@@ -14,7 +14,11 @@ test("the root path redirects directly to the valuation workspace", () => {
   assert.equal(publicRedirectPath("/research/aapl"), null);
 });
 
-test("curated research cases and methodology are public", () => {
+test("the valuation model, curated research cases, and methodology are public", () => {
+  assert.equal(isPublicRoute("/workspace"), true);
+  assert.equal(isPublicRoute("/overview"), true);
+  assert.equal(isPublicRoute("/overview/MSFT"), true);
+  assert.equal(isPublicRoute("/api/evaluate/AAPL"), true);
   assert.equal(isPublicRoute("/research"), true);
   assert.equal(isPublicRoute("/research/aapl"), true);
   assert.equal(isPublicRoute("/research/aapl/statements"), true);
@@ -25,17 +29,21 @@ test("curated research cases and methodology are public", () => {
   assert.equal(isPublicRoute("/methodology/data"), true);
 });
 
-test("lookalike and private workspace paths remain private", () => {
+test("lookalikes and operator data routes remain private", () => {
   assert.equal(isPublicRoute("/researcher"), false);
-  assert.equal(isPublicRoute("/workspace"), false);
+  assert.equal(isPublicRoute("/workspaces"), false);
+  assert.equal(isPublicRoute("/api/evaluated/AAPL"), false);
   assert.equal(isPublicRoute("/portfolio"), false);
-  assert.equal(isPublicRoute("/api/evaluate/AAPL"), false);
-});
-
-test("workspace and company overview routes stay behind the session gate", () => {
-  assert.equal(isPublicRoute("/overview"), false);
-  assert.equal(isPublicRoute("/overview/MSFT"), false);
-  assert.equal(isPublicRoute(DEFAULT_APP_PATH), false);
+  assert.equal(isPublicRoute("/trades"), false);
+  assert.equal(isPublicRoute("/backtests"), false);
+  assert.equal(isPublicRoute("/ticker/AAPL"), false);
+  assert.equal(isPublicRoute("/api/positions"), false);
+  assert.equal(isPublicRoute("/api/trades"), false);
+  assert.equal(isPublicRoute("/api/risk"), false);
+  assert.equal(isPublicRoute("/api/backtest"), false);
+  assert.equal(isPublicRoute("/api/run-health"), false);
+  assert.equal(isPublicRoute("/api/sentiment/AAPL"), false);
+  assert.equal(isPublicRoute(DEFAULT_APP_PATH), true);
 });
 
 /**
@@ -55,7 +63,7 @@ function nextHopForUnauthenticatedVisitor(pathname: string): string | null {
   return "/login";
 }
 
-test("no redirect loop among root, workspace, login, and company overview", () => {
+test("public model routes terminate without a login redirect", () => {
   for (const start of ["/", "/workspace", "/overview", "/overview/MSFT", "/login"]) {
     const visited = new Set<string>();
     let pathname = start;

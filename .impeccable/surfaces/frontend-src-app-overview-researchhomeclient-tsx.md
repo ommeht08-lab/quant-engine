@@ -13,13 +13,13 @@ The `/overview` index now redirects to `/workspace`. The former summary dashboar
 
 ## Direction contract
 
-THESIS: No intermediary dashboard is needed before the operator's primary task. Open the valuation workflow directly.
+THESIS: No intermediary dashboard is needed before the visitor's primary task. Open the public valuation workflow directly.
 
 OWN-WORLD: An edge-to-edge graphite professional shell with cool-white ink, restrained periwinkle controls, fine blue-gray dividers, sharp 4–5px radii, and semantic color used sparingly. Repeated modules feel labeled and operational without drifting into neon trading-terminal decoration.
 
-STORY: Root visits and the brand link lead directly to the valuation workspace; old `/overview` bookmarks follow the same route.
+STORY: Signed-out and signed-in root visits and the brand link lead directly to the valuation workspace; old `/overview` bookmarks follow the same route.
 
-FIRST VIEWPORT: The first authenticated viewport is the valuation workspace. The navigation contains four task routes and no redundant Overview item or session-status footer.
+FIRST VIEWPORT: The first public viewport is the valuation workspace. The navigation contains four task routes and no redundant Overview item or session-status footer; operator-only routes retain their login boundary.
 
 FORM: User-pinned TailAdmin V1/V2 and NextAdmin information architecture, revised by the user's explicit black-theme request. Seed b8aa9a83. Earlier light generated mocks are superseded critique references, not user-approved pixel specifications.
 

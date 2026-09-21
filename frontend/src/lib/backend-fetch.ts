@@ -2,9 +2,7 @@
 // out of the valuation-backend proxy route (`app/api/evaluate/[ticker]/
 // route.ts`) so the timeout/cancellation mechanism itself can be
 // unit-tested in isolation (with mocked timers, see
-// `backend-fetch.test.ts`) without needing a live Next.js request scope,
-// which that route's real session/auth check (`requireSession()`, via
-// `next/headers`'s `cookies()`) requires and a bare test doesn't have.
+// `backend-fetch.test.ts`) or constructing a live Next.js request.
 //
 // Behavior is unchanged from the inline version this replaces: on
 // timeout, the underlying `fetch` rejects with an `AbortError` (the

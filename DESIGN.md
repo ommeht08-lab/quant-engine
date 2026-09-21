@@ -120,11 +120,11 @@ components:
 
 **Creative North Star: "The Graphite Research Instrument"**
 
-Valuation Engine is an edge-to-edge institutional charting workspace: near-black chrome and canvas hold dense blue-gray surfaces, cool-white data, and a single restrained periwinkle interaction voice. It should feel like purpose-built equity-research software for one serious operator, not a public market-data terminal, a decorative admin template, or a neon trading product.
+Valuation Engine is an edge-to-edge institutional charting workspace: near-black chrome and canvas hold dense blue-gray surfaces, cool-white data, and a single restrained periwinkle interaction voice. It should feel like a real, publicly reviewable equity-research model with a private operator layer—not a generic market-data terminal, a decorative admin template, or a neon trading product.
 
 TailAdmin V1/V2 and NextAdmin inform the information architecture only: persistent navigation, compact controls, clear grouping, and decision-first scanning. The visual world is darker, sharper, and flatter. Fine rules, tonal layering, tabular figures, and exact state feedback carry the hierarchy; ornament does not. Source visibility and honest financial distinctions remain part of the interface's visual discipline.
 
-Authenticated entry is deliberately direct: root visits, sign-ins without a preserved destination, the brand link, and old `/overview` bookmarks all open the valuation workspace. The former intermediary research-home dashboard is retired, keeping the operator's primary task one step closer without changing authentication or API protection.
+Public entry is deliberately direct: signed-out and signed-in root visits, sign-ins without a preserved destination, the brand link, and old `/overview` bookmarks all open the valuation workspace. The former intermediary research-home dashboard is retired. Authentication appears only when someone enters portfolio, trades, risk, backtests, paper-trading telemetry, or another operator-data surface.
 
 **Key Characteristics:**
 
@@ -141,7 +141,7 @@ The palette is a compact graphite stack with cool-white ink, one periwinkle inte
 
 ### Primary
 
-- **Operator Periwinkle:** the only non-semantic interaction voice. Use it for the primary action, keyboard focus, active routes, selected scenarios, and the annual revenue series.
+- **Research Periwinkle:** the only non-semantic interaction voice. Use it for the primary action, keyboard focus, active routes, selected scenarios, and the annual revenue series.
 - **Periwinkle Field:** a low-opacity selection field behind active or pressed controls. It supports the accent without turning whole panels blue.
 
 ### Secondary
@@ -192,17 +192,17 @@ The palette is a compact graphite stack with cool-white ink, one periwinkle inte
 
 ## Layout
 
-The authenticated desktop shell uses a fixed 220px rail and a fixed 64px utility bar. It enters directly into the valuation workspace: authenticated root visits, successful sign-ins without a preserved destination, the brand link, and `/overview` all resolve to `/workspace`. The retired research-home summary dashboard is not part of the active information architecture. The detailed company overview can still widen to 1480px for denser analysis. The chrome and canvas remain edge-to-edge—there is no rounded page sheet around the application.
+The desktop shell uses a fixed 220px rail and a fixed 64px utility bar. It enters directly into the public valuation workspace: signed-out and signed-in root visits, successful sign-ins without a preserved destination, the brand link, and `/overview` all resolve to `/workspace`. Company-model routes are public; portfolio, trades, risk, backtests, paper-trading telemetry, and their APIs remain session-protected. The retired research-home summary dashboard is not part of the active information architecture. The detailed company overview can still widen to 1480px for denser analysis. The chrome and canvas remain edge-to-edge—there is no rounded page sheet around the application.
 
 The workspace places command and assumptions before a dominant analysis field. Its annual forecast pairs with a 320px sticky Thesis Rail, narrows the rail to 270px at intermediate widths, and stacks into one column at 900px and below.
 
-At 820px the desktop rail yields to a 60px top bar and fixed four-item bottom navigation. Desktop and mobile expose the same four routes—Valuation, Portfolio, Backtests, and Trades—with four equal mobile columns. Side gutters contract to 14px, then to 10px where the company overview requires it. Metrics collapse progressively while keeping the same reading order. Every authenticated page must remain free of page-level horizontal overflow at the 320px minimum width; locally scrollable data regions must advertise that behavior.
+At 820px the desktop rail yields to a 60px top bar and fixed four-item bottom navigation. Desktop and mobile expose the same four routes—Valuation, Portfolio, Backtests, and Trades—with four equal mobile columns. Side gutters contract to 14px, then to 10px where the company overview requires it. Metrics collapse progressively while keeping the same reading order. Every application page must remain free of page-level horizontal overflow at the 320px minimum width; locally scrollable data regions must advertise that behavior.
 
 **The Decision-First Rule.** Keep the next action, selected scenario, primary value, and supporting evidence in the first operating field. Supporting schedules may stack or move behind tabs, but they do not outrank the decision surface.
 
 **The Edge-to-Edge Shell Rule.** Persistent chrome meets the viewport edges. Do not wrap the product in an artificial white sheet, floating desktop frame, or oversized outer radius.
 
-**The Direct-to-Work Rule.** The authenticated default is the valuation workspace. Do not place a summary dashboard or Overview route between entry and the operator's primary task.
+**The Direct-to-Work Rule.** The public default is the valuation workspace. Do not place a summary dashboard, login wall, or Overview route between entry and the visitor's primary task.
 
 ## Elevation & Depth
 
@@ -285,7 +285,7 @@ Borders are one pixel and blue-gray. Line samples in chart legends stay square. 
 - **Do** keep financial values tabular, source and assumption provenance visible, and absolute valuation distinct from sector-relative context.
 - **Do** show Revenue and Free Cash Flow as honest annual dual-axis lines with a restrained grid and inspection crosshair.
 - **Do** preserve 44px primary touch targets, fixed mobile navigation, and usability without page-level overflow at 320px.
-- **Do** open authenticated entry, fallback sign-in, the brand link, and old `/overview` bookmarks in the valuation workspace; keep Valuation, Portfolio, Backtests, and Trades as the four primary routes on desktop and mobile.
+- **Do** open public entry, fallback sign-in, the brand link, and old `/overview` bookmarks in the valuation workspace; keep the working model public and operator data session-protected.
 
 ### Don't:
 

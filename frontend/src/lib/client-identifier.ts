@@ -8,6 +8,18 @@ import { createHmac } from "node:crypto";
 // that every previously-hashed identifier becomes a different digest
 // (harmless: it just resets everyone's rate-limit window).
 export const LOGIN_RATE_LIMIT_IDENTIFIER_LABEL = "login-rate-limit-client-identifier-v1";
+export const PUBLIC_EVALUATION_RATE_LIMIT_IDENTIFIER_LABEL = "public-evaluation-rate-limit-client-identifier-v1";
+
+/**
+ * Resolve the first client address from Vercel's trusted
+ * `x-forwarded-for` value. The caller must only use this on a host that
+ * overwrites the header from its own observed connection; see the
+ * deployment assumption documented in `app/login/actions.ts`.
+ */
+export function firstForwardedClientIdentifier(forwardedFor: string | null): string {
+  const ip = forwardedFor?.split(",")[0]?.trim();
+  return ip && ip.length > 0 ? ip : "unknown";
+}
 
 /**
  * Pure, directly testable core: normalize `rawIdentifier` (trim +

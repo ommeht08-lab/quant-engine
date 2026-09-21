@@ -1,7 +1,7 @@
 /**
  * The canonical INTERACTIVE valuation request policy — the staged,
  * five-year maturation forecast, at the dashboard's default terminal
- * growth rate. Every session-protected page that calls
+ * growth rate. Every interactive page that calls
  * `/api/evaluate/{ticker}` in its default (no custom assumptions) mode
  * must request this explicitly, rather than relying on the backend's
  * own bare defaults.

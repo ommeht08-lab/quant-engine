@@ -1,8 +1,19 @@
 import { NextResponse } from "next/server";
 
-import { requireSession } from "@/lib/auth";
 import { fetchWithTimeout } from "@/lib/backend-fetch";
 import { classifyFetchError, normalizeBackendResponse, type NormalizedBackendResult } from "@/lib/backend-response";
+import {
+  firstForwardedClientIdentifier,
+  PUBLIC_EVALUATION_RATE_LIMIT_IDENTIFIER_LABEL,
+} from "@/lib/client-identifier";
+import { deriveSubkey } from "@/lib/auth";
+import {
+  PUBLIC_EVALUATION_RATE_LIMIT_FAIL_OPEN_ENV_VAR,
+  PUBLIC_EVALUATION_WINDOW_SECONDS,
+  decidePublicEvaluationRateLimit,
+  publicEvaluationRateLimitKey,
+  type PublicEvaluationRateLimitDecision,
+} from "@/lib/public-evaluation-rate-limit";
 import { assertSecretMeetsRequirements, VALUATION_API_TOKEN_REQUIREMENT } from "@/lib/secret-validation";
 import { assertSafeValuationApiUrl } from "@/lib/valuation-api-url";
 
@@ -71,8 +82,61 @@ export async function GET(
   request: Request,
   { params }: { params: Promise<{ ticker: string }> }
 ) {
-  if (!(await requireSession())) {
-    return NextResponse.json({ error: "Not authenticated." }, { status: 401 });
+  let rateLimitDecision: PublicEvaluationRateLimitDecision = "allow";
+  try {
+    const rawClientIdentifier = firstForwardedClientIdentifier(
+      request.headers.get("x-forwarded-for"),
+    );
+    const rateLimitKey = publicEvaluationRateLimitKey(
+      rawClientIdentifier,
+      deriveSubkey(PUBLIC_EVALUATION_RATE_LIMIT_IDENTIFIER_LABEL),
+    );
+    rateLimitDecision = await decidePublicEvaluationRateLimit({
+      key: rateLimitKey,
+      isProduction: isProductionEnvironment(),
+      failOpenOverride: process.env[PUBLIC_EVALUATION_RATE_LIMIT_FAIL_OPEN_ENV_VAR],
+    });
+  } catch (error) {
+    console.error(
+      "Public valuation rate limiter could not initialize or apply its quota:",
+      error instanceof Error ? error.message : "unknown error",
+    );
+    if (isProductionEnvironment()) {
+      return NextResponse.json(
+        {
+          code: "VALUATION_RATE_LIMIT_UNAVAILABLE",
+          error: "Public valuation is temporarily unavailable. Please try again shortly.",
+        },
+        { status: 503 },
+      );
+    }
+    // Local development and CI may intentionally omit SESSION_SECRET;
+    // match the rate limiter's non-production fail-open policy.
+  }
+  if (rateLimitDecision === "limited") {
+    return NextResponse.json(
+      {
+        code: "VALUATION_RATE_LIMITED",
+        error: "Too many valuation requests. Please try again in a few minutes.",
+      },
+      {
+        status: 429,
+        headers: { "Retry-After": String(PUBLIC_EVALUATION_WINDOW_SECONDS) },
+      },
+    );
+  }
+  if (rateLimitDecision === "unavailable") {
+    console.error(
+      `Public valuation rate limiter unavailable; failing closed in production. ` +
+        `Set ${PUBLIC_EVALUATION_RATE_LIMIT_FAIL_OPEN_ENV_VAR}=true to override.`,
+    );
+    return NextResponse.json(
+      {
+        code: "VALUATION_RATE_LIMIT_UNAVAILABLE",
+        error: "Public valuation is temporarily unavailable. Please try again shortly.",
+      },
+      { status: 503 },
+    );
   }
 
   let serviceToken: string;

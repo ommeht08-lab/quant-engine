@@ -40,7 +40,7 @@ const outfit = Outfit({
 
 export const metadata: Metadata = {
   title: "Valuation Engine | Om Mehta Equity Research",
-  description: "A private intrinsic-value and paper-portfolio research workspace.",
+  description: "A public intrinsic-value model with private operator research and paper-portfolio data.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
