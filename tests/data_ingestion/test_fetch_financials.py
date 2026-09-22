@@ -12,10 +12,15 @@ network-backed construction happens; the test-isolation guard
 catches it first, with a clean, documented exception.
 """
 
+import pandas as pd
 import pytest
 
 from src.data_ingestion import fetch_financials
-from src.data_ingestion.fetch_financials import get_shares_outstanding, get_ticker_object
+from src.data_ingestion.fetch_financials import (
+    get_daily_close_history,
+    get_shares_outstanding,
+    get_ticker_object,
+)
 
 
 class TestTickerSymbolValidation:
@@ -67,6 +72,23 @@ class TestTickerSymbolValidation:
 
         assert result == "MSFT"
         assert calls == ["MSFT"]
+
+
+def test_daily_close_history_filters_invalid_rows_without_inventing_prices():
+    class FakeHistoryTicker:
+        ticker = "HISTORY_TEST"
+
+        def history(self, **kwargs):
+            assert kwargs == {"period": "1y", "interval": "1d", "auto_adjust": False}
+            return pd.DataFrame(
+                {"Close": [100.0, None, -4.0, 103.5]},
+                index=pd.to_datetime(["2026-01-02", "2026-01-03", "2026-01-04", "2026-01-05"]),
+            )
+
+    result = get_daily_close_history(FakeHistoryTicker())
+
+    assert result is not None
+    assert result.tolist() == [100.0, 103.5]
 
 
 class _RecordingFastInfo:

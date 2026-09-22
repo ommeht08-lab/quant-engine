@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { FormEvent, KeyboardEvent } from "react";
 import { valuationErrorFromResponse, type ValuationRequestError } from "@/lib/valuation-errors";
 import { errorBannerHeadline, errorBannerTone, resolveWorkspaceResultState } from "@/lib/valuation-state-copy";
@@ -13,13 +13,14 @@ import SectorRelativeValuation, {
   type SectorMedianSnapshot,
 } from "@/components/valuation/SectorRelativeValuation";
 import ProjectedCashFlows, { type FreeCashFlowYear } from "@/components/valuation/ProjectedCashFlows";
-import ForecastChart from "@/components/valuation/ForecastChart";
+import MarketPriceChart from "@/components/valuation/MarketPriceChart";
 import AssumptionsBridge from "@/components/valuation/AssumptionsBridge";
 import type { SectorMedianUnavailableCode } from "@/lib/sector-median-copy";
 import { qualityIssueCopy, type ValuationQuality } from "@/lib/valuation-quality";
 import { DEFAULT_TERMINAL_GROWTH_RATE, STAGED_FORECAST_MODE } from "@/lib/evaluation-request-policy";
 import { resolveMarginOfSafetyDisplay } from "@/lib/overview-response";
 import { recordValuationRun } from "@/lib/valuation-history";
+import { isMarketHistoryResponse, type MarketHistoryResponse } from "@/lib/market-history";
 
 interface EvaluationResponse {
   ticker: string;
@@ -85,6 +86,7 @@ const DETAIL_TABS = [
 type DetailTab = (typeof DETAIL_TABS)[number][0];
 
 export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps) {
+  const requestSequence = useRef(0);
   const [ticker, setTicker] = useState(initialTicker);
   // Default mode: use each company's own historical revenue growth and
   // operating margin — the growth/margin query params are OMITTED
@@ -98,6 +100,8 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
   const [terminalGrowthRate, setTerminalGrowthRate] = useState(DEFAULT_TERMINAL_GROWTH_RATE);
 
   const [result, setResult] = useState<EvaluationResponse | null>(null);
+  const [marketHistory, setMarketHistory] = useState<MarketHistoryResponse | null>(null);
+  const [marketHistoryStatus, setMarketHistoryStatus] = useState<"loading" | "ready" | "unavailable">("loading");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<ValuationRequestError | null>(null);
   // Bear/Base/Bull selection is shared by the Thesis Rail and the
@@ -130,6 +134,9 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
       return;
     }
 
+    const requestId = requestSequence.current + 1;
+    requestSequence.current = requestId;
+
     setIsLoading(true);
     setError(null);
 
@@ -146,6 +153,13 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
         params.set("revenue_growth_rate", String(revenueGrowthRate));
         params.set("operating_margin", String(operatingMargin));
       }
+
+      const historyPromise = fetch(`/api/market-history/${encodeURIComponent(trimmedTicker)}`)
+        .then(async (historyResponse) => {
+          if (!historyResponse.ok) return null;
+          return await historyResponse.json() as MarketHistoryResponse;
+        })
+        .catch(() => null);
 
       const response = await fetch(
         `/api/evaluate/${encodeURIComponent(trimmedTicker)}?${params.toString()}`
@@ -174,6 +188,17 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
         } satisfies ValuationRequestError;
       }
       setResult(data);
+      setMarketHistory(null);
+      setMarketHistoryStatus("loading");
+      void historyPromise.then((history) => {
+        if (requestSequence.current !== requestId) return;
+        if (isMarketHistoryResponse(history) && history.ticker === data.ticker) {
+          setMarketHistory(history);
+          setMarketHistoryStatus("ready");
+        } else {
+          setMarketHistoryStatus("unavailable");
+        }
+      });
       setSelectedScenario("base");
       setActiveDetail("forecast");
 
@@ -343,7 +368,11 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
             aria-busy={isLoading}
           >
             <div className="workspace-primary-grid">
-              <ForecastChart rows={result.projected_free_cash_flows} forecastPath={result.forecast_path} />
+              <MarketPriceChart
+                ticker={result.ticker}
+                history={marketHistory}
+                status={marketHistoryStatus}
+              />
               <ThesisRail
                 ticker={result.ticker}
                 sector={result.sector}
