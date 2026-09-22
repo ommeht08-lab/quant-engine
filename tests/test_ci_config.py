@@ -336,11 +336,22 @@ class TestBackfillSecFundamentalsWorkflow:
 
     def test_verifies_both_cutoffs_read_only_after_publishing(self):
         verify = _job_block(self._content(), "verify")
-        assert "needs: publish" in verify
+        assert "needs: [test, publish]" in verify
+        assert "needs.test.result == 'success'" in verify
         assert "python -m src.fundamentals.sec_backfill_verification" in verify
         assert '--cutoff "2024-09-03T16:00:00-04:00"' in verify
         assert '--cutoff "${PUBLISH_CUTOFF}"' in verify
         assert "--publish" not in verify
+
+    def test_verify_only_mode_skips_publication_and_validates_its_inputs(self):
+        content = self._content()
+        assert "verify_batch_id:" in content
+        assert "verify_publish_cutoff:" in content
+        assert "if: inputs.verify_batch_id == ''" in _job_block(content, "publish")
+        verify = _job_block(content, "verify")
+        assert "needs.publish.result == 'skipped' && inputs.verify_batch_id != ''" in verify
+        assert "^backfill-${ISSUER_CIK}-[0-9]+-[0-9]+$" in verify
+        assert "${{ inputs.verify_batch_id" not in verify.split("run: |", 1)[1]
 
     def test_jobs_install_only_pinned_publication_dependencies_and_two_secrets(self):
         content = self._content()

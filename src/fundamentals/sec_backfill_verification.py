@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Callable, Iterable, Optional, Sequence, Tuple
@@ -268,13 +269,18 @@ def main(
 ) -> int:
     args = _parser().parse_args(argv)
     try:
+        # Passed explicitly, like the publication command, so the read path
+        # never falls back to the optional dotenv loader in slim CI jobs.
+        database_url = os.getenv("DATABASE_URL")
+        if not database_url:
+            raise ValueError("DATABASE_URL must be set in the process environment.")
         result = verify_published_backfill(
             cik=args.cik,
             ingestion_batch_id=args.batch_id,
             knowledge_cutoffs=args.cutoff,
             data_vintage_cutoff=now(),
             downloader=SecDownloader(SecDownloaderConfig.from_environment()),
-            repository=PostgresFundamentalsRepository(),
+            repository=PostgresFundamentalsRepository(database_url=database_url),
         )
     except (LookupError, ValueError, RuntimeError) as error:
         print(json.dumps({"status": "failed", "message": str(error)}, sort_keys=True))
