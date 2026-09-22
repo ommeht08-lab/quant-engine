@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from enum import Enum
-from typing import Dict, Iterable, Optional, Tuple
+from typing import Dict, FrozenSet, Iterable, Optional, Tuple
 
 from .adapters.sec_companyfacts import SecExtractedFact
 from .concept_map import FactPeriodType
@@ -478,6 +478,42 @@ def _to_financial_fact(
         ),
         lineage=replace(fact.lineage, fiscal_calendar_version=calendar_version),
     )
+
+
+def partition_opening_balance_facts(
+    facts: Iterable[SecExtractedFact],
+    policy: IssuerFiscalCalendarPolicy,
+    opening_balance_tags: FrozenSet[Tuple[str, str]],
+) -> Tuple[Tuple[SecExtractedFact, ...], Tuple[SecExtractedFact, ...]]:
+    """Split declared opening-balance instants from canonical candidates.
+
+    A fact is set aside only when its issuer policy names its exact tag and its
+    instant falls on the first day of a fiscal year in the exact calendar. It
+    is returned unchanged, never relabeled to the prior period end. Every other
+    fact, including any other first-day instant, stays a canonical candidate
+    and is classified (or refused) normally.
+    """
+
+    source_facts = tuple(facts)
+    if not opening_balance_tags:
+        return source_facts, ()
+    fiscal_year_starts = frozenset(
+        definition.period_start
+        for definition in (*policy.fiscal_years, *policy.open_fiscal_years)
+    )
+    canonical = []
+    opening_balances = []
+    for fact in source_facts:
+        if (
+            fact.period_type is FactPeriodType.INSTANT
+            and fact.period_start is None
+            and fact.period_end in fiscal_year_starts
+            and (fact.taxonomy, fact.raw_tag) in opening_balance_tags
+        ):
+            opening_balances.append(fact)
+        else:
+            canonical.append(fact)
+    return tuple(canonical), tuple(opening_balances)
 
 
 def classify_sec_facts(

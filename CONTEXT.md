@@ -107,6 +107,23 @@ pretending those labels describe every comparative period in the filing.
 An immutable, versioned policy that maps a raw taxonomy tag to one canonical
 concept, statement, period type, and unit policy. A correction creates a new
 version; it never silently changes the meaning of an existing ingestion batch.
+Each issuer is ingested and read under one assigned version, so adopting a new
+version for one issuer does not change another issuer's published lineage.
+
+## Issuer tag exclusion
+
+A concept-map rule stating that one issuer's raw tag does not feed a canonical
+concept, because that issuer's filings show the tag reports a different
+quantity from the concept's other synonyms. It is issuer-specific and must
+leave another tag for the concept; every other synonym disagreement still
+refuses ingestion.
+
+## Opening-balance fact
+
+An issuer-declared instant fact dated on the first day of a fiscal year rather
+than on the prior period end. It is retained with its source lineage for audit
+but is never relabeled to the prior period end, classified, published, or
+selected as a period-end balance.
 
 ## Filing fiscal label
 

@@ -1,8 +1,12 @@
 import datetime as dt
+import pathlib
+import subprocess
+import sys
 
 from src.fundamentals.adapters.sec_downloader import SecIssuerPayload
 from src.fundamentals.sec_pipeline_command import (
     OfflineSecIngestionRequest,
+    _summary,
     run_offline_sec_ingestion,
 )
 
@@ -132,3 +136,35 @@ def test_explicit_publish_uses_only_the_completed_verified_batch():
     assert result.is_complete
     assert result.publish_result.inserted_fact_count == 16
     assert published == [result.dry_run.classified_facts]
+
+
+def test_apple_publication_keeps_its_v2_concept_map_lineage():
+    result = run_offline_sec_ingestion(_request(), downloader=FakeDownloader(_payload()))
+
+    assert result.is_complete
+    assert {fact.lineage.concept_map_version for fact in result.dry_run.classified_facts} == {
+        "sec-companyfacts-v2"
+    }
+    summary = _summary(result)
+    assert summary["concept_map_version"] == "sec-companyfacts-v2"
+    assert summary["opening_balance_fact_count"] == 0
+    assert "opening_balance_facts" not in summary
+
+
+def test_publication_command_import_graph_stays_free_of_valuation_dependencies():
+    # The scheduled publish job installs only requests and psycopg2.
+    code = (
+        "import sys, src.fundamentals.sec_pipeline_command, "
+        "src.fundamentals.sec_backfill_verification; "
+        "heavy = [m for m in ('pandas', 'numpy', 'yfinance', "
+        "'src.fundamentals.issuer_manifest') if m in sys.modules]; "
+        "assert not heavy, heavy"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=pathlib.Path(__file__).resolve().parents[2],
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
