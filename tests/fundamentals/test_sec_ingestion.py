@@ -8,7 +8,12 @@ from src.fundamentals.adapters.sec_downloader import (
     SecDownloadErrorCode,
     SecIssuerPayload,
 )
-from src.fundamentals.concept_map import SEC_CONCEPT_MAP_V1
+from src.fundamentals.concept_map import (
+    SEC_CONCEPT_MAP_V1,
+    SEC_CONCEPT_MAP_V2,
+    ConceptMap,
+    OpeningBalanceExclusion,
+)
 from src.fundamentals.fiscal_calendar import FiscalYearDefinition, IssuerFiscalCalendarPolicy
 from src.fundamentals.quarterly import QuarterValueOrigin
 from src.fundamentals.sec_ingestion import (
@@ -323,3 +328,84 @@ class TestDryRunPublishing:
                 dry_run,
                 publisher=lambda facts: invalid_count,
             )
+
+
+EQUITY_TAG = "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"
+OPENING_BALANCE_MAP = ConceptMap(
+    version="test-opening-balance-v1",
+    rules=SEC_CONCEPT_MAP_V2.rules,
+    opening_balance_exclusions=(
+        OpeningBalanceExclusion(
+            cik=CIK,
+            taxonomy="us-gaap",
+            raw_tag=EQUITY_TAG,
+            reason="Opening equity is dated on the fiscal year's first day.",
+        ),
+    ),
+)
+
+
+def _payload_with_equity(instant):
+    """PERIODS plus one Q1 10-Q equity instant and a valid Q1 period-end balance."""
+
+    payload = _payload()
+    q1_accession, q1_form, q1_filed = PERIODS[0][4], PERIODS[0][5], PERIODS[0][6]
+    entries = [
+        {"end": end, "val": value, "accn": q1_accession, "fy": 2023, "fp": "Q1",
+         "form": q1_form, "filed": q1_filed}
+        for end, value in ((instant, 900), ("2022-12-31", 950))
+    ]
+    company_facts = copy.deepcopy(dict(payload.company_facts))
+    company_facts["facts"]["us-gaap"][EQUITY_TAG] = {"units": {"USD": entries}}
+    return SecIssuerPayload(
+        cik=payload.cik,
+        company_facts=company_facts,
+        submissions=payload.submissions,
+        company_facts_url=payload.company_facts_url,
+        submission_urls=payload.submission_urls,
+        downloaded_at=payload.downloaded_at,
+    )
+
+
+def _run_with_map(downloader, concept_map):
+    return run_sec_ingestion_dry_run(
+        downloader=downloader,
+        cik=CIK,
+        calendar_policy=_policy(),
+        concept_map=concept_map,
+        ingestion_batch_id="dry-run-001",
+        knowledge_cutoff=dt.datetime(2024, 1, 1, tzinfo=dt.timezone.utc),
+        required_concepts=("revenue",),
+    )
+
+
+class TestOpeningBalanceFacts:
+    def test_declared_fiscal_year_start_instant_is_retained_but_never_selected(self):
+        result = _run_with_map(FakeDownloader(_payload_with_equity("2022-10-02")), OPENING_BALANCE_MAP)
+
+        assert result.is_complete
+        assert result.eligible_fact_count == 6
+        assert len(result.classified_facts) == 5
+        [opening] = result.opening_balance_facts
+        assert opening.raw_tag == EQUITY_TAG
+        assert opening.period_end == dt.date(2022, 10, 2)
+        assert opening.provenance_accession_number == PERIODS[0][4]
+        assert opening.lineage.ingestion_batch_id == "dry-run-001"
+        classified_equity = [
+            fact for fact in result.classified_facts if fact.identity.concept == "total_equity"
+        ]
+        assert [fact.identity.period_end for fact in classified_equity] == [dt.date(2022, 12, 31)]
+
+    def test_the_same_instant_refuses_without_an_issuer_policy(self):
+        result = _run_with_map(FakeDownloader(_payload_with_equity("2022-10-02")), SEC_CONCEPT_MAP_V2)
+
+        assert not result.is_complete
+        assert result.issues[0].stage is SecDryRunIssueStage.CLASSIFICATION
+        assert result.issues[0].code == "unclassifiable_fact_period"
+        assert result.opening_balance_facts == ()
+
+    def test_policy_does_not_excuse_an_instant_off_the_fiscal_year_start(self):
+        result = _run_with_map(FakeDownloader(_payload_with_equity("2022-10-03")), OPENING_BALANCE_MAP)
+
+        assert not result.is_complete
+        assert result.issues[0].code == "unclassifiable_fact_period"

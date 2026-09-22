@@ -587,7 +587,7 @@ def extract_sec_company_facts(
             _fail(SecIngestionIssueCode.INVALID_PAYLOAD, "Company Facts facts must be an object.")
 
         mapped_entries = []
-        for rule in concept_map.rules:
+        for rule in concept_map.rules_for_issuer(normalized_cik):
             namespace = fact_namespaces.get(rule.taxonomy)
             if namespace is None:
                 continue

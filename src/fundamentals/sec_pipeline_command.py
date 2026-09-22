@@ -15,7 +15,7 @@ from typing import Callable, Optional, Sequence
 
 from .adapters.sec_downloader import SecDownloader, SecDownloaderConfig
 from .calendar_catalog import SEC_FISCAL_CALENDAR_CATALOG_V1
-from .concept_map import SEC_CONCEPT_MAP_V2
+from .concept_map import concept_map_for_issuer
 from .sec_ingestion import (
     SecIngestionDryRun,
     SecIngestionPublishResult,
@@ -93,11 +93,12 @@ def run_offline_sec_ingestion(
     if not isinstance(request, OfflineSecIngestionRequest):
         raise ValueError("request must be an OfflineSecIngestionRequest.")
     policy = SEC_FISCAL_CALENDAR_CATALOG_V1.policy_for(request.cik)
+    concept_map = concept_map_for_issuer(request.cik)
     dry_run = run_sec_ingestion_dry_run(
         downloader=downloader,
         cik=request.cik,
         calendar_policy=policy,
-        concept_map=SEC_CONCEPT_MAP_V2,
+        concept_map=concept_map,
         ingestion_batch_id=request.ingestion_batch_id,
         knowledge_cutoff=request.knowledge_cutoff,
         required_concepts=VALUATION_TTM_CONCEPTS,
@@ -158,14 +159,26 @@ def _summary(result: OfflineSecIngestionResult) -> dict:
         "calendar_version": SEC_FISCAL_CALENDAR_CATALOG_V1.policy_for(
             result.request.cik
         ).version,
-        "concept_map_version": SEC_CONCEPT_MAP_V2.version,
+        "concept_map_version": concept_map_for_issuer(result.request.cik).version,
         "downloaded_at": (
             dry_run.downloaded_at.isoformat() if dry_run.downloaded_at is not None else None
         ),
         "extracted_fact_count": dry_run.extracted_fact_count,
         "eligible_fact_count": dry_run.eligible_fact_count,
         "classified_fact_count": len(dry_run.classified_facts),
+        "opening_balance_fact_count": len(dry_run.opening_balance_facts),
     }
+    if dry_run.opening_balance_facts:
+        summary["opening_balance_facts"] = [
+            {
+                "accession_number": fact.provenance_accession_number,
+                "raw_tag": fact.raw_tag,
+                "instant": fact.period_end.isoformat(),
+                "value": str(fact.value),
+                "source_document_url": fact.source_document_url,
+            }
+            for fact in dry_run.opening_balance_facts
+        ]
     if dry_run.issues:
         issue = dry_run.issues[0]
         summary["refusal"] = {

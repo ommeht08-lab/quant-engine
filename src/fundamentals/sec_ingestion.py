@@ -13,10 +13,18 @@ from datetime import datetime
 from enum import Enum
 from typing import Callable, Iterable, Optional, Tuple
 
-from .adapters.sec_companyfacts import SecIngestionIssueCode, extract_sec_company_facts
+from .adapters.sec_companyfacts import (
+    SecExtractedFact,
+    SecIngestionIssueCode,
+    extract_sec_company_facts,
+)
 from .adapters.sec_downloader import SecDownloadError, SecIssuerPayload
 from .concept_map import ConceptMap
-from .fiscal_calendar import IssuerFiscalCalendarPolicy, classify_sec_facts
+from .fiscal_calendar import (
+    IssuerFiscalCalendarPolicy,
+    classify_sec_facts,
+    partition_opening_balance_facts,
+)
 from .quarterly import QuarterlyFundamentals, assemble_quarterly_fundamentals
 from .selection import select_point_in_time
 from .store import FundamentalsPublishError, append_facts
@@ -57,6 +65,9 @@ class SecIngestionDryRun:
     extracted_fact_count: int = 0
     eligible_fact_count: int = 0
     classified_facts: Tuple[FinancialFact, ...] = field(default_factory=tuple)
+    # Issuer-declared opening-balance instants: retained with source lineage
+    # for audit, but never classified, published, or selected as balances.
+    opening_balance_facts: Tuple[SecExtractedFact, ...] = field(default_factory=tuple)
     history: Optional[FundamentalHistory] = None
     quarterly: Optional[QuarterlyFundamentals] = None
     issues: Tuple[SecDryRunIssue, ...] = field(default_factory=tuple)
@@ -80,10 +91,13 @@ class SecIngestionDryRun:
             raise ValueError("eligible_fact_count cannot exceed extracted_fact_count.")
         object.__setattr__(self, "issues", tuple(self.issues))
         object.__setattr__(self, "classified_facts", tuple(self.classified_facts))
+        object.__setattr__(self, "opening_balance_facts", tuple(self.opening_balance_facts))
         if any(not isinstance(issue, SecDryRunIssue) for issue in self.issues):
             raise ValueError("issues must contain only SecDryRunIssue values.")
         if any(not isinstance(fact, FinancialFact) for fact in self.classified_facts):
             raise ValueError("classified_facts must contain only FinancialFact values.")
+        if any(not isinstance(fact, SecExtractedFact) for fact in self.opening_balance_facts):
+            raise ValueError("opening_balance_facts must contain only SecExtractedFact values.")
         succeeded = self.history is not None and self.quarterly is not None
         if succeeded == bool(self.issues):
             raise ValueError("A dry run must contain complete output or refusal issues.")
@@ -91,8 +105,16 @@ class SecIngestionDryRun:
             raise ValueError("Dry-run history and quarterly output must appear together.")
         if succeeded != bool(self.classified_facts):
             raise ValueError("Successful dry runs must preserve classified source facts.")
-        if succeeded and len(self.classified_facts) != self.eligible_fact_count:
-            raise ValueError("Successful dry runs must classify every eligible source fact.")
+        if not succeeded and self.opening_balance_facts:
+            raise ValueError("Refused dry runs must not report opening-balance facts.")
+        if succeeded and (
+            len(self.classified_facts) + len(self.opening_balance_facts)
+            != self.eligible_fact_count
+        ):
+            raise ValueError(
+                "Successful dry runs must classify every eligible source fact "
+                "or retain it as a declared opening balance."
+            )
 
     @property
     def is_complete(self) -> bool:
@@ -245,7 +267,12 @@ def run_sec_ingestion_dry_run(
             extracted_fact_count=len(extraction.facts),
         )
 
-    classification = classify_sec_facts(eligible_facts, calendar_policy)
+    canonical_facts, opening_balance_facts = partition_opening_balance_facts(
+        eligible_facts,
+        calendar_policy,
+        concept_map.opening_balance_tags_for(normalized_cik),
+    )
+    classification = classify_sec_facts(canonical_facts, calendar_policy)
     if not classification.is_complete:
         issue = classification.issues[0]
         return _refusal(
@@ -302,6 +329,7 @@ def run_sec_ingestion_dry_run(
         extracted_fact_count=len(extraction.facts),
         eligible_fact_count=len(eligible_facts),
         classified_facts=classification.facts,
+        opening_balance_facts=opening_balance_facts,
         history=history,
         quarterly=quarterly,
     )

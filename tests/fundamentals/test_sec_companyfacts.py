@@ -12,9 +12,14 @@ from src.fundamentals.adapters.sec_companyfacts import (
 from src.fundamentals.concept_map import (
     SEC_CONCEPT_MAP_V1,
     SEC_CONCEPT_MAP_V2,
+    SEC_CONCEPT_MAP_V3,
     ConceptMap,
+    ConceptMapUnavailable,
     ConceptRule,
     FactPeriodType,
+    IssuerTagExclusion,
+    OpeningBalanceExclusion,
+    concept_map_for_issuer,
 )
 from src.fundamentals.types import StatementKind
 
@@ -687,3 +692,134 @@ class TestConceptMapIntegrity:
 
         assert rule.canonical_concept == canonical_concept
         assert rule.statement_kind is statement_kind
+
+
+def _two_revenue_tag_facts(net_sales=122_949_000_000, total_revenues=123_925_000_000):
+    company_facts = _company_facts([_duration_entry(value=net_sales)])
+    company_facts["facts"]["us-gaap"]["Revenues"] = {
+        "label": "Revenues",
+        "description": "Total revenues.",
+        "units": {"USD": [_duration_entry(value=total_revenues)]},
+    }
+    return company_facts
+
+
+def _revenue_exclusion(cik=CIK):
+    return IssuerTagExclusion(
+        cik=cik,
+        taxonomy="us-gaap",
+        raw_tag="RevenueFromContractWithCustomerExcludingAssessedTax",
+        canonical_concept="revenue",
+        reason="Net sales, not total revenues, for this issuer.",
+    )
+
+
+class TestIssuerScopedMappingPolicy:
+    def test_disagreeing_revenue_synonyms_still_refuse_without_an_issuer_policy(self):
+        result = _extract(_two_revenue_tag_facts(), concept_map=SEC_CONCEPT_MAP_V2)
+
+        _assert_issue(result, SecIngestionIssueCode.SYNONYM_CONFLICT)
+
+    def test_issuer_tag_exclusion_keeps_only_the_reported_total(self):
+        concept_map = ConceptMap(
+            version="test-v3",
+            rules=SEC_CONCEPT_MAP_V2.rules,
+            issuer_tag_exclusions=(_revenue_exclusion(),),
+        )
+
+        result = _extract(_two_revenue_tag_facts(), concept_map=concept_map)
+
+        assert result.is_complete
+        assert [(fact.raw_tag, fact.value) for fact in result.facts] == [
+            ("Revenues", Decimal("123925000000"))
+        ]
+        assert result.facts[0].lineage.concept_map_version == "test-v3"
+
+    def test_issuer_tag_exclusion_does_not_apply_to_other_issuers(self):
+        concept_map = ConceptMap(
+            version="test-v3",
+            rules=SEC_CONCEPT_MAP_V2.rules,
+            issuer_tag_exclusions=(_revenue_exclusion(cik="104169"),),
+        )
+
+        result = _extract(_two_revenue_tag_facts(), concept_map=concept_map)
+
+        _assert_issue(result, SecIngestionIssueCode.SYNONYM_CONFLICT)
+
+    def test_v3_keeps_every_v2_rule_and_scopes_policies_to_walmart_and_caterpillar(self):
+        assert SEC_CONCEPT_MAP_V3.version == "sec-companyfacts-v3"
+        assert SEC_CONCEPT_MAP_V3.rules == SEC_CONCEPT_MAP_V2.rules
+        assert {
+            (item.cik, item.raw_tag, item.canonical_concept)
+            for item in SEC_CONCEPT_MAP_V3.issuer_tag_exclusions
+        } == {
+            ("0000104169", "RevenueFromContractWithCustomerExcludingAssessedTax", "revenue"),
+            ("0000018230", "CostOfGoodsAndServicesSold", "cost_of_revenue"),
+        }
+        assert SEC_CONCEPT_MAP_V3.opening_balance_tags_for("18230") == frozenset(
+            {("us-gaap", "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest")}
+        )
+        assert SEC_CONCEPT_MAP_V3.opening_balance_tags_for("320193") == frozenset()
+        assert SEC_CONCEPT_MAP_V3.rules_for_issuer("320193") == SEC_CONCEPT_MAP_V2.rules
+        walmart_revenue_tags = {
+            rule.raw_tag
+            for rule in SEC_CONCEPT_MAP_V3.rules_for_issuer("104169")
+            if rule.canonical_concept == "revenue"
+        }
+        assert walmart_revenue_tags == {"Revenues", "SalesRevenueNet"}
+
+    def test_apple_keeps_its_published_v2_lineage_while_new_issuers_use_v3(self):
+        assert concept_map_for_issuer("320193") is SEC_CONCEPT_MAP_V2
+        for cik in ("789019", "104169", "18230"):
+            assert concept_map_for_issuer(cik) is SEC_CONCEPT_MAP_V3
+
+    def test_unassigned_issuer_has_no_mapping_policy(self):
+        with pytest.raises(ConceptMapUnavailable, match="0000000001"):
+            concept_map_for_issuer("1")
+
+    def test_exclusion_must_name_an_existing_rule_and_its_concept(self):
+        with pytest.raises(ValueError, match="existing rule"):
+            ConceptMap(
+                version="test-v3",
+                rules=SEC_CONCEPT_MAP_V2.rules,
+                issuer_tag_exclusions=(
+                    IssuerTagExclusion(
+                        cik=CIK,
+                        taxonomy="us-gaap",
+                        raw_tag="Revenues",
+                        canonical_concept="cost_of_revenue",
+                        reason="Wrong concept.",
+                    ),
+                ),
+            )
+
+    def test_exclusions_cannot_remove_every_tag_for_a_concept(self):
+        with pytest.raises(ValueError, match="at least one tag"):
+            ConceptMap(
+                version="test-v3",
+                rules=SEC_CONCEPT_MAP_V2.rules,
+                issuer_tag_exclusions=(
+                    IssuerTagExclusion(
+                        cik=CIK,
+                        taxonomy="us-gaap",
+                        raw_tag="GrossProfit",
+                        canonical_concept="gross_profit",
+                        reason="Would leave gross profit unmapped.",
+                    ),
+                ),
+            )
+
+    def test_opening_balance_exclusion_requires_an_instant_rule(self):
+        with pytest.raises(ValueError, match="instant rule"):
+            ConceptMap(
+                version="test-v3",
+                rules=SEC_CONCEPT_MAP_V2.rules,
+                opening_balance_exclusions=(
+                    OpeningBalanceExclusion(
+                        cik=CIK,
+                        taxonomy="us-gaap",
+                        raw_tag="Revenues",
+                        reason="Revenue is a duration, not a balance.",
+                    ),
+                ),
+            )
