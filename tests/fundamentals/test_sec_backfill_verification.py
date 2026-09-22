@@ -124,3 +124,49 @@ def test_command_fails_closed_without_sec_credentials(monkeypatch, capsys):
 
     assert exit_code == 1
     assert json.loads(capsys.readouterr().out)["status"] == "failed"
+
+
+def test_command_requires_an_explicit_database_url(monkeypatch, capsys):
+    monkeypatch.setenv("SEC_USER_AGENT", "ValuationEngine verification-tests ops@valuation-engine-tests.org")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    exit_code = sec_backfill_verification.main(
+        ["--cik", "320193", "--batch-id", BATCH_ID, "--cutoff", "2024-09-03T16:00:00-04:00"]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert output == {
+        "message": "DATABASE_URL must be set in the process environment.",
+        "status": "failed",
+    }
+
+
+def test_command_passes_the_database_url_to_the_read_path(monkeypatch, capsys):
+    """Regression: an implicit URL lookup imported dotenv, absent in the slim job."""
+
+    seen = {}
+
+    class RecordingRepository:
+        def __init__(self, database_url=None):
+            seen["database_url"] = database_url
+
+        def get_facts(self, query):
+            return ()
+
+    monkeypatch.setenv("DATABASE_URL", "postgresql://verify.invalid/db")
+    monkeypatch.setenv("SEC_USER_AGENT", "ValuationEngine verification-tests ops@valuation-engine-tests.org")
+    monkeypatch.setattr(sec_backfill_verification, "PostgresFundamentalsRepository", RecordingRepository)
+    monkeypatch.setattr(
+        sec_backfill_verification,
+        "SecDownloader",
+        lambda config: FakeDownloader(_payload()),
+    )
+
+    exit_code = sec_backfill_verification.main(
+        ["--cik", "320193", "--batch-id", BATCH_ID, "--cutoff", "2024-01-01T00:00:00+00:00"]
+    )
+
+    assert seen["database_url"] == "postgresql://verify.invalid/db"
+    assert exit_code == 1  # nothing published in the recording repository
+    assert "missing" in capsys.readouterr().out
