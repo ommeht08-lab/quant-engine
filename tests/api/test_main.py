@@ -74,6 +74,27 @@ def client(monkeypatch):
     return test_client
 
 
+def test_market_history_endpoint_returns_real_daily_close_shape(client, monkeypatch):
+    class FakeTicker:
+        ticker = "AAPL"
+
+    closes = pd.Series(
+        [185.5, 187.25],
+        index=pd.to_datetime(["2026-09-18", "2026-09-21"], utc=True),
+    )
+    monkeypatch.setattr(api_main, "get_ticker_object", lambda ticker: FakeTicker())
+    monkeypatch.setattr(api_main, "get_daily_close_history", lambda ticker_obj: closes)
+
+    response = client.get("/api/market-history/AAPL")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["ticker"] == "AAPL"
+    assert body["source"] == "Yahoo Finance"
+    assert [point["close"] for point in body["points"]] == [185.5, 187.25]
+    assert body["asOf"] == body["points"][-1]["date"]
+
+
 class TestHistoricalVsCustomAssumptionMode:
     def test_dashboard_maturation_path_and_comparison_identity(self, client, monkeypatch):
         seen = []

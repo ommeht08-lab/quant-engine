@@ -20,7 +20,7 @@ import { qualityIssueCopy, type ValuationQuality } from "@/lib/valuation-quality
 import { DEFAULT_TERMINAL_GROWTH_RATE, STAGED_FORECAST_MODE } from "@/lib/evaluation-request-policy";
 import { resolveMarginOfSafetyDisplay } from "@/lib/overview-response";
 import { recordValuationRun } from "@/lib/valuation-history";
-import type { MarketHistoryResponse } from "@/lib/market-history";
+import { isMarketHistoryResponse, type MarketHistoryResponse } from "@/lib/market-history";
 
 interface EvaluationResponse {
   ticker: string;
@@ -192,7 +192,7 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
       setMarketHistoryStatus("loading");
       void historyPromise.then((history) => {
         if (requestSequence.current !== requestId) return;
-        if (history?.ticker === data.ticker && Array.isArray(history.points) && history.points.length >= 2) {
+        if (isMarketHistoryResponse(history) && history.ticker === data.ticker) {
           setMarketHistory(history);
           setMarketHistoryStatus("ready");
         } else {

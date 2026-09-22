@@ -55,7 +55,11 @@ from pydantic import BaseModel
 
 from src.api.sector_median_thresholds import SectorMedianUnavailableCode
 from src.api.sector_medians import get_live_sector_median_price_to_intrinsic
-from src.data_ingestion.fetch_financials import fetch_company_financials
+from src.data_ingestion.fetch_financials import (
+    fetch_company_financials,
+    get_daily_close_history,
+    get_ticker_object,
+)
 from src.dcf_model.dcf import DCFAssumptions, MultiStageForecastPolicy, run_dcf_valuation
 from src.dcf_model.quality import ValuationQuality, assess_valuation_quality
 from src.dcf_model.scenarios import ScenarioInputs, ScenarioResult, compute_dcf_scenarios
@@ -605,6 +609,20 @@ class EvaluationResponse(BaseModel):
     scenarios: DCFScenarioSet
 
 
+class MarketHistoryPoint(BaseModel):
+    date: str
+    close: float
+
+
+class MarketHistoryResponse(BaseModel):
+    ticker: str
+    currency: str
+    exchangeTimezone: str
+    source: Literal["Yahoo Finance"]
+    asOf: str
+    points: List[MarketHistoryPoint]
+
+
 @app.get("/")
 def read_root() -> dict:
     """Basic health check / landing endpoint. Equivalent to `/healthz`,
@@ -691,6 +709,36 @@ def _scenario_result_to_model(scenario: ScenarioResult) -> ScenarioResultModel:
     )
 
 
+@app.get(
+    "/api/market-history/{ticker}",
+    response_model=MarketHistoryResponse,
+    dependencies=[Depends(require_service_token)],
+)
+def market_history(ticker: str) -> MarketHistoryResponse:
+    """Return one year of real daily closes through the backend's yfinance boundary."""
+    try:
+        ticker_obj = get_ticker_object(ticker)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    closes = get_daily_close_history(ticker_obj)
+    if closes is None:
+        raise HTTPException(status_code=502, detail="Daily market history is temporarily unavailable.")
+
+    points = [
+        MarketHistoryPoint(date=index.isoformat(), close=float(close))
+        for index, close in closes.items()
+    ]
+    return MarketHistoryResponse(
+        ticker=ticker_obj.ticker,
+        currency="USD",
+        exchangeTimezone="America/New_York",
+        source="Yahoo Finance",
+        asOf=points[-1].date,
+        points=points,
+    )
+
+
 @app.get("/api/evaluate/{ticker}", response_model=EvaluationResponse, dependencies=[Depends(require_service_token)])
 def evaluate_ticker(
     ticker: str,
@@ -737,7 +785,7 @@ def evaluate_ticker(
             "Do not treat a 'historical' result as an investment conclusion."
         ),
     ),
-) -> EvaluationResponse:
+    ) -> EvaluationResponse:
     """
     Run a full DCF valuation for a given ticker.
 

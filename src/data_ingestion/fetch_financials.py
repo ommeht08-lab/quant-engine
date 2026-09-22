@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 # calls above are still visible when this module is run directly.
 
 STATEMENT_CACHE_TTL_SECONDS = 86400  # 24 hours — annual financial statements change rarely
+MARKET_HISTORY_CACHE_TTL_SECONDS = 900
 
 
 def get_ticker_object(ticker: str) -> yf.Ticker:
@@ -149,6 +150,25 @@ def get_current_price(ticker_obj: yf.Ticker) -> Optional[float]:
 
     logger.warning("Could not retrieve current price for %s.", ticker_obj.ticker)
     return None
+
+
+@cached(ttl_seconds=MARKET_HISTORY_CACHE_TTL_SECONDS, prefix="daily_close_history")
+def get_daily_close_history(ticker_obj: yf.Ticker) -> Optional[pd.Series]:
+    """Fetch one year of real, unadjusted daily closes for charting."""
+    try:
+        history = ticker_obj.history(period="1y", interval="1d", auto_adjust=False)
+        if history is None or history.empty or "Close" not in history:
+            logger.warning("Daily close history is empty for %s.", ticker_obj.ticker)
+            return None
+        closes = pd.to_numeric(history["Close"], errors="coerce").dropna()
+        closes = closes[closes > 0]
+        if len(closes) < 2:
+            logger.warning("Daily close history is insufficient for %s.", ticker_obj.ticker)
+            return None
+        return closes.sort_index()
+    except Exception as exc:
+        logger.warning("Failed to fetch daily close history for %s: %s", ticker_obj.ticker, exc)
+        return None
 
 
 def get_shares_outstanding(ticker_obj: yf.Ticker) -> Optional[float]:

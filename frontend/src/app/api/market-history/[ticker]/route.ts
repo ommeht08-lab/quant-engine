@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 
-import { fetchMarketHistory } from "@/lib/market-history";
+import { fetchWithTimeout } from "@/lib/backend-fetch";
+import { assertSecretMeetsRequirements, VALUATION_API_TOKEN_REQUIREMENT } from "@/lib/secret-validation";
 import { parseTickerQueryParam } from "@/lib/ticker-query";
+import { assertSafeValuationApiUrl } from "@/lib/valuation-api-url";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 15;
+const MARKET_HISTORY_TIMEOUT_MS = 10_000;
 
 export async function GET(
   _request: Request,
@@ -17,7 +20,19 @@ export async function GET(
   }
 
   try {
-    const history = await fetchMarketHistory(ticker);
+    const rawToken = process.env.VALUATION_API_TOKEN;
+    assertSecretMeetsRequirements(rawToken, VALUATION_API_TOKEN_REQUIREMENT);
+    const isProduction = process.env.NODE_ENV === "production";
+    const rawUrl = process.env.VALUATION_API_URL ?? (isProduction ? "" : "http://localhost:8000");
+    const backendOrigin = assertSafeValuationApiUrl(rawUrl, { isProduction });
+    const targetUrl = new URL(`/api/market-history/${encodeURIComponent(ticker)}`, backendOrigin);
+    const response = await fetchWithTimeout(
+      targetUrl,
+      { headers: { Authorization: `Bearer ${rawToken}` } },
+      MARKET_HISTORY_TIMEOUT_MS,
+    );
+    if (!response.ok) throw new Error("market history backend unavailable");
+    const history: unknown = await response.json();
     return NextResponse.json(history, {
       headers: {
         "Cache-Control": "public, s-maxage=900, stale-while-revalidate=1800",
@@ -25,8 +40,8 @@ export async function GET(
     });
   } catch (error) {
     console.error(
-      `Market history unavailable for ${ticker}:`,
-      error instanceof Error ? error.message : "unknown error",
+      "Market history backend request failed:",
+      error instanceof Error && error.name === "AbortError" ? "timeout" : "unavailable",
     );
     return NextResponse.json(
       { error: "Daily market history is temporarily unavailable." },
