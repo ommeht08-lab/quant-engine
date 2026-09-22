@@ -12,6 +12,7 @@ network-backed construction happens; the test-isolation guard
 catches it first, with a clean, documented exception.
 """
 
+import pandas as pd
 import pytest
 
 from src.data_ingestion import fetch_financials
