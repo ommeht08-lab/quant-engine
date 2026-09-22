@@ -1,8 +1,10 @@
 name: Refresh SEC fundamentals
 
-# Downloads, validates, and atomically publishes the currently supported
-# Apple SEC fundamentals policy. This is an offline data job only: the live
-# valuation request path remains unchanged and never performs SEC downloads.
+# Downloads, validates, and atomically publishes SEC fundamentals for the four
+# pilot issuers (AAPL, MSFT, WMT, CAT), each as its own immutable ingestion
+# batch. MSFT, WMT, and CAT joined only after their manual backfills passed
+# read-only verification. This is an offline data job only: the live valuation
+# request path remains unchanged and never performs SEC downloads.
 "on":
   schedule:
     # GitHub Actions cron uses UTC. Tuesday-Saturday at 03:23 UTC follows
@@ -50,6 +52,20 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # One issuer at a time; one issuer's refusal does not block the others.
+    strategy:
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        include:
+          - issuer: apple
+            cik: "320193"
+          - issuer: msft
+            cik: "789019"
+          - issuer: wmt
+            cik: "104169"
+          - issuer: cat
+            cik: "18230"
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -67,15 +83,17 @@ jobs:
           python -m pip install --disable-pip-version-check
           "requests==2.32.5" "psycopg2-binary==2.9.12"
 
-      - name: Download, validate, and publish Apple SEC fundamentals
+      - name: Download, validate, and publish ${{ matrix.issuer }} SEC fundamentals
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+          ISSUER: ${{ matrix.issuer }}
+          ISSUER_CIK: ${{ matrix.cik }}
         run: |
           knowledge_cutoff="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-          batch_id="apple-sec-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          batch_id="${ISSUER}-sec-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           python -m src.fundamentals.sec_pipeline_command \
-            --cik 320193 \
+            --cik "${ISSUER_CIK}" \
             --knowledge-cutoff "${knowledge_cutoff}" \
             --batch-id "${batch_id}" \
             --publish

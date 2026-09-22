@@ -425,7 +425,8 @@ class TestRefreshSecFundamentalsWorkflow:
         assert "GITHUB_RUN_ATTEMPT" in block
         assert "date -u" in block
         assert "python -m src.fundamentals.sec_pipeline_command" in block
-        assert "--cik 320193" in block
+        assert '--cik "${ISSUER_CIK}"' in block
+        assert 'batch_id="${ISSUER}-sec-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"' in block
         assert "--knowledge-cutoff" in block
         assert "--batch-id" in block
         assert "--publish" in block
@@ -451,6 +452,18 @@ _USES_LINE_PATTERN = re.compile(r"uses:\s*(actions/[\w-]+)@(v\d+)")
 def _all_workflow_files():
     return sorted(WORKFLOWS_DIR.glob("*.yml"))
 
+
+    def test_publishes_the_four_verified_pilot_issuers_serially(self):
+        block = _job_block(_read_refresh_sec_fundamentals_workflow(), "publish")
+        assert "max-parallel: 1" in block
+        assert "fail-fast: false" in block
+        for issuer, cik in (
+            ("apple", "320193"),
+            ("msft", "789019"),
+            ("wmt", "104169"),
+            ("cat", "18230"),
+        ):
+            assert f'- issuer: {issuer}\n            cik: "{cik}"' in block
 
 class TestActionVersionsAreNotDeprecatedNode20Majors:
     """
