@@ -6,6 +6,7 @@ const PUBLIC_ROUTE_PREFIXES = [
   "/workspace",
   "/overview",
   "/api/evaluate",
+  "/api/market-history",
   "/research",
   "/methodology",
 ] as const;

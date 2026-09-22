@@ -34,7 +34,7 @@ This is a working equity-research model, not a decorative dashboard or static ca
 - Keep absolute intrinsic value and sector-relative context visibly distinct.
 - Never fabricate company, market, portfolio, or model values to populate an empty state.
 - Keep source and assumption provenance visible where decisions are summarized.
-- Forecast visuals represent annual revenue and free cash flow; never imply unavailable OHLC or intraday price history.
+- The primary market chart uses sourced Yahoo Finance daily closes with visible source and as-of provenance; the annual revenue and free-cash-flow forecast remains in the model-detail section.
 - The valuation backend credential stays server-side even though the evaluation surface is public.
 - Public valuation requests are capped at 30 requests per client per 15-minute fixed window. Client identifiers are secret-keyed HMAC digests in shared Redis, not raw addresses. Production fails closed when that shared state is unavailable unless `PUBLIC_EVALUATION_RATE_LIMIT_FAIL_OPEN=true` is set as an explicit emergency override.
 - Public access to the model must never expose private operator data.
@@ -59,7 +59,7 @@ This is a working equity-research model, not a decorative dashboard or static ca
 
 1. Show the working model, not a marketing shell.
 2. Keep the public-model/private-data boundary explicit.
-3. Put financial truth ahead of visual drama.
+3. Put financial truth ahead of visual drama, including refusing to smooth or manufacture market history.
 4. Give visitors a direct path to a valuation result.
 5. Preserve auditability, provenance, and honest limitations.
 

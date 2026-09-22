@@ -133,20 +133,20 @@ Public entry is deliberately direct: signed-out and signed-in root visits, sign-
 - Cool-white data ink and restrained supporting copy make dense research legible without becoming loud.
 - Periwinkle identifies actions, focus, active navigation, selected scenarios, and the primary forecast series.
 - Green, amber, and red appear only for genuine favorable, cautionary, and unfavorable meaning.
-- Annual revenue and free cash flow appear as honest line series with separate labeled axes, a restrained grid, and an inspection crosshair.
+- The first analysis field uses a real one-year Yahoo Finance daily-close line with 1M/3M/1Y controls, exact-value inspection, and visible source/as-of provenance.
 
 ## Colors
 
-The palette is a compact graphite stack with cool-white ink, one periwinkle interaction accent, one supporting chart series, and tightly governed semantic color.
+The palette is a compact graphite stack with cool-white ink, one periwinkle interaction accent, and tightly governed semantic color.
 
 ### Primary
 
-- **Research Periwinkle:** the only non-semantic interaction voice. Use it for the primary action, keyboard focus, active routes, selected scenarios, and the annual revenue series.
+- **Research Periwinkle:** the only non-semantic interaction voice. Use it for the primary action, keyboard focus, active routes, and selected scenarios.
 - **Periwinkle Field:** a low-opacity selection field behind active or pressed controls. It supports the accent without turning whole panels blue.
 
-### Secondary
+### Supporting series
 
-- **Cash-Flow Cyan:** the supporting annual free-cash-flow series. It exists to distinguish the second scale from revenue and must not become a general-purpose action color.
+- **Cash-Flow Cyan:** reserved for free-cash-flow evidence in model-detail views. It must not become a general-purpose action color.
 
 ### Tertiary
 
@@ -165,7 +165,7 @@ The palette is a compact graphite stack with cool-white ink, one periwinkle inte
 - **Muted and Dim Ink:** secondary explanation, labels, timestamps, axes, and provenance.
 - **Structural Rules:** the normal and strong blue-gray borders that establish hierarchy without elevation.
 
-**The One Interaction Voice Rule.** Periwinkle owns action and selection. Cash-flow cyan belongs only to its chart series; semantic colors never substitute for active state.
+**The One Interaction Voice Rule.** Periwinkle owns action and selection. Cash-flow cyan belongs only to cash-flow evidence; semantic colors never substitute for active state.
 
 **The Semantic Restraint Rule.** Green, amber, and red must correspond to actual model, market, connectivity, caution, or error meaning. Never use them to decorate neutral categories.
 
@@ -194,7 +194,7 @@ The palette is a compact graphite stack with cool-white ink, one periwinkle inte
 
 The desktop shell uses a fixed 220px rail and a fixed 64px utility bar. It enters directly into the public valuation workspace: signed-out and signed-in root visits, successful sign-ins without a preserved destination, the brand link, and `/overview` all resolve to `/workspace`. Company-model routes are public; portfolio, trades, risk, backtests, paper-trading telemetry, and their APIs remain session-protected. The retired research-home summary dashboard is not part of the active information architecture. The detailed company overview can still widen to 1480px for denser analysis. The chrome and canvas remain edge-to-edge—there is no rounded page sheet around the application.
 
-The workspace places command and assumptions before a dominant analysis field. Its annual forecast pairs with a 320px sticky Thesis Rail, narrows the rail to 270px at intermediate widths, and stacks into one column at 900px and below.
+The workspace places command and assumptions before a dominant analysis field. Its real daily market-price history pairs with a 320px sticky Thesis Rail, narrows the rail to 270px at intermediate widths, and stacks into one column at 900px and below. The annual operating forecast remains available in the supporting Forecast detail directly below.
 
 At 820px the desktop rail yields to a 60px top bar and fixed four-item bottom navigation. Desktop and mobile expose the same four routes—Valuation, Portfolio, Backtests, and Trades—with four equal mobile columns. Side gutters contract to 14px, then to 10px where the company overview requires it. Metrics collapse progressively while keeping the same reading order. Every application page must remain free of page-level horizontal overflow at the 320px minimum width; locally scrollable data regions must advertise that behavior.
 
@@ -206,11 +206,11 @@ At 820px the desktop rail yields to a 60px top bar and fixed four-item bottom na
 
 ## Elevation & Depth
 
-Depth comes from graphite tone changes and one-pixel structural rules. Standard panels, cards, navigation, inputs, and analytical instruments have no resting shadow. A compact shadow is permitted only for a transient forecast tooltip; focus uses a visible outline or periwinkle ring, not ambient glow. State changes may shift borders and backgrounds, but surfaces never float by default.
+Depth comes from graphite tone changes and one-pixel structural rules. Standard panels, cards, navigation, inputs, and analytical instruments have no resting shadow. A compact shadow is permitted only for a transient chart tooltip; focus uses a visible outline or periwinkle ring, not ambient glow. State changes may shift borders and backgrounds, but surfaces never float by default.
 
 ### Shadow Vocabulary
 
-- **Forecast Tooltip:** a compact, high-contrast shadow may separate the temporary inspection overlay from the chart beneath it.
+- **Chart Tooltip:** a compact, high-contrast shadow may separate the temporary inspection overlay from the chart beneath it.
 
 **The Flat-by-Default Rule.** A border and a tonal step define every resting surface. Shadows are transient context, never the page's structural grammar.
 
@@ -218,7 +218,7 @@ Depth comes from graphite tone changes and one-pixel structural rules. Standard 
 
 The form language is sharp and structural. Inputs, buttons, tabs, alert fields, and nested blocks use 3–4px corners; panels, charts, navigation marks, and major containers use 5px corners. A 6px radius is allowed for compact scenario controls. Fully rounded geometry is reserved for true status tags, dots, and narrow badges, never for panels or primary controls.
 
-Borders are one pixel and blue-gray. Line samples in chart legends stay square. Graphs do not use faux candlestick silhouettes, decorative columns, or softened area fills to imply data the model does not possess.
+Borders are one pixel and blue-gray. Line samples in chart legends stay square. Graphs do not use faux candlestick silhouettes, decorative columns, or softened area fills. Daily market history is sourced and labeled; unavailable history produces an explicit state instead of a fabricated substitute.
 
 **The Structural Corner Rule.** Default to 4–5px. Use a pill only when the element is literally a compact tag or status indicator.
 
@@ -268,22 +268,23 @@ Borders are one pixel and blue-gray. Line samples in chart legends stay square. 
 - **Selected:** periwinkle border and text on a low-opacity periwinkle field.
 - **Behavior:** Bear, Base, and Bull retain a 44px target and the same shared selection across the Valuation Spectrum and Thesis Rail. Their names do not receive red, neutral, or green outcome colors.
 
-### Forecast & Thesis Field
+### Market Price & Thesis Field
 
 **Character:** one paired analytical instrument, not two competing dashboard cards.
 
-- **Forecast:** annual Revenue and Free Cash Flow are two un-smoothed 2px line series with no point markers at rest. Revenue uses the left labeled axis; free cash flow uses the right. A restrained dashed grid, latest-value legend, dashed inspection crosshair, and exact tooltip expose the real five-year path.
+- **Market price:** one year of sourced daily closes is the primary 2px line series with no point markers at rest. The 1M/3M/1Y controls change the visible observation window; genuine period change controls the semantic green/red line. A restrained dashed grid, baseline, inspection crosshair, and exact tooltip expose real price movement.
+- **Operating forecast:** annual Revenue and Free Cash Flow remain in the Forecast detail and projected-cash-flow table; never reshape their constant assumptions to imitate market volatility.
 - **Thesis Rail:** a 320px sticky companion holds price, selected intrinsic value, delta, WACC, terminal growth, provenance, and the shared scenario selector. It stacks below or above the analysis according to the preserved reading order on narrower screens.
-- **Truthfulness:** never substitute candlesticks, OHLC marks, volume bars, fabricated intraday history, or interpolated curve drama for annual model data.
+- **Truthfulness:** never fabricate OHLC marks, volume bars, intraday history, missing closes, or curve drama. If Yahoo daily history is unavailable, say so while preserving the valuation result.
 
 ## Do's and Don'ts
 
 ### Do:
 
 - **Do** preserve the near-black edge-to-edge shell, blue-gray surfaces, cool-white ink, fine rules, and 4–5px structural corners.
-- **Do** use periwinkle consistently for action, focus, active navigation, selected scenarios, and the Revenue line.
+- **Do** use periwinkle consistently for action, focus, active navigation, and selected scenarios.
 - **Do** keep financial values tabular, source and assumption provenance visible, and absolute valuation distinct from sector-relative context.
-- **Do** show Revenue and Free Cash Flow as honest annual dual-axis lines with a restrained grid and inspection crosshair.
+- **Do** show sourced daily closing prices as the primary traditional market chart, with range controls, provenance, and exact inspection values.
 - **Do** preserve 44px primary touch targets, fixed mobile navigation, and usability without page-level overflow at 320px.
 - **Do** open public entry, fallback sign-in, the brand link, and old `/overview` bookmarks in the valuation workspace; keep the working model public and operator data session-protected.
 
@@ -294,6 +295,6 @@ Borders are one pixel and blue-gray. Line samples in chart legends stay square. 
 - **Don't** add redundant eyebrow or kicker copy above page, panel, or instrument titles.
 - **Don't** add halos around status dots or use semantic color as decoration.
 - **Don't** color Bear, Base, and Bull as favorable or unfavorable outcomes.
-- **Don't** fabricate candlesticks, intraday history, volume bars, or any chart encoding not supported by the annual model data.
+- **Don't** fabricate candlesticks, intraday history, volume bars, missing daily observations, or market movement from annual model data.
 - **Don't** hide loading, empty, error, caution, or provenance states to make the workspace look populated.
 - **Don't** reintroduce the intermediary Overview dashboard, an Overview navigation item, or the paper-environment/sign-out sidebar footer.
