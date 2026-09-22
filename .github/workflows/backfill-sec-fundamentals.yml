@@ -1,0 +1,126 @@
+name: Backfill SEC fundamentals
+
+# Manual, one-issuer-per-run backfill for pilot issuers that are not yet on the
+# recurring SEC schedule. Each run publishes one immutable ingestion batch, then
+# a separate read-only job verifies the published facts at the September 3,
+# 2024 backtest cutoff and at the backfill's own knowledge cutoff. Facts keep
+# each filing's original SEC acceptance time, so the historical query selects
+# only what was public then. Issuers stay not-ready until verification passes.
+"on":
+  workflow_dispatch:
+    inputs:
+      cik:
+        description: "Issuer to backfill (789019 MSFT, 104169 WMT, 18230 CAT)"
+        required: true
+        type: choice
+        options:
+          - "789019"
+          - "104169"
+          - "18230"
+
+permissions:
+  contents: read
+
+# Shares the recurring job's group so no two SEC publications overlap.
+concurrency:
+  group: refresh-sec-fundamentals
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
+
+      - name: Compile SEC fundamentals modules and tests
+        run: python -m compileall -q src/fundamentals tests/fundamentals tests/test_ci_config.py
+
+      - name: Pyflakes SEC fundamentals modules and tests
+        run: pyflakes src/fundamentals tests/fundamentals tests/test_ci_config.py
+
+      - name: Run isolation-safe SEC fundamentals tests
+        run: python -m pytest -q tests/fundamentals tests/test_ci_config.py
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      batch_id: ${{ steps.backfill.outputs.batch_id }}
+      knowledge_cutoff: ${{ steps.backfill.outputs.knowledge_cutoff }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install pinned SEC publication dependencies
+        run: >
+          python -m pip install --disable-pip-version-check
+          "requests==2.32.5" "psycopg2-binary==2.9.12"
+
+      - name: Download, validate, and publish one issuer's SEC fundamentals
+        id: backfill
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+          ISSUER_CIK: ${{ inputs.cik }}
+        run: |
+          case "${ISSUER_CIK}" in
+            789019|104169|18230) ;;
+            *) echo "Unsupported backfill issuer." >&2; exit 1 ;;
+          esac
+          knowledge_cutoff="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          batch_id="backfill-${ISSUER_CIK}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "batch_id=${batch_id}" >> "${GITHUB_OUTPUT}"
+          echo "knowledge_cutoff=${knowledge_cutoff}" >> "${GITHUB_OUTPUT}"
+          python -m src.fundamentals.sec_pipeline_command \
+            --cik "${ISSUER_CIK}" \
+            --knowledge-cutoff "${knowledge_cutoff}" \
+            --batch-id "${batch_id}" \
+            --publish
+
+  verify:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install pinned SEC publication dependencies
+        run: >
+          python -m pip install --disable-pip-version-check
+          "requests==2.32.5" "psycopg2-binary==2.9.12"
+
+      - name: Verify published facts at both historical cutoffs (read-only)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+          ISSUER_CIK: ${{ inputs.cik }}
+          BATCH_ID: ${{ needs.publish.outputs.batch_id }}
+          PUBLISH_CUTOFF: ${{ needs.publish.outputs.knowledge_cutoff }}
+        run: |
+          python -m src.fundamentals.sec_backfill_verification \
+            --cik "${ISSUER_CIK}" \
+            --batch-id "${BATCH_ID}" \
+            --cutoff "2024-09-03T16:00:00-04:00" \
+            --cutoff "${PUBLISH_CUTOFF}"

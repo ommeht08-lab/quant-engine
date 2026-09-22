@@ -21,6 +21,9 @@ REFRESH_SECTOR_MEDIANS_WORKFLOW_PATH = WORKFLOW_PATH.parent / "refresh-sector-me
 REFRESH_SEC_FUNDAMENTALS_WORKFLOW_PATH = (
     WORKFLOW_PATH.parent / "refresh-sec-fundamentals.yml"
 )
+BACKFILL_SEC_FUNDAMENTALS_WORKFLOW_PATH = (
+    WORKFLOW_PATH.parent / "backfill-sec-fundamentals.yml"
+)
 WORKFLOWS_DIR = WORKFLOW_PATH.parent
 TESTS_WORKFLOW_PATH = WORKFLOWS_DIR / "tests.yml"
 REQUIREMENTS_PATH = WORKFLOW_PATH.parents[2] / "requirements.txt"
@@ -299,6 +302,56 @@ class TestRefreshSectorMediansWorkflow:
         block = _job_block(_read_refresh_sector_medians_workflow(), "refresh")
         assert "python -m src.api.publish_sector_medians" in block
 
+
+
+class TestBackfillSecFundamentalsWorkflow:
+    """Manual pilot backfills publish one verified batch without touching the schedule."""
+
+    def _content(self):
+        return BACKFILL_SEC_FUNDAMENTALS_WORKFLOW_PATH.read_text()
+
+    def test_is_manual_only_and_limited_to_the_unscheduled_pilot_issuers(self):
+        content = self._content()
+        assert "workflow_dispatch:" in content
+        assert "schedule:" not in content
+        assert "cron:" not in content
+        for cik in ("789019", "104169", "18230"):
+            assert f'- "{cik}"' in content
+        assert "320193" not in content
+
+    def test_shares_the_recurring_publication_concurrency_group(self):
+        content = self._content()
+        assert "group: refresh-sec-fundamentals" in content
+        assert "cancel-in-progress: false" in content
+        assert "permissions:\n  contents: read" in content
+
+    def test_publishes_only_after_isolated_tests_with_a_run_scoped_batch(self):
+        content = self._content()
+        assert "secrets." not in _job_block(content, "test")
+        publish = _job_block(content, "publish")
+        assert "needs: test" in publish
+        assert 'batch_id="backfill-${ISSUER_CIK}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"' in publish
+        assert "--publish" in publish
+        assert "789019|104169|18230) ;;" in publish
+
+    def test_verifies_both_cutoffs_read_only_after_publishing(self):
+        verify = _job_block(self._content(), "verify")
+        assert "needs: publish" in verify
+        assert "python -m src.fundamentals.sec_backfill_verification" in verify
+        assert '--cutoff "2024-09-03T16:00:00-04:00"' in verify
+        assert '--cutoff "${PUBLISH_CUTOFF}"' in verify
+        assert "--publish" not in verify
+
+    def test_jobs_install_only_pinned_publication_dependencies_and_two_secrets(self):
+        content = self._content()
+        for job in ("publish", "verify"):
+            block = _job_block(content, job)
+            assert "requests==2.32.5" in block
+            assert "psycopg2-binary==2.9.12" in block
+            assert "requirements" not in block
+            assert block.count("secrets.") == 2
+            assert "secrets.DATABASE_URL" in block
+            assert "secrets.SEC_USER_AGENT" in block
 
 class TestRefreshSecFundamentalsWorkflow:
     """The scheduled SEC job remains isolated, bounded, and fail-closed."""
