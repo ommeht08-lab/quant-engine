@@ -150,7 +150,8 @@ ALTER TABLE rebalance_run_events ADD COLUMN IF NOT EXISTS orders_skipped_market_
     CHECK (orders_skipped_market_closed IS NULL OR orders_skipped_market_closed >= 0);
 ALTER TABLE rebalance_run_events ADD COLUMN IF NOT EXISTS run_outcome TEXT CHECK (
     run_outcome IS NULL OR run_outcome IN (
-        'dry_run', 'market_closed', 'market_closed_after_partial_execution',
+        'dry_run', 'market_closed', 'market_closed_after_order_attempts',
+        'market_closed_after_partial_execution',
         'no_eligible_candidates', 'no_orders_needed', 'orders_filled', 'orders_incomplete'
     )
 );

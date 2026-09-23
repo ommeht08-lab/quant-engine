@@ -42,7 +42,9 @@ class RunOutcome(str, Enum):
     DRY_RUN = "dry_run"
     # Every intended order was skipped because the market was closed.
     MARKET_CLOSED = "market_closed"
-    # Some orders were submitted, then later ones were skipped at the close.
+    # Earlier attempts produced no fills before later orders hit the close.
+    MARKET_CLOSED_AFTER_ORDER_ATTEMPTS = "market_closed_after_order_attempts"
+    # At least one order filled in whole or part before later orders hit the close.
     MARKET_CLOSED_AFTER_PARTIAL_EXECUTION = "market_closed_after_partial_execution"
     NO_ELIGIBLE_CANDIDATES = "no_eligible_candidates"
     NO_ORDERS_NEEDED = "no_orders_needed"
@@ -159,11 +161,11 @@ def classify_run_outcome(*, dry_run: bool, has_candidates: bool, counts: OrderCo
     if dry_run:
         return RunOutcome.DRY_RUN
     if counts.skipped_market_closed:
-        return (
-            RunOutcome.MARKET_CLOSED_AFTER_PARTIAL_EXECUTION
-            if counts.attempted
-            else RunOutcome.MARKET_CLOSED
-        )
+        if counts.filled or counts.partially_filled:
+            return RunOutcome.MARKET_CLOSED_AFTER_PARTIAL_EXECUTION
+        if counts.attempted:
+            return RunOutcome.MARKET_CLOSED_AFTER_ORDER_ATTEMPTS
+        return RunOutcome.MARKET_CLOSED
     if counts.attempted == 0:
         return RunOutcome.NO_ORDERS_NEEDED if has_candidates else RunOutcome.NO_ELIGIBLE_CANDIDATES
     if counts.filled == counts.attempted:

@@ -258,6 +258,9 @@ def _counts(attempted, filled=0, partial=0, closed=0):
     (
         (True, True, _counts(0, closed=2), "dry_run"),
         (False, True, _counts(0, closed=2), "market_closed"),
+        (False, True, _counts(1, closed=1), "market_closed_after_order_attempts"),
+        (False, True, _counts(2, closed=1), "market_closed_after_order_attempts"),
+        (False, True, _counts(2, partial=1, closed=1), "market_closed_after_partial_execution"),
         (False, True, _counts(2, filled=2, closed=1), "market_closed_after_partial_execution"),
         (False, False, _counts(0), "no_eligible_candidates"),
         (False, True, _counts(0), "no_orders_needed"),
@@ -288,6 +291,7 @@ def test_diagnostic_columns_are_added_idempotently_without_touching_rows():
     sql = db.ALTER_REBALANCE_RUN_EVENTS_DIAGNOSTICS_SQL
     assert sql.count("ADD COLUMN IF NOT EXISTS") == 12
     assert "market_closed_after_partial_execution" in sql
+    assert "market_closed_after_order_attempts" in sql
     for forbidden in ("DROP", "UPDATE", "DELETE", "TRUNCATE"):
         assert forbidden not in sql.upper()
 
