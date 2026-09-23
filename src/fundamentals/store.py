@@ -516,13 +516,25 @@ def source_qualified_batch_id(ingestion_batch_id: str, source_adapter: str) -> s
     return f"{ingestion_batch_id}+{source_adapter}"
 
 
+# Sources that may only be published beside their primary source, in the same
+# transaction, under the primary's source-qualified batch ID.
+SUPPLEMENTAL_SOURCES_BY_PRIMARY = {
+    "sec_companyfacts": frozenset({"sec_filing_xbrl"}),
+}
+_SUPPLEMENTAL_SOURCES = frozenset().union(*SUPPLEMENTAL_SOURCES_BY_PRIMARY.values())
+
+
 def _publication_batch_keys(facts: Tuple[FinancialFact, ...]) -> Tuple[tuple, ...]:
     """Validate one publication: a primary batch plus source-qualified supplements.
 
     Every group must share mapping version, calendar version, and ingestion
     time; sources must be distinct; exactly one group carries the base batch ID
     and every other group carries ``source_qualified_batch_id(base, source)``.
-    Returns the batch keys with the primary first.
+    The primary must be a source that declares supplements, and every other
+    group a supplement it declares, so swapped IDs (for example filing-XBRL
+    facts under the base ID) are refused before anything is written. A
+    supplemental source is never published on its own. Returns the batch keys
+    with the primary first.
     """
 
     batch_keys = {
@@ -536,7 +548,12 @@ def _publication_batch_keys(facts: Tuple[FinancialFact, ...]) -> Tuple[tuple, ..
         for fact in facts
     }
     if len(batch_keys) == 1:
-        return tuple(batch_keys)
+        (only,) = batch_keys
+        if only[1] in _SUPPLEMENTAL_SOURCES:
+            raise FundamentalsPublishError(
+                f"supplemental source {only[1]} cannot be published without its primary source."
+            )
+        return (only,)
     shared = {key[2:] for key in batch_keys}
     sources = [key[1] for key in batch_keys]
     ids = {key[0] for key in batch_keys}
@@ -553,6 +570,12 @@ def _publication_batch_keys(facts: Tuple[FinancialFact, ...]) -> Tuple[tuple, ..
             "with one primary batch ID and a source-qualified batch ID for each supplemental source."
         )
     primary = primaries[0]
+    allowed = SUPPLEMENTAL_SOURCES_BY_PRIMARY.get(primary[1], frozenset())
+    if any(key is not primary and key[1] not in allowed for key in batch_keys):
+        raise FundamentalsPublishError(
+            f"primary source {primary[1]} does not declare every supplemental source in the publication; "
+            "batch IDs may be swapped between sources."
+        )
     return (primary,) + tuple(sorted(key for key in batch_keys if key is not primary))
 
 

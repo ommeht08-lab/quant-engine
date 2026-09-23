@@ -236,3 +236,61 @@ def test_verifier_rejects_a_publication_missing_the_supplemental_batch(composing
     result = _verify(facts)
 
     assert not result.is_verified
+
+
+def _rebatched(facts, ids):
+    return tuple(
+        replace(fact, lineage=replace(fact.lineage, ingestion_batch_id=ids[fact.lineage.source_adapter]))
+        for fact in facts
+    )
+
+
+def _refuses_before_connecting(monkeypatch, facts, match):
+    monkeypatch.setattr("src.fundamentals.store._connect", lambda *a, **k: pytest.fail("must not connect"))
+    with pytest.raises(FundamentalsPublishError, match=match):
+        append_facts(facts, database_url="unused")
+
+
+def test_store_source_names_match_the_adapters():
+    from src.fundamentals.adapters.sec_companyfacts import SOURCE_ADAPTER as COMPANYFACTS
+    from src.fundamentals.adapters.sec_filing_xbrl import SOURCE_ADAPTER as FILING_XBRL
+    from src.fundamentals.store import SUPPLEMENTAL_SOURCES_BY_PRIMARY
+
+    assert SUPPLEMENTAL_SOURCES_BY_PRIMARY == {COMPANYFACTS: frozenset({FILING_XBRL})}
+
+
+def test_swapped_batch_ids_refuse_before_writing(monkeypatch):
+    swapped = _rebatched(
+        _dry_run().classified_facts,
+        {"sec_filing_xbrl": BATCH, "sec_companyfacts": source_qualified_batch_id(BATCH, "sec_companyfacts")},
+    )
+    _refuses_before_connecting(monkeypatch, swapped, "swapped")
+
+
+def test_swapped_ids_also_refuse_through_publish(monkeypatch):
+    monkeypatch.setattr("src.fundamentals.store._connect", lambda *a, **k: pytest.fail("must not connect"))
+    dry_run = _dry_run()
+    object.__setattr__(dry_run, "classified_facts", _rebatched(
+        dry_run.classified_facts,
+        {"sec_filing_xbrl": BATCH, "sec_companyfacts": source_qualified_batch_id(BATCH, "sec_companyfacts")},
+    ))
+
+    result = publish_sec_ingestion_dry_run(dry_run, publisher=lambda items: append_facts(items, database_url="unused"))
+
+    assert result.issues[0].code == "publish_failed"
+
+
+def test_a_supplemental_source_alone_refuses_before_writing(monkeypatch):
+    composed = tuple(fact for fact in _dry_run().classified_facts if fact.lineage.source_adapter == "sec_filing_xbrl")
+    for batch_id in (XBRL_BATCH, BATCH):
+        _refuses_before_connecting(monkeypatch, _rebatched(composed, {"sec_filing_xbrl": batch_id}), "without its primary")
+
+
+def test_an_undeclared_supplemental_source_refuses_before_writing(monkeypatch):
+    facts = tuple(
+        replace(fact, lineage=replace(fact.lineage, source_adapter="other_source",
+                                      ingestion_batch_id=source_qualified_batch_id(BATCH, "other_source")))
+        if fact.lineage.source_adapter == "sec_filing_xbrl" else fact
+        for fact in _dry_run().classified_facts
+    )
+    _refuses_before_connecting(monkeypatch, facts, "does not declare")
