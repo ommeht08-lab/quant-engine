@@ -1,0 +1,72 @@
+name: Verify SEC pilot private archive
+
+# Manual, read-only check of the SEC pilot's private archive: fetches the
+# stored price snapshot and full record by hash, recomputes both checksums,
+# and confirms the record references the expected snapshot and pinned run.
+# Opens a read-only session and prints only hashes and metadata -- never
+# prices or daily curves (this repository and its logs are public).
+"on":
+  workflow_dispatch:
+    inputs:
+      snapshot_sha256:
+        description: "Expected price snapshot SHA-256"
+        required: true
+        type: string
+      record_sha256:
+        description: "Expected private full record SHA-256"
+        required: true
+        type: string
+      run_id:
+        description: "Expected pinned run ID"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
+
+      - name: Run verifier tests
+        run: python -m pytest -q tests/backtesting/test_verify_private_archive.py tests/test_ci_config.py
+
+  verify:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install the Postgres driver only
+        run: python -m pip install --disable-pip-version-check "psycopg2-binary==2.9.12"
+
+      - name: Verify the private archive (read-only)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SNAPSHOT_SHA256: ${{ inputs.snapshot_sha256 }}
+          RECORD_SHA256: ${{ inputs.record_sha256 }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          python -m src.backtesting.verify_private_archive \
+            --snapshot-sha256 "${SNAPSHOT_SHA256}" \
+            --record-sha256 "${RECORD_SHA256}" \
+            --run-id "${RUN_ID}"
