@@ -506,16 +506,24 @@ def ensure_schema(conn) -> None:
         cursor.execute(CREATE_APPEND_ONLY_TRIGGER_SQL)
 
 
-def append_facts(
-    facts: Iterable[FinancialFact],
-    *,
-    database_url: Optional[str] = None,
-    conn=None,
-) -> int:
-    """Atomically append one internally-consistent ingestion batch."""
-    facts = tuple(facts)
-    if not facts:
-        raise ValueError("append_facts requires at least one fact.")
+def source_qualified_batch_id(ingestion_batch_id: str, source_adapter: str) -> str:
+    """Deterministic batch ID for a supplemental source's facts in one publication.
+
+    The batch table is keyed by ID alone, so each source in a publication gets
+    its own immutable batch row; the qualified ID names both the run and source.
+    """
+
+    return f"{ingestion_batch_id}+{source_adapter}"
+
+
+def _publication_batch_keys(facts: Tuple[FinancialFact, ...]) -> Tuple[tuple, ...]:
+    """Validate one publication: a primary batch plus source-qualified supplements.
+
+    Every group must share mapping version, calendar version, and ingestion
+    time; sources must be distinct; exactly one group carries the base batch ID
+    and every other group carries ``source_qualified_batch_id(base, source)``.
+    Returns the batch keys with the primary first.
+    """
 
     batch_keys = {
         (
@@ -527,10 +535,39 @@ def append_facts(
         )
         for fact in facts
     }
-    if len(batch_keys) != 1:
-        raise ValueError(
-            "append_facts requires one source, mapping version, calendar version, batch ID, and ingestion time."
+    if len(batch_keys) == 1:
+        return tuple(batch_keys)
+    shared = {key[2:] for key in batch_keys}
+    sources = [key[1] for key in batch_keys]
+    ids = {key[0] for key in batch_keys}
+    primaries = [
+        key for key in batch_keys
+        if all(
+            other is key or other[0] == source_qualified_batch_id(key[0], other[1])
+            for other in batch_keys
         )
+    ]
+    if len(shared) != 1 or len(set(sources)) != len(sources) or len(ids) != len(batch_keys) or len(primaries) != 1:
+        raise FundamentalsPublishError(
+            "a publication must share one mapping version, calendar version, and ingestion time, "
+            "with one primary batch ID and a source-qualified batch ID for each supplemental source."
+        )
+    primary = primaries[0]
+    return (primary,) + tuple(sorted(key for key in batch_keys if key is not primary))
+
+
+def append_facts(
+    facts: Iterable[FinancialFact],
+    *,
+    database_url: Optional[str] = None,
+    conn=None,
+) -> int:
+    """Atomically append one publication: every source's batch commits or none does."""
+    facts = tuple(facts)
+    if not facts:
+        raise ValueError("append_facts requires at least one fact.")
+
+    batch_keys = _publication_batch_keys(facts)
 
     owns_connection = conn is None
     connection = conn
@@ -550,20 +587,23 @@ def append_facts(
         ensure_schema(connection)
         inserted = 0
         with connection.cursor() as cursor:
-            batch_key = next(iter(batch_keys))
-            cursor.execute(INSERT_BATCH_SQL, batch_key)
-            if cursor.fetchone() is None:
-                cursor.execute(SELECT_BATCH_SQL, (batch_key[0],))
-                if cursor.fetchone() != batch_key:
-                    raise FundamentalsPublishError(
-                        "an ingestion batch ID already exists with different immutable metadata."
-                    )
+            for batch_key in batch_keys:
+                cursor.execute(INSERT_BATCH_SQL, batch_key)
+                if cursor.fetchone() is None:
+                    cursor.execute(SELECT_BATCH_SQL, (batch_key[0],))
+                    if cursor.fetchone() != batch_key:
+                        raise FundamentalsPublishError(
+                            "an ingestion batch ID already exists with different immutable metadata."
+                        )
             inserted = len(_execute_values(cursor, [_fact_to_row(fact) for fact in facts]))
-            cursor.execute(SELECT_EXISTING_FACTS_SQL, _existing_facts_lookup_params(facts))
-            existing_by_identity = {
-                _source_identity_key(existing): existing
-                for existing in (_row_to_fact(tuple(row)) for row in cursor.fetchall())
-            }
+            existing_by_identity = {}
+            for batch_key in batch_keys:
+                group = tuple(fact for fact in facts if fact.lineage.source_adapter == batch_key[1])
+                cursor.execute(SELECT_EXISTING_FACTS_SQL, _existing_facts_lookup_params(group))
+                existing_by_identity.update(
+                    (_source_identity_key(existing), existing)
+                    for existing in (_row_to_fact(tuple(row)) for row in cursor.fetchall())
+                )
             for fact in facts:
                 existing = existing_by_identity.get(_source_identity_key(fact))
                 if existing is None or not _same_source_fact(existing, fact):

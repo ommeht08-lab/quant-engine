@@ -21,6 +21,7 @@ from .adapters.sec_companyfacts import (
 from .adapters.sec_downloader import SecDownloadError, SecIssuerPayload
 from .adapters.sec_filing_xbrl import (
     FilingReference,
+    SOURCE_ADAPTER as FILING_XBRL_SOURCE_ADAPTER,
     FilingXbrlError,
     compose_consolidated_balances,
     parse_xbrl_instance,
@@ -33,7 +34,7 @@ from .fiscal_calendar import (
 )
 from .quarterly import QuarterlyFundamentals, assemble_quarterly_fundamentals
 from .selection import select_point_in_time
-from .store import FundamentalsPublishError, append_facts
+from .store import FundamentalsPublishError, append_facts, source_qualified_batch_id
 from .time_policy import is_aware
 from .types import FinancialFact, FundamentalHistory, normalize_cik
 
@@ -290,7 +291,7 @@ def run_sec_ingestion_dry_run(
             cik=normalized_cik,
             fetcher=filing_instance_fetcher,
             concept_map=concept_map,
-            ingestion_batch_id=ingestion_batch_id,
+            ingestion_batch_id=source_qualified_batch_id(ingestion_batch_id, FILING_XBRL_SOURCE_ADAPTER),
             ingested_at=payload.downloaded_at,
             period_end_floor=period_end_floor,
         )

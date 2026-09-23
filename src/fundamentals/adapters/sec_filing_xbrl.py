@@ -112,7 +112,12 @@ def parse_xbrl_instance(document: bytes) -> Tuple[XbrlFact, ...]:
         cik = None
         if identifier is not None and _text(identifier).isdigit():
             cik = normalize_cik(_text(identifier))
-        contexts[context.get("id", "")] = (
+        context_id = context.get("id", "")
+        if context_id in contexts:
+            raise FilingXbrlError(
+                FilingXbrlIssueCode.INVALID_INSTANCE, f"XBRL instance defines context {context_id} more than once."
+            )
+        contexts[context_id] = (
             cik,
             date.fromisoformat(_text(instant)) if instant is not None else None,
             explicit,

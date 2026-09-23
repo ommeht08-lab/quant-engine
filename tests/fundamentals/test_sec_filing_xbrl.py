@@ -285,3 +285,20 @@ class TestPolicy:
                 equivalent_members=(("a", "b"),),
                 **kwargs,
             )
+
+
+def test_duplicate_context_ids_refuse_the_instance():
+    context = (
+        '<context id="c-1"><entity><identifier scheme="http://www.sec.gov/CIK">0000018230</identifier></entity>'
+        "<period><instant>{}</instant></period></context>"
+    )
+    document = (
+        '<xbrl xmlns="http://www.xbrl.org/2003/instance">'
+        + context.format("2024-06-30")
+        + context.format("2023-12-31")
+        + "</xbrl>"
+    ).encode()
+
+    with pytest.raises(FilingXbrlError) as error:
+        parse_xbrl_instance(document)
+    assert error.value.code is FilingXbrlIssueCode.INVALID_INSTANCE

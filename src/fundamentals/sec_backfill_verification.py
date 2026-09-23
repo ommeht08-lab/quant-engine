@@ -7,7 +7,9 @@ published facts back from PostgreSQL and requires:
 * the published fact set equals the pipeline's classified facts exactly,
   including each filing's original SEC acceptance time;
 * no published fact visible at the cutoff became public after it;
-* every published fact belongs to the expected immutable ingestion batch;
+* every published fact belongs to the expected immutable ingestion batches:
+  the requested ID for Company Facts and, for issuers with filing-XBRL
+  compositions, exactly its source-qualified ID for the composed facts;
 * point-in-time selection over the published facts equals the pipeline's.
 
 Like ``sec_pipeline_command`` this module needs only ``requests`` and
@@ -32,7 +34,7 @@ from .repository import FundamentalsQuery
 from .sec_ingestion import run_sec_ingestion_dry_run
 from .sec_pipeline_command import _parse_aware_datetime
 from .selection import select_point_in_time
-from .store import PostgresFundamentalsRepository
+from .store import PostgresFundamentalsRepository, source_qualified_batch_id
 from .time_policy import is_aware
 from .types import FinancialFact, FundamentalHistory, normalize_cik
 from .valuation_snapshot import VALUATION_TTM_CONCEPTS
@@ -58,6 +60,7 @@ class CutoffVerification:
 class BackfillVerificationResult:
     cik: str
     ingestion_batch_id: str
+    ingestion_batch_ids: Tuple[str, ...]
     concept_map_version: str
     fiscal_calendar_version: str
     data_vintage_cutoff: datetime
@@ -178,12 +181,25 @@ def _verify_cutoff(
     late = sum(1 for fact in published if fact.provenance.eligible_at > knowledge_cutoff)
     if late:
         problems.append(f"{late} published facts became public after the cutoff.")
-    foreign_batches = sorted(
-        {fact.lineage.ingestion_batch_id for fact in published} - {ingestion_batch_id}
+    expected_batches = _expected_batch_ids(cik, ingestion_batch_id)
+    batch_by_source = dict(zip(_expected_sources(cik), expected_batches))
+    misfiled = sum(
+        1 for fact in published
+        if batch_by_source.get(fact.lineage.source_adapter) != fact.lineage.ingestion_batch_id
     )
-    if foreign_batches:
+    published_batches = {fact.lineage.ingestion_batch_id for fact in published}
+    expected_present = {fact.lineage.ingestion_batch_id for fact in expected_run.classified_facts}
+    if not misfiled and published and published_batches != expected_present:
         problems.append(
-            f"Published facts belong to other ingestion batches: {', '.join(foreign_batches)}."
+            "Published ingestion batches "
+            f"{', '.join(sorted(published_batches))} differ from the expected "
+            f"{', '.join(sorted(expected_present))}."
+        )
+    if misfiled:
+        foreign = sorted({fact.lineage.ingestion_batch_id for fact in published} - set(expected_batches))
+        problems.append(
+            f"{misfiled} published facts are not in their source's expected ingestion batch"
+            + (f" (they belong to other ingestion batches: {', '.join(foreign)})." if foreign else ".")
         )
     if published and not problems:
         try:
@@ -199,6 +215,21 @@ def _verify_cutoff(
         expected_fact_count=len(expected_keys),
         published_fact_count=len(published_keys),
         problems=tuple(problems),
+    )
+
+
+def _expected_sources(cik: str) -> Tuple[str, ...]:
+    if concept_map_for_issuer(cik).balance_compositions_for(cik):
+        return (SOURCE_ADAPTER, FILING_XBRL_SOURCE_ADAPTER)
+    return (SOURCE_ADAPTER,)
+
+
+def _expected_batch_ids(cik: str, ingestion_batch_id: str) -> Tuple[str, ...]:
+    """The primary ID, then one source-qualified ID per supplemental source."""
+
+    return tuple(
+        ingestion_batch_id if source == SOURCE_ADAPTER else source_qualified_batch_id(ingestion_batch_id, source)
+        for source in _expected_sources(cik)
     )
 
 
@@ -223,6 +254,7 @@ def verify_published_backfill(
     return BackfillVerificationResult(
         cik=normalized_cik,
         ingestion_batch_id=ingestion_batch_id,
+        ingestion_batch_ids=_expected_batch_ids(normalized_cik, ingestion_batch_id),
         concept_map_version=concept_map_for_issuer(normalized_cik).version,
         fiscal_calendar_version=SEC_FISCAL_CALENDAR_CATALOG_V1.policy_for(normalized_cik).version,
         data_vintage_cutoff=data_vintage_cutoff,
@@ -245,6 +277,7 @@ def _summary(result: BackfillVerificationResult) -> dict:
         "status": "verified" if result.is_verified else "failed",
         "cik": result.cik,
         "batch_id": result.ingestion_batch_id,
+        "batch_ids": list(result.ingestion_batch_ids),
         "concept_map_version": result.concept_map_version,
         "calendar_version": result.fiscal_calendar_version,
         "data_vintage_cutoff": result.data_vintage_cutoff.isoformat(),
