@@ -61,6 +61,14 @@ interface EvaluationResponse {
   sector_median_snapshot: SectorMedianSnapshot | null;
   sensitivity: DCFSensitivityMatrix;
   scenarios: DCFScenarioSet;
+  valuation_input_provenance: {
+    source: "sec" | "yahoo";
+    source_selection_reason: string;
+    knowledge_cutoff: string;
+    statement_period_end: string;
+    policy_version: string;
+    ingestion_batch_ids: string[];
+  };
 }
 
 export interface WorkspaceClientProps {
@@ -181,6 +189,8 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
         || typeof data.valuation_quality.allows_market_comparison !== "boolean"
         || !["ordinary", "caution", "diagnostic_only"].includes(data.valuation_quality.level)
         || data.valuation_quality.allows_market_comparison !== (data.valuation_quality.codes.length === 0)
+        || !data.valuation_input_provenance
+        || !["sec", "yahoo"].includes(data.valuation_input_provenance.source)
       ) {
         throw {
           kind: "unavailable",
@@ -367,6 +377,15 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
             }`}
             aria-busy={isLoading}
           >
+            <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-y border-[var(--line)] py-3 text-[11px] text-[var(--paper-dim)]">
+              <span className="font-semibold uppercase tracking-[0.14em] text-[var(--paper)]">
+                {result.valuation_input_provenance.source === "sec" ? "SEC filings" : "Yahoo statements"}
+              </span>
+              <span>Statement period {result.valuation_input_provenance.statement_period_end}</span>
+              <span>Cutoff {new Date(result.valuation_input_provenance.knowledge_cutoff).toLocaleString()}</span>
+              <span>{result.valuation_input_provenance.source_selection_reason}</span>
+              <span>{result.valuation_input_provenance.policy_version}</span>
+            </div>
             <div className="workspace-primary-grid">
               <MarketPriceChart
                 ticker={result.ticker}

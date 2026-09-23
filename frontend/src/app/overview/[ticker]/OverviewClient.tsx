@@ -55,6 +55,14 @@ interface OverviewEvaluationResponse {
   sector_median_snapshot: SectorMedianSnapshot | null;
   sensitivity: DCFSensitivityMatrix;
   scenarios: DCFScenarioSet;
+  valuation_input_provenance: {
+    source: "sec" | "yahoo";
+    source_selection_reason: string;
+    knowledge_cutoff: string;
+    statement_period_end: string;
+    policy_version: string;
+    ingestion_batch_ids: string[];
+  };
 }
 
 interface OverviewClientProps {
@@ -103,7 +111,9 @@ export default function OverviewClient({ initialTicker }: OverviewClientProps) {
           data.forecast_path.length !== data.projected_free_cash_flows.length ||
           !data.sensitivity ||
           !data.scenarios ||
-          !data.valuation_quality
+          !data.valuation_quality ||
+          !data.valuation_input_provenance ||
+          !["sec", "yahoo"].includes(data.valuation_input_provenance.source)
         ) {
           throw {
             kind: "unavailable",
@@ -212,6 +222,15 @@ export default function OverviewClient({ initialTicker }: OverviewClientProps) {
 
         {result && (
           <div className={resultState === "ready" ? "result-enter" : ""} aria-busy={isLoading}>
+            <div className={styles.provenance}>
+              <strong>
+                {result.valuation_input_provenance.source === "sec" ? "SEC filings" : "Yahoo statements"}
+              </strong>
+              <span>Statement period {result.valuation_input_provenance.statement_period_end}</span>
+              <span>Cutoff {new Date(result.valuation_input_provenance.knowledge_cutoff).toLocaleString()}</span>
+              <span>{result.valuation_input_provenance.source_selection_reason}</span>
+              <span>{result.valuation_input_provenance.policy_version}</span>
+            </div>
             <section className={styles.metrics} aria-label="Valuation summary">
               <article className={styles.metricCard}>
                 <div className={styles.metricTop}><span>Market price</span><i className={styles.blue}>Live</i></div>
