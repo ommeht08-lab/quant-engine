@@ -602,10 +602,21 @@ def decide_portfolio(
 def strategy_weights_with_refusals(
     weights: Mapping[str, float], *, refused_count: int, universe_size: int
 ) -> Dict[str, float]:
-    """Hold each refused company's 1/N share as cash; never redistribute it."""
+    """Reserve each refused company's 1/N share as cash without resizing the
+    live strategy's positions.
+
+    The live weights stand as sized (caps included) whenever the cash they
+    already leave covers the reserve. Only if they would invest into the
+    reserve are they scaled down, pro rata and exactly enough to leave it
+    untouched. Refused capital is never redistributed.
+    """
 
     available_fraction = (universe_size - refused_count) / universe_size
-    return {ticker: weight * available_fraction for ticker, weight in weights.items()}
+    invested = sum(weights.values())
+    if invested <= available_fraction + 1e-12:
+        return dict(weights)
+    scale = available_fraction / invested
+    return {ticker: weight * scale for ticker, weight in weights.items()}
 
 
 def equal_weight_control(tickers: Sequence[str], refused: Sequence[str]) -> Dict[str, float]:

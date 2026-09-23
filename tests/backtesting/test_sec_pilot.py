@@ -120,6 +120,28 @@ def test_missing_execution_price_refuses_instead_of_skipping_a_session():
         simulate_curve("test", {"AAA": 1.0}, prices=prices, window=window, capital=1.0, cost_bps=10)
 
 
+def test_capped_live_weights_are_not_resized_when_their_cash_already_covers_the_reserve():
+    # One selected stock at the live 15% position cap: 85% is already cash,
+    # which covers CAT's 25% reserve, so the position must stay at 15%.
+    assert strategy_weights_with_refusals({"MSFT": 0.15}, refused_count=1, universe_size=4) == {"MSFT": 0.15}
+    capped = {"AAPL": 0.15, "MSFT": 0.15, "WMT": 0.15}
+    assert strategy_weights_with_refusals(capped, refused_count=1, universe_size=4) == capped
+
+
+def test_selected_stocks_come_from_the_live_capped_sizing_unchanged():
+    from src.backtesting.historical_tester import TickerAnalysis
+    from src.trading.alpaca_execution import calculate_inverse_beta_weights
+
+    picks = [
+        TickerAnalysis(ticker="MSFT", as_of_date="2024-09-03", sector="Technology", beta=0.9, conviction_score=1.0),
+        TickerAnalysis(ticker="WMT", as_of_date="2024-09-03", sector="Consumer Defensive", beta=0.5, conviction_score=0.8),
+    ]
+    live = calculate_inverse_beta_weights(picks)
+
+    assert live == {"MSFT": pytest.approx(0.15), "WMT": pytest.approx(0.15)}
+    assert strategy_weights_with_refusals(live, refused_count=1, universe_size=4) == live
+
+
 def test_refused_company_capital_is_held_as_cash_not_redistributed():
     strategy = strategy_weights_with_refusals({"AAPL": 0.6, "MSFT": 0.4}, refused_count=1, universe_size=4)
     control = equal_weight_control(["AAPL", "MSFT", "WMT", "CAT"], ["CAT"])
