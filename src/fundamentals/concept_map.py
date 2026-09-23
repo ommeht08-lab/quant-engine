@@ -147,6 +147,43 @@ class BalanceCompositionRule:
 
 
 @dataclass(frozen=True)
+class DerivedFlowRule:
+    """One issuer's flow concept derived by an exact accounting identity.
+
+    ``value = minuend - subtrahend`` using both raw facts from the same
+    filing, period, and unit. Every ``cross_checks`` tag reported for that
+    filing and period must equal the derived value, or extraction refuses.
+    """
+
+    cik: str
+    canonical_concept: str
+    minuend: Tuple[str, str]
+    subtrahend: Tuple[str, str]
+    cross_checks: Tuple[Tuple[str, str], ...]
+    identity: str
+    reason: str
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "cik", normalize_cik(self.cik))
+        for name in ("canonical_concept", "identity", "reason"):
+            _require_text("DerivedFlowRule", name, getattr(self, name))
+        tags = [tuple(self.minuend), tuple(self.subtrahend)] + [tuple(tag) for tag in self.cross_checks]
+        if any(len(tag) != 2 or not all(isinstance(part, str) and part.strip() for part in tag) for tag in tags):
+            raise ValueError("DerivedFlowRule tags must be (taxonomy, raw_tag) pairs.")
+        if len(set(tags)) != len(tags):
+            raise ValueError("DerivedFlowRule tags must be distinct.")
+        if not self.cross_checks:
+            raise ValueError("A derived flow requires at least one reported cross-check.")
+        object.__setattr__(self, "minuend", tuple(self.minuend))
+        object.__setattr__(self, "subtrahend", tuple(self.subtrahend))
+        object.__setattr__(self, "cross_checks", tuple(tuple(tag) for tag in self.cross_checks))
+
+    @property
+    def raw_tag(self) -> str:
+        return f"{self.minuend[1]}-{self.subtrahend[1]}"
+
+
+@dataclass(frozen=True)
 class ConceptMap:
     version: str
     rules: Tuple[ConceptRule, ...]
@@ -155,6 +192,7 @@ class ConceptMap:
     # Consolidated balances composed from a filing's own XBRL instance (see
     # adapters.sec_filing_xbrl); Company Facts omits dimensional facts.
     balance_compositions: Tuple["BalanceCompositionRule", ...] = ()
+    derived_flows: Tuple["DerivedFlowRule", ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.version, str) or not self.version.strip():
@@ -259,6 +297,26 @@ class ConceptMap:
             seen_compositions.add(key)
         object.__setattr__(self, "balance_compositions", compositions)
 
+        try:
+            derived = tuple(self.derived_flows)
+        except TypeError:
+            raise ValueError("derived_flows must be a collection.") from None
+        seen_derived = set()
+        for flow in derived:
+            if not isinstance(flow, DerivedFlowRule):
+                raise ValueError("derived_flows must contain DerivedFlowRule values.")
+            target = concepts_by_name.get(flow.canonical_concept)
+            if target is None or target.period_type is not FactPeriodType.DURATION:
+                raise ValueError(
+                    f"A derived flow must target an existing duration concept: {flow.canonical_concept!r}."
+                )
+            if (flow.cik, flow.canonical_concept) in seen_derived:
+                raise ValueError("Only one derived flow per issuer and concept is allowed.")
+            seen_derived.add((flow.cik, flow.canonical_concept))
+            if flow.minuend in rules_by_key or flow.subtrahend in rules_by_key:
+                raise ValueError("Derived-flow components must not also be mapped tags.")
+        object.__setattr__(self, "derived_flows", derived)
+
     def rule_for(self, taxonomy: str, raw_tag: str) -> Optional[ConceptRule]:
         for rule in self.rules:
             if rule.taxonomy == taxonomy and rule.raw_tag == raw_tag:
@@ -275,6 +333,10 @@ class ConceptMap:
             if exclusion.cik == normalized_cik
         }
         return tuple(rule for rule in self.rules if raw_keys_for(rule) not in excluded)
+
+    def derived_flows_for(self, cik: str) -> Tuple["DerivedFlowRule", ...]:
+        normalized_cik = normalize_cik(cik)
+        return tuple(flow for flow in self.derived_flows if flow.cik == normalized_cik)
 
     def balance_compositions_for(self, cik: str) -> Tuple["BalanceCompositionRule", ...]:
         normalized_cik = normalize_cik(cik)
@@ -611,9 +673,40 @@ SEC_CONCEPT_MAP_V4 = ConceptMap(
     ),
 )
 
+# Version 5 keeps every Version 4 policy and derives Caterpillar's net income
+# attributable to the parent (the meaning of us-gaap:NetIncomeLoss, which CAT
+# never tags in its 10-K/10-Q filings) by the ASC 810 identity: consolidated
+# profit less the noncontrolling interest's share. Profit attributable to
+# common shareholders must equal it wherever reported, which also refuses if
+# preferred dividends or participating-security adjustments ever appear.
+SEC_CONCEPT_MAP_V5 = ConceptMap(
+    version="sec-companyfacts-v5",
+    rules=SEC_CONCEPT_MAP_V4.rules,
+    issuer_tag_exclusions=SEC_CONCEPT_MAP_V4.issuer_tag_exclusions,
+    opening_balance_exclusions=SEC_CONCEPT_MAP_V4.opening_balance_exclusions,
+    balance_compositions=SEC_CONCEPT_MAP_V4.balance_compositions,
+    derived_flows=(
+        DerivedFlowRule(
+            cik=_CATERPILLAR_CIK,
+            canonical_concept="net_income",
+            minuend=("us-gaap", "ProfitLoss"),
+            subtrahend=("us-gaap", "NetIncomeLossAttributableToNoncontrollingInterest"),
+            cross_checks=(("us-gaap", "NetIncomeLossAvailableToCommonStockholdersBasic"),),
+            identity="NetIncomeLoss = ProfitLoss - NetIncomeLossAttributableToNoncontrollingInterest",
+            reason="Caterpillar reports consolidated profit and the NCI share but not NetIncomeLoss.",
+        ),
+    ),
+)
+
 SEC_CONCEPT_MAPS_BY_VERSION: Dict[str, ConceptMap] = {
     concept_map.version: concept_map
-    for concept_map in (SEC_CONCEPT_MAP_V1, SEC_CONCEPT_MAP_V2, SEC_CONCEPT_MAP_V3, SEC_CONCEPT_MAP_V4)
+    for concept_map in (
+        SEC_CONCEPT_MAP_V1,
+        SEC_CONCEPT_MAP_V2,
+        SEC_CONCEPT_MAP_V3,
+        SEC_CONCEPT_MAP_V4,
+        SEC_CONCEPT_MAP_V5,
+    )
 }
 
 # The mapping policy each issuer is ingested and read under. Apple stays on
@@ -623,8 +716,8 @@ SEC_ISSUER_CONCEPT_MAP_VERSIONS: Dict[str, str] = {
     "0000320193": SEC_CONCEPT_MAP_V2.version,
     "0000789019": SEC_CONCEPT_MAP_V3.version,
     _WALMART_CIK: SEC_CONCEPT_MAP_V3.version,
-    # Version 4 requires a re-backfill before Caterpillar is SEC-history ready.
-    _CATERPILLAR_CIK: SEC_CONCEPT_MAP_V4.version,
+    # Version 5 requires a re-backfill before Caterpillar is SEC-history ready.
+    _CATERPILLAR_CIK: SEC_CONCEPT_MAP_V5.version,
 }
 
 
