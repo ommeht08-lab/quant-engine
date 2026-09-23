@@ -127,7 +127,6 @@ def test_a_conflicting_composed_fact_refuses_and_rolls_back_both_sources(monkeyp
 
 
 def test_a_reused_supplemental_batch_id_with_other_metadata_refuses_and_rolls_back(monkeypatch):
-    facts = _dry_run().classified_facts
     foreign = (XBRL_BATCH, "sec_filing_xbrl", "other-map", "other-calendar", _utc(2020, 1, 1))
     connection = _SplitLookupConnection(one_rows=((BATCH,), None, foreign), lookups=())
     _stub_execute_values(monkeypatch)
