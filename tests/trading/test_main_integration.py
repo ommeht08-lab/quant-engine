@@ -198,6 +198,7 @@ class TestFullOrchestration:
         assert logged_trades == []
         assert refreshed_caches == []
         assert "ALPACA_PIPELINE_COMPLETED mode=dry-run health=healthy decision=candidates" in caplog.text
+        assert "outcome=dry_run market_open_at_start=True orders_attempted=0 orders_filled=0" in caplog.text
         assert run_events[-1].completion_status == engine.RunCompletionStatus.HEALTHY
 
     def test_partial_run_raises_and_never_emits_completion_receipt(self, monkeypatch, caplog):
@@ -321,6 +322,8 @@ class TestFullOrchestration:
         assert risk_calls == [{"HOLD": 0.04}]
         assert len(hedge_calls) == 1
         assert "ALPACA_PIPELINE_COMPLETED mode=execute health=healthy decision=no_candidates" in caplog.text
+        assert "outcome=" in caplog.text and "outcome=dry_run" not in caplog.text
+        assert "epoch=unlabelled" in caplog.text
         assert run_events[-1].completion_status == engine.RunCompletionStatus.HEALTHY
 
     def test_no_candidate_run_is_incomplete_when_held_position_risk_is_unavailable(

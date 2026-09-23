@@ -72,7 +72,8 @@ class TestScheduleAndTriggerPreserved:
     def test_weekday_schedule_runs_during_us_market_hours_across_dst(self):
         content = _read_workflow()
         assert "schedule:" in content
-        assert 'cron: "15 17 * * 1-5"' in content
+        assert 'cron: "37 14 * * 1-5"' in content
+        assert 'cron: "15 17 * * 1-5"' not in content
 
     def test_manual_dispatch_trigger_is_preserved(self):
         content = _read_workflow()
@@ -436,6 +437,16 @@ class TestBackfillSecFundamentalsWorkflow:
             assert block.count("secrets.") == 2
             assert "secrets.DATABASE_URL" in block
             assert "secrets.SEC_USER_AGENT" in block
+
+class TestRebalanceRunDiagnostics:
+    """Scheduled runs carry the inputs needed to diagnose missed windows."""
+
+    def test_execution_job_passes_schedule_and_account_epoch_diagnostics(self):
+        block = _job_block(_read_workflow(), "execute_trades")
+        assert "SCHEDULED_CRON: ${{ github.event.schedule }}" in block
+        assert "ALPACA_ACCOUNT_EPOCH: ${{ vars.ALPACA_ACCOUNT_EPOCH }}" in block
+        assert "secrets.ALPACA_ACCOUNT_EPOCH" not in block
+
 
 class TestRefreshSecFundamentalsWorkflow:
     """The scheduled SEC job remains isolated, bounded, and fail-closed."""

@@ -257,8 +257,12 @@ from src.trading.run_health import (
     RunEventType,
     RunHealthEvent,
     RunIdentity,
+    RunOutcome,
     StrategyDecision,
+    account_fingerprint,
     append_run_event,
+    classify_run_outcome,
+    order_counts,
 )
 from src.utils.db import ensure_schema, log_trade
 from src.utils.macro import get_risk_free_rate
@@ -378,6 +382,11 @@ class PipelineCompletion:
     universe_count: int
     valued_count: int
     eligible_count: int
+    market_open_at_start: Optional[bool] = None
+    account_fingerprint: Optional[str] = None
+    orders_attempted: int = 0
+    orders_filled: int = 0
+    run_outcome: Optional[RunOutcome] = None
 
 
 def load_config() -> AlpacaConfig:
@@ -2289,7 +2298,8 @@ def _run_rebalance(args: argparse.Namespace) -> PipelineCompletion:
     # Verify Alpaca connectivity before running the (multi-minute) DCF scan,
     # so bad credentials fail fast rather than after a long wait.
     try:
-        equity_before = float(trading_client.get_account().equity)
+        account = trading_client.get_account()
+        equity_before = float(account.equity)
         positions = get_current_positions(trading_client)
     except APIError as exc:
         raise RuntimeError(
@@ -2304,7 +2314,8 @@ def _run_rebalance(args: argparse.Namespace) -> PipelineCompletion:
     # starts — is never what actually gates an order. This just logs
     # a heads-up early; it does not (and must not) turn the whole run
     # into a dry run.
-    if not _market_is_open(trading_client) and not args.dry_run:
+    market_open_at_start = _market_is_open(trading_client)
+    if not market_open_at_start and not args.dry_run:
         logger.warning(
             "Alpaca market clock reports the market is CLOSED at scan start. The scan/analysis/"
             "risk-calc below still runs; individual order submissions each recheck the clock "
@@ -2510,6 +2521,7 @@ def _run_rebalance(args: argparse.Namespace) -> PipelineCompletion:
     # the portfolio was not successfully modeled. An empty equity book
     # has no exposure to model, so that normal state remains complete.
     risk_complete = not holdings or risk_result.is_ok
+    attempted, filled, skipped_market_closed = order_counts(liquidations + buys)
     return PipelineCompletion(
         health=(
             RunCompletionStatus.HEALTHY
@@ -2524,6 +2536,17 @@ def _run_rebalance(args: argparse.Namespace) -> PipelineCompletion:
         universe_count=len(DEFAULT_SP500_TOP_100_TICKERS),
         valued_count=sum(1 for valuation in valuations if valuation.is_valid),
         eligible_count=len(top_picks),
+        market_open_at_start=market_open_at_start,
+        account_fingerprint=account_fingerprint(getattr(account, "id", None)),
+        orders_attempted=attempted,
+        orders_filled=filled,
+        run_outcome=classify_run_outcome(
+            dry_run=effective_dry_run,
+            has_candidates=bool(top_picks),
+            attempted=attempted,
+            filled=filled,
+            skipped_market_closed=skipped_market_closed,
+        ),
     )
 
 
@@ -2574,16 +2597,31 @@ def main() -> None:
             universe_count=completion.universe_count,
             valued_count=completion.valued_count,
             eligible_count=completion.eligible_count,
+            market_open_at_start=completion.market_open_at_start,
+            account_fingerprint=completion.account_fingerprint,
+            orders_attempted=completion.orders_attempted,
+            orders_filled=completion.orders_filled,
+            run_outcome=completion.run_outcome,
         )
     )
     logger.info(
-        "ALPACA_PIPELINE_COMPLETED mode=%s health=%s decision=%s universe=%d valued=%d eligible=%d",
+        "ALPACA_PIPELINE_COMPLETED mode=%s health=%s decision=%s universe=%d valued=%d eligible=%d "
+        "outcome=%s market_open_at_start=%s orders_attempted=%d orders_filled=%d epoch=%s "
+        "scheduled_for=%s started_at=%s queue_delay_seconds=%s",
         identity.mode.value,
         completion.health.value,
         completion.decision.value,
         completion.universe_count,
         completion.valued_count,
         completion.eligible_count,
+        completion.run_outcome.value if completion.run_outcome else "unknown",
+        completion.market_open_at_start,
+        completion.orders_attempted,
+        completion.orders_filled,
+        identity.account_epoch,
+        identity.scheduled_for.isoformat() if identity.scheduled_for else "manual",
+        identity.started_at.isoformat() if identity.started_at else "unknown",
+        identity.queue_delay_seconds if identity.queue_delay_seconds is not None else "n/a",
     )
 
 
