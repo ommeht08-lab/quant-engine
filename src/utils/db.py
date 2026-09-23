@@ -81,12 +81,25 @@ ALTER TABLE trade_logs ADD COLUMN IF NOT EXISTS var_95 FLOAT;
 ALTER TABLE trade_logs ADD COLUMN IF NOT EXISTS cvar_95 FLOAT;
 """
 
+# Existing trade and risk rows remain unlabelled. Only new paper runs can
+# attach account provenance; the risk API never treats legacy rows as current.
+ALTER_TRADE_LOGS_ACCOUNT_PROVENANCE_SQL = """
+ALTER TABLE trade_logs ADD COLUMN IF NOT EXISTS account_epoch TEXT;
+ALTER TABLE trade_logs ADD COLUMN IF NOT EXISTS account_fingerprint TEXT;
+"""
+
+CREATE_RISK_ACCOUNT_INDEX_SQL = """
+CREATE INDEX IF NOT EXISTS trade_logs_risk_account_latest_idx
+ON trade_logs (account_epoch, timestamp DESC, id DESC)
+WHERE action = 'RISK_SNAPSHOT';
+"""
+
 INSERT_SQL = """
 INSERT INTO trade_logs (
     ticker, action, quantity, execution_price, wacc, beta, conviction_score, altman_z_score,
-    var_95, cvar_95
+    var_95, cvar_95, account_epoch, account_fingerprint
 )
-VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s);
 """
 
 CREATE_BACKTEST_CURVE_TABLE_SQL = """
@@ -219,6 +232,8 @@ def ensure_schema() -> None:
             cur.execute(CREATE_TABLE_SQL)
             cur.execute(ALTER_TABLE_ADD_ALTMAN_Z_SQL)
             cur.execute(ALTER_TABLE_ADD_VAR_CVAR_SQL)
+            cur.execute(ALTER_TRADE_LOGS_ACCOUNT_PROVENANCE_SQL)
+            cur.execute(CREATE_RISK_ACCOUNT_INDEX_SQL)
             cur.execute(CREATE_BACKTEST_CURVE_TABLE_SQL)
             cur.execute(CREATE_REBALANCE_RUN_EVENTS_TABLE_SQL)
             cur.execute(ALTER_REBALANCE_RUN_EVENTS_DIAGNOSTICS_SQL)
@@ -241,6 +256,8 @@ def log_trade(
     altman_z_score: Optional[float],
     var_95: Optional[float] = None,
     cvar_95: Optional[float] = None,
+    account_epoch: Optional[str] = None,
+    account_fingerprint: Optional[str] = None,
 ) -> None:
     """
     Record one executed trade (or, for `var_95`/`cvar_95`, a portfolio-
@@ -269,6 +286,9 @@ def log_trade(
             this None.
         cvar_95: Portfolio-level 95% Monte Carlo CVaR (Expected Shortfall),
             same caveat as `var_95`.
+        account_epoch: Non-secret paper-account generation label on a risk
+            snapshot. Legacy rows and ordinary trades leave it NULL.
+        account_fingerprint: One-way account-ID fingerprint on a risk snapshot.
 
     Raises:
         RuntimeError: If `DATABASE_URL` is not set.
@@ -295,6 +315,8 @@ def log_trade(
                     _to_native_float(altman_z_score),
                     _to_native_float(var_95),
                     _to_native_float(cvar_95),
+                    account_epoch,
+                    account_fingerprint,
                 ),
             )
         conn.commit()

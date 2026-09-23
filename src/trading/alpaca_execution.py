@@ -261,6 +261,7 @@ from src.trading.run_health import (
     OrderLedger,
     RunOutcome,
     StrategyDecision,
+    UNLABELLED_ACCOUNT_EPOCH,
     account_fingerprint,
     append_run_event,
     classify_run_outcome,
@@ -273,6 +274,7 @@ from src.valuation.piotroski import calculate_f_score
 from src.valuation.technical import calculate_rsi
 
 logger = logging.getLogger(__name__)
+PROJECT_ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
 
 # The current run's order ledger (see run_health.OrderLedger). Every order
 # site records into it; outside a run a throwaway ledger absorbs records.
@@ -422,7 +424,7 @@ def load_config() -> AlpacaConfig:
             APCA_API_BASE_URL is missing, or if the endpoint isn't the
             paper host.
     """
-    load_dotenv()
+    load_dotenv(dotenv_path=PROJECT_ENV_PATH)
 
     api_key = os.getenv("APCA_API_KEY_ID")
     secret_key = os.getenv("APCA_API_SECRET_KEY")
@@ -991,6 +993,8 @@ def _safe_log_trade(
     altman_z_score: Optional[float],
     var_95: Optional[float] = None,
     cvar_95: Optional[float] = None,
+    account_epoch: Optional[str] = None,
+    account_fingerprint: Optional[str] = None,
 ) -> None:
     """
     Call `log_trade`, but never let a telemetry failure (e.g. Postgres
@@ -1013,6 +1017,8 @@ def _safe_log_trade(
             altman_z_score=altman_z_score,
             var_95=var_95,
             cvar_95=cvar_95,
+            account_epoch=account_epoch,
+            account_fingerprint=account_fingerprint,
         )
     except Exception as exc:  # noqa: BLE001 - telemetry must never block execution
         logger.warning("Trade telemetry logging failed for %s %s: %s", action, ticker, exc)
@@ -2312,15 +2318,19 @@ def _safe_append_run_event(event: RunHealthEvent) -> None:
         )
 
 
-def _run_rebalance(args: argparse.Namespace) -> PipelineCompletion:
+def _run_rebalance(
+    args: argparse.Namespace, account_epoch: str = UNLABELLED_ACCOUNT_EPOCH
+) -> PipelineCompletion:
     token = _ORDER_LEDGER.set(OrderLedger())
     try:
-        return _run_rebalance_with_ledger(args)
+        return _run_rebalance_with_ledger(args, account_epoch=account_epoch)
     finally:
         _ORDER_LEDGER.reset(token)
 
 
-def _run_rebalance_with_ledger(args: argparse.Namespace) -> PipelineCompletion:
+def _run_rebalance_with_ledger(
+    args: argparse.Namespace, account_epoch: str = UNLABELLED_ACCOUNT_EPOCH
+) -> PipelineCompletion:
     # Fails closed (raises RuntimeError -> sys.exit(1) below) unless
     # APCA_API_BASE_URL is exactly Alpaca's paper endpoint — see
     # `load_config`'s docstring: there is no bypass of any kind. No
@@ -2545,6 +2555,8 @@ def _run_rebalance_with_ledger(args: argparse.Namespace) -> PipelineCompletion:
             altman_z_score=None,
             var_95=risk_result.var_95 if risk_result.is_ok else None,
             cvar_95=risk_result.cvar_95 if risk_result.is_ok else None,
+            account_epoch=account_epoch,
+            account_fingerprint=account_fingerprint(getattr(account, "id", None)),
         )
 
     execution_complete = _execution_records_complete(
@@ -2598,6 +2610,9 @@ def main() -> None:
         help=f"Number of top Conviction Score tickers to hold (default: {DEFAULT_TOP_N}). Must be a positive integer.",
     )
     args = parser.parse_args()
+    # Read only this checkout's .env before capturing the account epoch in
+    # the immutable run identity. Never search parent worktrees for secrets.
+    load_dotenv(dotenv_path=PROJECT_ENV_PATH)
     identity = RunIdentity.from_environment(dry_run=args.dry_run)
 
     try:
@@ -2610,7 +2625,7 @@ def main() -> None:
     )
 
     try:
-        completion = _run_rebalance(args)
+        completion = _run_rebalance(args, account_epoch=identity.account_epoch)
     except Exception as exc:
         _safe_append_run_event(
             RunHealthEvent(

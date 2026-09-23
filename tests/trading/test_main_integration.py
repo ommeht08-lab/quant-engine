@@ -24,6 +24,7 @@ from alpaca.common.exceptions import APIError
 from src.backtesting.historical_tester import TickerAnalysis
 from src.risk.monte_carlo import VaRResult
 from src.trading import alpaca_execution as engine
+from src.trading.run_health import account_fingerprint
 from tests.conftest import FakeTradingClient, make_position
 
 
@@ -190,6 +191,46 @@ class TestFullOrchestration:
         assert completed.orders_filled == 4
         assert completed.orders_partially_filled == 0
         assert completed.run_outcome == engine.RunOutcome.ORDERS_FILLED
+
+    def test_risk_snapshot_and_run_receipt_share_the_new_account_identity(self, monkeypatch):
+        client, _, logged_trades, _, _, run_events = self._build(monkeypatch)
+        original_get_account = client.get_account
+
+        def account_with_id():
+            account = original_get_account()
+            account.id = "new-paper-account-id"
+            return account
+
+        monkeypatch.setattr(client, "get_account", account_with_id)
+        monkeypatch.setenv("ALPACA_ACCOUNT_EPOCH", "alpaca-paper-100k-v1")
+        monkeypatch.setattr(engine.sys, "argv", ["alpaca_execution.py"])
+
+        engine.main()
+
+        snapshot = next(row for row in logged_trades if row["action"] == "RISK_SNAPSHOT")
+        expected_fingerprint = account_fingerprint("new-paper-account-id")
+        assert snapshot["account_epoch"] == "alpaca-paper-100k-v1"
+        assert snapshot["account_fingerprint"] == expected_fingerprint
+        assert run_events[-1].identity.account_epoch == "alpaca-paper-100k-v1"
+        assert run_events[-1].account_fingerprint == expected_fingerprint
+
+    def test_main_loads_only_its_own_env_before_capturing_account_epoch(self, monkeypatch):
+        _, _, logged_trades, _, _, run_events = self._build(monkeypatch)
+        monkeypatch.delenv("ALPACA_ACCOUNT_EPOCH", raising=False)
+
+        def load_project_env(*, dotenv_path):
+            assert dotenv_path == engine.PROJECT_ENV_PATH
+            monkeypatch.setenv("ALPACA_ACCOUNT_EPOCH", "alpaca-paper-100k-v1")
+
+        monkeypatch.setattr(engine, "load_dotenv", load_project_env)
+        monkeypatch.setattr(engine.sys, "argv", ["alpaca_execution.py"])
+
+        engine.main()
+
+        assert run_events[0].identity.account_epoch == "alpaca-paper-100k-v1"
+        assert next(row for row in logged_trades if row["action"] == "RISK_SNAPSHOT")["account_epoch"] == (
+            "alpaca-paper-100k-v1"
+        )
 
     def test_dry_run_never_submits_orders_or_publishes_sector_medians(self, monkeypatch, caplog):
         caplog.set_level(logging.INFO, logger="src.trading.alpaca_execution")
