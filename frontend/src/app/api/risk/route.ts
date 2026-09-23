@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { Pool } from "pg";
 import { cacheAside } from "@/lib/redis";
 import { requireSession } from "@/lib/auth";
+import { ACCOUNT_RISK_QUERY, configuredRiskEpoch, riskCacheKey } from "@/lib/risk-account";
+
+export const dynamic = "force-dynamic";
 
 // A pg.Pool is stashed on `globalThis` (not a plain module-level variable)
 // so it survives Next.js dev-server HMR reloads instead of leaking a new
@@ -21,15 +24,15 @@ function getPool(): Pool {
   return global._riskPgPool;
 }
 
-/** Postgres error code for "relation does not exist". */
-const UNDEFINED_TABLE = "42P01";
+/** No risk row for this account yet, or the additive schema has not run. */
+const MISSING_RISK_SCHEMA = new Set(["42P01", "42703"]);
 
-function isUndefinedTableError(error: unknown): boolean {
+function isMissingRiskSchemaError(error: unknown): boolean {
   return (
     typeof error === "object" &&
     error !== null &&
     "code" in error &&
-    (error as { code?: string }).code === UNDEFINED_TABLE
+    MISSING_RISK_SCHEMA.has((error as { code?: string }).code ?? "")
   );
 }
 
@@ -47,7 +50,6 @@ export interface RiskMetricsUnavailable {
 
 export type RiskMetrics = RiskMetricsOk | RiskMetricsUnavailable;
 
-const CACHE_KEY = "risk:latest";
 // 5 minutes: long enough to meaningfully cut repeated-load DB traffic,
 // short enough that a fresh live-trading run's risk snapshot becomes
 // visible again without needing manual invalidation.
@@ -57,22 +59,18 @@ const CACHE_TTL_SECONDS = 300;
  * Fetch the most recently logged portfolio-level risk snapshot — the
  * synthetic "RISK_SNAPSHOT" row appended by the Python trading engine's
  * `src.trading.alpaca_execution` as the final `log_trade` call of every
- * live (non-dry-run) invocation, whether or not VaR was computable that
- * run (see `src.risk.monte_carlo.VaRResult`). `var_95`/`cvar_95` are
+ * live (non-dry-run) invocation for the configured account, whether or not
+ * VaR was computable that run (see `src.risk.monte_carlo.VaRResult`).
+ * `var_95`/`cvar_95` are
  * NULL on the row when VaR was unavailable — that's surfaced as
  * `status: "unavailable"`, distinct from `null` here, which means no
- * live run has EVER logged a snapshot (a normal, different empty state).
- * `trade_logs` not existing yet degrades the same way.
+ * live run has logged a snapshot for this account. Legacy unlabelled rows
+ * are excluded. A not-yet-migrated `trade_logs` table also yields no snapshot.
  */
-async function fetchLatestRisk(): Promise<RiskMetrics | null> {
+async function fetchLatestRisk(epoch: string): Promise<RiskMetrics | null> {
   const pool = getPool();
   try {
-    const { rows } = await pool.query(
-      `SELECT timestamp, var_95, cvar_95 FROM trade_logs
-       WHERE action = 'RISK_SNAPSHOT'
-       ORDER BY timestamp DESC
-       LIMIT 1`
-    );
+    const { rows } = await pool.query(ACCOUNT_RISK_QUERY, [epoch]);
     if (rows.length === 0) return null;
 
     const row = rows[0];
@@ -89,7 +87,8 @@ async function fetchLatestRisk(): Promise<RiskMetrics | null> {
       asOf,
     };
   } catch (error) {
-    if (isUndefinedTableError(error)) {
+    if (isMissingRiskSchemaError(error)) {
+      console.warn("Account-scoped risk schema is not available yet.");
       return null;
     }
     throw error;
@@ -99,11 +98,11 @@ async function fetchLatestRisk(): Promise<RiskMetrics | null> {
 /**
  * GET /api/risk
  *
- * Returns the latest recorded portfolio risk snapshot as a `RiskMetrics`
+ * Returns this configured paper account's latest risk snapshot as a `RiskMetrics`
  * (see above for the "ok" / "unavailable" discriminated union), cached
  * (cache-aside) in Upstash Redis for CACHE_TTL_SECONDS. Responds with
- * `null` (200 OK) — not an error — only if no live trading run has ever
- * logged a snapshot.
+ * `null` (200 OK) when no tagged snapshot exists for this account. It never
+ * falls back to an unlabelled or other-account row.
  */
 export async function GET() {
   if (!(await requireSession())) {
@@ -117,8 +116,16 @@ export async function GET() {
     );
   }
 
+  const epoch = configuredRiskEpoch(process.env.ALPACA_ACCOUNT_EPOCH);
+  if (!epoch) {
+    return NextResponse.json(
+      { error: "Account-specific risk is not configured for this deployment." },
+      { status: 503 }
+    );
+  }
+
   try {
-    const data = await cacheAside(CACHE_KEY, CACHE_TTL_SECONDS, fetchLatestRisk);
+    const data = await cacheAside(riskCacheKey(epoch), CACHE_TTL_SECONDS, () => fetchLatestRisk(epoch));
     return NextResponse.json(data);
   } catch (error) {
     console.error("Failed to fetch latest risk metrics:", error);

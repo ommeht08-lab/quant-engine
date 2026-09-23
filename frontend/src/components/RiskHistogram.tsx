@@ -160,8 +160,8 @@ export default function RiskHistogram() {
 
       {!isLoading && !error && !risk && (
         <div className="empty-state py-12 text-center">
-          <strong className="block text-[var(--paper-muted)]">Risk monitoring is awaiting its first recorded calculation.</strong>
-          <span className="mt-1 block">This panel remains empty until a completed paper execution records a portfolio risk snapshot. Do not run trading solely to populate it.</span>
+          <strong className="block text-[var(--paper-muted)]">No risk snapshot yet for this paper account.</strong>
+          <span className="mt-1 block">A scheduled paper run will record one after its risk calculation. No trade needs to be placed just to populate this panel.</span>
         </div>
       )}
 

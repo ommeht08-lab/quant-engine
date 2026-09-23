@@ -76,8 +76,8 @@ npm run dev
 
 Both the Python engine and the frontend need their own local `.env` file — Next.js only loads environment variables from its own directory, not the project root, so credentials have to be duplicated across both.
 
-- **Root `.env`** (copy from `.env.example`): Alpaca paper trading credentials (`APCA_API_KEY_ID`, `APCA_API_SECRET_KEY`, `APCA_API_BASE_URL`) and a Supabase Postgres connection string (`DATABASE_URL`). The Alpaca keys should be **paper trading** keys — this project never places live trades.
-- **`frontend/.env.local`** (copy from `frontend/.env.local.example`): the same `DATABASE_URL`, plus the same Alpaca credentials again — the dashboard's live portfolio allocation view calls Alpaca's REST API directly from a Next.js API route.
+- **Root `.env`** (copy from `.env.example`): Alpaca paper trading credentials (`APCA_API_KEY_ID`, `APCA_API_SECRET_KEY`, `APCA_API_BASE_URL`), the non-secret `ALPACA_ACCOUNT_EPOCH`, and a Supabase Postgres connection string (`DATABASE_URL`). The Alpaca keys should be **paper trading** keys — this project never places live trades.
+- **`frontend/.env.local`** (copy from `frontend/.env.local.example`): the same `DATABASE_URL` and Alpaca credentials, plus the same account epoch. The dashboard's live portfolio allocation view calls Alpaca's REST API directly from a Next.js API route; its risk panel uses the epoch to hide old-account snapshots. Set `ALPACA_ACCOUNT_EPOCH=alpaca-paper-100k-v1` in Vercel as well before releasing the account-scoped risk panel.
 
 Both `.env` files are already covered by `.gitignore` and should never be committed.
 
