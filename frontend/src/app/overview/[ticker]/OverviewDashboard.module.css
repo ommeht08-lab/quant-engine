@@ -32,6 +32,8 @@
 .tickerStrip button[aria-current="page"] { background: #1d2740; color: #8296ff; }
 .tickerStrip strong { font: 600 12px/1 var(--font-plex-mono); }
 .tickerStrip small { overflow: hidden; color: var(--dash-dim); font-family: var(--font-outfit); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.provenance { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin-bottom: 18px; padding: 11px 2px; border-block: 1px solid var(--dash-border); color: var(--dash-dim); font: 500 10px/1.35 var(--font-outfit); }
+.provenance strong { color: #8ea2ff; font: 600 9px/1 var(--font-plex-mono); letter-spacing: .1em; text-transform: uppercase; }
 .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
 .metricCard { min-width: 0; padding: 18px 19px 16px; border: 1px solid var(--dash-border); border-radius: 5px; background: var(--dash-surface); }
 .metricTop { display: flex; align-items: center; justify-content: space-between; gap: 12px; color: var(--dash-muted); font-family: var(--font-outfit); font-size: 12px; font-weight: 500; }

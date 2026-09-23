@@ -46,6 +46,8 @@ import os
 import time
 import uuid
 from contextlib import asynccontextmanager
+from datetime import date, datetime, timezone
+from decimal import Decimal
 from typing import List, Literal, Optional
 
 from dotenv import load_dotenv
@@ -64,7 +66,16 @@ from src.dcf_model.dcf import DCFAssumptions, MultiStageForecastPolicy, run_dcf_
 from src.dcf_model.quality import ValuationQuality, assess_valuation_quality
 from src.dcf_model.scenarios import ScenarioInputs, ScenarioResult, compute_dcf_scenarios
 from src.dcf_model.sensitivity import compute_dcf_sensitivity
+from src.fundamentals.issuer_manifest import IssuerValuationPolicy
+from src.fundamentals.store import PostgresFundamentalsRepository
+from src.fundamentals.valuation_integration import ValuationMarketObservations
 from src.utils.macro import get_risk_free_rate
+from src.valuation_input import (
+    SecValuationInputAdapter,
+    ValuationInputLoader,
+    ValuationInputSource,
+    YahooValuationInputAdapter,
+)
 
 # --- Structured logging -----------------------------------------------
 #
@@ -248,6 +259,42 @@ _configure_logging()
 load_dotenv()
 
 VALUATION_API_TOKEN_ENV_VAR = "VALUATION_API_TOKEN"
+
+
+def _live_market_observations(
+    ticker: str,
+    policy: IssuerValuationPolicy,
+    knowledge_cutoff: datetime,
+) -> ValuationMarketObservations:
+    """Fetch market-only fields for an explicit SEC-backed live valuation."""
+
+    data = fetch_company_financials(ticker)
+    required = ("current_price", "shares_outstanding", "beta")
+    missing = [field for field in required if data.get(field) is None]
+    if missing:
+        raise ValueError("Required market observations are unavailable.")
+    return ValuationMarketObservations(
+        cik=policy.cik,
+        ticker=ticker,
+        observed_at=knowledge_cutoff,
+        current_price=Decimal(str(data["current_price"])),
+        current_shares_outstanding=Decimal(str(data["shares_outstanding"])),
+        levered_beta=Decimal(str(data["beta"])),
+        sector=data.get("sector") or "Unknown",
+        risk_free_rate=Decimal(str(get_risk_free_rate())),
+        equity_source_adapter="yahoo_finance_live_at_request",
+        risk_free_rate_source_adapter="yahoo_finance_tnx_live_at_request",
+    )
+
+
+def _live_valuation_input_loader() -> ValuationInputLoader:
+    return ValuationInputLoader(
+        yahoo_adapter=YahooValuationInputAdapter(fetcher=fetch_company_financials),
+        sec_adapter=SecValuationInputAdapter(
+            repository=PostgresFundamentalsRepository(),
+            market_observation_loader=_live_market_observations,
+        ),
+    )
 
 # Kept in exact sync with frontend/src/lib/secret-validation.ts's
 # VALUATION_API_TOKEN_REQUIREMENT — both sides validate the SAME token
@@ -566,6 +613,24 @@ class CapexDerivationModel(BaseModel):
     reason: str
 
 
+class ValuationInputProvenanceModel(BaseModel):
+    """Statement-source decision and reproducibility coordinates."""
+
+    source: Literal["sec", "yahoo"]
+    source_selection_reason: str
+    knowledge_cutoff: datetime
+    data_vintage_cutoff: datetime
+    statement_period_start: Optional[date]
+    statement_period_end: date
+    policy_version: str
+    source_adapter: str
+    issuer_manifest_version: str
+    concept_map_version: Optional[str]
+    fiscal_calendar_version: Optional[str]
+    ingestion_batch_ids: List[str]
+    filing_accessions: List[str]
+
+
 class EvaluationResponse(BaseModel):
     """Response payload for GET /api/evaluate/{ticker}."""
 
@@ -607,6 +672,7 @@ class EvaluationResponse(BaseModel):
     capex_derivation: Optional[CapexDerivationModel] = None
     sensitivity: DCFSensitivityMatrix
     scenarios: DCFScenarioSet
+    valuation_input_provenance: ValuationInputProvenanceModel
 
 
 class MarketHistoryPoint(BaseModel):
@@ -742,6 +808,13 @@ def market_history(ticker: str) -> MarketHistoryResponse:
 @app.get("/api/evaluate/{ticker}", response_model=EvaluationResponse, dependencies=[Depends(require_service_token)])
 def evaluate_ticker(
     ticker: str,
+    source: Literal["auto", "sec", "yahoo"] = Query(
+        "auto",
+        description=(
+            "Statement source policy. Auto uses SEC only after issuer-specific "
+            "approval; an SEC refusal never falls back silently to Yahoo."
+        ),
+    ),
     forecast_mode: Literal["constant", "maturation"] = Query(
         "constant", description="Forecast policy. Trading and older callers retain the constant default."
     ),
@@ -895,10 +968,19 @@ def evaluate_ticker(
             the DCF cannot be run.
         HTTPException(500): For any other unexpected failure.
     """
-    try:
-        financial_data = fetch_company_financials(ticker)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    request_cutoff = datetime.now(timezone.utc)
+    input_result = _live_valuation_input_loader().load(
+        ticker=ticker,
+        knowledge_cutoff=request_cutoff,
+        data_vintage_cutoff=request_cutoff,
+        source=ValuationInputSource(source),
+    )
+    if not input_result.is_complete:
+        issue = input_result.issues[0]
+        status_code = 400 if issue.code.value == "invalid_request" else 422
+        raise HTTPException(status_code=status_code, detail=issue.message)
+    valuation_input = input_result.valuation_input
+    financial_data = valuation_input.financial_data
 
     revenue_growth_rate_source = "custom" if revenue_growth_rate is not None else "historical"
     operating_margin_source = "custom" if operating_margin is not None else "historical"
@@ -1088,5 +1170,20 @@ def evaluate_ticker(
             bear=_scenario_result_to_model(scenarios.bear),
             base=_scenario_result_to_model(scenarios.base),
             bull=_scenario_result_to_model(scenarios.bull),
+        ),
+        valuation_input_provenance=ValuationInputProvenanceModel(
+            source=valuation_input.provenance.source.value,
+            source_selection_reason=valuation_input.provenance.source_selection_reason,
+            knowledge_cutoff=valuation_input.provenance.knowledge_cutoff,
+            data_vintage_cutoff=valuation_input.provenance.data_vintage_cutoff,
+            statement_period_start=valuation_input.provenance.statement_period_start,
+            statement_period_end=valuation_input.provenance.statement_period_end,
+            policy_version=valuation_input.provenance.policy_version,
+            source_adapter=valuation_input.provenance.source_adapter,
+            issuer_manifest_version=valuation_input.provenance.issuer_manifest_version,
+            concept_map_version=valuation_input.provenance.concept_map_version,
+            fiscal_calendar_version=valuation_input.provenance.fiscal_calendar_version,
+            ingestion_batch_ids=list(valuation_input.provenance.ingestion_batch_ids),
+            filing_accessions=list(valuation_input.provenance.filing_accessions),
         ),
     )

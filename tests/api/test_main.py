@@ -12,6 +12,8 @@ the independent review found. No network: `fetch_company_financials` and
 process.
 """
 
+from types import SimpleNamespace
+
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
@@ -93,6 +95,47 @@ def test_market_history_endpoint_returns_real_daily_close_shape(client, monkeypa
     assert body["source"] == "Yahoo Finance"
     assert [point["close"] for point in body["points"]] == [185.5, 187.25]
     assert body["asOf"] == body["points"][-1]["date"]
+
+
+def test_evaluation_reports_yahoo_source_and_explicit_auto_reason(client):
+    response = client.get("/api/evaluate/AAPL")
+
+    assert response.status_code == 200
+    provenance = response.json()["valuation_input_provenance"]
+    assert provenance["source"] == "yahoo"
+    assert "SEC automatic use is not approved" in provenance["source_selection_reason"]
+    assert provenance["statement_period_end"] == "2023-12-31"
+    assert provenance["ingestion_batch_ids"] == []
+
+
+def test_explicit_sec_request_refuses_without_yahoo_fallback(client, monkeypatch):
+    yahoo_calls = []
+    monkeypatch.setattr(
+        api_main,
+        "fetch_company_financials",
+        lambda ticker: yahoo_calls.append(ticker) or _synthetic_financial_data(),
+    )
+    monkeypatch.setattr(
+        api_main,
+        "_live_valuation_input_loader",
+        lambda: SimpleNamespace(
+            load=lambda **_kwargs: SimpleNamespace(
+                is_complete=False,
+                issues=(
+                    SimpleNamespace(
+                        code=SimpleNamespace(value="sec_snapshot_incomplete"),
+                        message="The point-in-time fundamentals store is unavailable.",
+                    ),
+                ),
+            )
+        ),
+    )
+
+    response = client.get("/api/evaluate/AAPL?source=sec")
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == "The point-in-time fundamentals store is unavailable."
+    assert yahoo_calls == []
 
 
 class TestHistoricalVsCustomAssumptionMode:
