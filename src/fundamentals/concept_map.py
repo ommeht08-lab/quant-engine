@@ -112,11 +112,49 @@ class OpeningBalanceExclusion:
 
 
 @dataclass(frozen=True)
+class BalanceCompositionRule:
+    """One issuer's consolidated balance line composed from axis members."""
+
+    cik: str
+    taxonomy: str
+    raw_tag: str
+    canonical_concept: str
+    axis: str
+    member_sets: Tuple[FrozenSet[str], ...]
+    reason: str
+    # (duplicate member, counterpart it must exactly equal); never summed.
+    equivalent_members: Tuple[Tuple[str, str], ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "cik", normalize_cik(self.cik))
+        for name in ("taxonomy", "raw_tag", "canonical_concept", "axis", "reason"):
+            value = getattr(self, name)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(f"BalanceCompositionRule.{name} must be non-empty text.")
+        sets = tuple(frozenset(members) for members in self.member_sets)
+        if not sets or any(len(members) < 2 for members in sets):
+            raise ValueError("Each declared member set must list at least two members.")
+        if len(set(sets)) != len(sets):
+            raise ValueError("Declared member sets must be distinct.")
+        object.__setattr__(self, "member_sets", sets)
+        equivalents = tuple(tuple(pair) for pair in self.equivalent_members)
+        members = frozenset().union(*sets)
+        for duplicate, counterpart in equivalents:
+            if duplicate in members or counterpart not in members:
+                raise ValueError("An equivalent member must mirror a declared member and not be one.")
+        object.__setattr__(self, "equivalent_members", equivalents)
+
+
+
+@dataclass(frozen=True)
 class ConceptMap:
     version: str
     rules: Tuple[ConceptRule, ...]
     issuer_tag_exclusions: Tuple[IssuerTagExclusion, ...] = ()
     opening_balance_exclusions: Tuple[OpeningBalanceExclusion, ...] = ()
+    # Consolidated balances composed from a filing's own XBRL instance (see
+    # adapters.sec_filing_xbrl); Company Facts omits dimensional facts.
+    balance_compositions: Tuple["BalanceCompositionRule", ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.version, str) or not self.version.strip():
@@ -200,6 +238,27 @@ class ConceptMap:
         object.__setattr__(self, "issuer_tag_exclusions", tag_exclusions)
         object.__setattr__(self, "opening_balance_exclusions", opening_exclusions)
 
+        try:
+            compositions = tuple(self.balance_compositions)
+        except TypeError:
+            raise ValueError("balance_compositions must be a collection.") from None
+        concepts_by_name = {rule.canonical_concept: rule for rule in rules}
+        seen_compositions = set()
+        for composition in compositions:
+            if not isinstance(composition, BalanceCompositionRule):
+                raise ValueError("balance_compositions must contain BalanceCompositionRule values.")
+            target = concepts_by_name.get(composition.canonical_concept)
+            if target is None or target.statement_kind is not StatementKind.BALANCE_SHEET:
+                raise ValueError(
+                    "A balance composition must target an existing balance-sheet concept: "
+                    f"{composition.canonical_concept!r}."
+                )
+            key = (composition.cik, composition.canonical_concept)
+            if key in seen_compositions:
+                raise ValueError("Only one composition per issuer and concept is allowed.")
+            seen_compositions.add(key)
+        object.__setattr__(self, "balance_compositions", compositions)
+
     def rule_for(self, taxonomy: str, raw_tag: str) -> Optional[ConceptRule]:
         for rule in self.rules:
             if rule.taxonomy == taxonomy and rule.raw_tag == raw_tag:
@@ -216,6 +275,10 @@ class ConceptMap:
             if exclusion.cik == normalized_cik
         }
         return tuple(rule for rule in self.rules if raw_keys_for(rule) not in excluded)
+
+    def balance_compositions_for(self, cik: str) -> Tuple["BalanceCompositionRule", ...]:
+        normalized_cik = normalize_cik(cik)
+        return tuple(rule for rule in self.balance_compositions if rule.cik == normalized_cik)
 
     def opening_balance_tags_for(self, cik: str) -> FrozenSet[Tuple[str, str]]:
         """Instant tags whose fiscal-year-start values are this issuer's opening balances."""
@@ -502,9 +565,55 @@ SEC_CONCEPT_MAP_V3 = ConceptMap(
     ),
 )
 
+_CATERPILLAR_PRODUCT_MEMBER_SETS = (
+    # Machinery, Energy & Transportation + Financial Products (through FY2025 Q3).
+    frozenset({"cat:MachineryEnergyTransportationMember", "cat:FinancialProductsMember"}),
+    # The same two lines after the FY2025 10-K renamed ME&T.
+    frozenset({"cat:MachineryPowerEnergyMember", "cat:FinancialProductsMember"}),
+)
+_CATERPILLAR_EQUIVALENT_MEMBERS = (
+    # 10-K segment-note facts mirror Financial Products on the same axis.
+    ("cat:FinancialProductsSegmentMember", "cat:FinancialProductsMember"),
+)
+
+# Version 4 keeps every Version 3 policy and adds Caterpillar's term debt,
+# which its filings tag only as Machinery, Energy & Transportation plus
+# Financial Products members of srt:ProductOrServiceAxis. The two members are
+# the complete consolidated line: they reconcile exactly to reported total
+# current liabilities and total liabilities, and at every year-end to the
+# filing's own consolidated LongTermDebtNoncurrent.
+SEC_CONCEPT_MAP_V4 = ConceptMap(
+    version="sec-companyfacts-v4",
+    rules=SEC_CONCEPT_MAP_V3.rules,
+    issuer_tag_exclusions=SEC_CONCEPT_MAP_V3.issuer_tag_exclusions,
+    opening_balance_exclusions=SEC_CONCEPT_MAP_V3.opening_balance_exclusions,
+    balance_compositions=(
+        BalanceCompositionRule(
+            cik=_CATERPILLAR_CIK,
+            taxonomy="us-gaap",
+            raw_tag="LongTermDebtAndCapitalLeaseObligationsCurrent",
+            canonical_concept="current_debt",
+            axis="srt:ProductOrServiceAxis",
+            member_sets=_CATERPILLAR_PRODUCT_MEMBER_SETS,
+            equivalent_members=_CATERPILLAR_EQUIVALENT_MEMBERS,
+            reason="Consolidated 'Long-term debt due within one year' is tagged only by line of business.",
+        ),
+        BalanceCompositionRule(
+            cik=_CATERPILLAR_CIK,
+            taxonomy="us-gaap",
+            raw_tag="LongTermDebtAndCapitalLeaseObligations",
+            canonical_concept="long_term_debt",
+            axis="srt:ProductOrServiceAxis",
+            member_sets=_CATERPILLAR_PRODUCT_MEMBER_SETS,
+            equivalent_members=_CATERPILLAR_EQUIVALENT_MEMBERS,
+            reason="Consolidated 'Long-term debt due after one year' is tagged only by line of business.",
+        ),
+    ),
+)
+
 SEC_CONCEPT_MAPS_BY_VERSION: Dict[str, ConceptMap] = {
     concept_map.version: concept_map
-    for concept_map in (SEC_CONCEPT_MAP_V1, SEC_CONCEPT_MAP_V2, SEC_CONCEPT_MAP_V3)
+    for concept_map in (SEC_CONCEPT_MAP_V1, SEC_CONCEPT_MAP_V2, SEC_CONCEPT_MAP_V3, SEC_CONCEPT_MAP_V4)
 }
 
 # The mapping policy each issuer is ingested and read under. Apple stays on
@@ -514,7 +623,8 @@ SEC_ISSUER_CONCEPT_MAP_VERSIONS: Dict[str, str] = {
     "0000320193": SEC_CONCEPT_MAP_V2.version,
     "0000789019": SEC_CONCEPT_MAP_V3.version,
     _WALMART_CIK: SEC_CONCEPT_MAP_V3.version,
-    _CATERPILLAR_CIK: SEC_CONCEPT_MAP_V3.version,
+    # Version 4 requires a re-backfill before Caterpillar is SEC-history ready.
+    _CATERPILLAR_CIK: SEC_CONCEPT_MAP_V4.version,
 }
 
 

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Dict, Tuple
 
 from .adapters.sec_companyfacts import SOURCE_ADAPTER
+from .adapters.sec_filing_xbrl import SOURCE_ADAPTER as FILING_XBRL_SOURCE_ADAPTER
 from .calendar_catalog import SEC_FISCAL_CALENDAR_CATALOG_V1
 from .concept_map import SEC_CONCEPT_MAP_V2, concept_map_for_issuer
 from .types import normalize_cik
@@ -31,6 +32,9 @@ class IssuerValuationPolicy:
     source_adapter: str = SOURCE_ADAPTER
     concept_map_version: str = SEC_CONCEPT_MAP_V2.version
     composition_policy_version: str = SEC_DCF_POLICY_VERSION
+    # Additional SEC sources this issuer's concept map requires (for example
+    # consolidated balances composed from filing XBRL).
+    supplemental_source_adapters: Tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         ticker = self.ticker.strip().upper() if isinstance(self.ticker, str) else ""
@@ -52,6 +56,10 @@ def _calendar_version(cik: str) -> str:
 
 def _concept_map_version(cik: str) -> str:
     return concept_map_for_issuer(cik).version
+
+
+def _supplemental_source_adapters(cik: str) -> Tuple[str, ...]:
+    return (FILING_XBRL_SOURCE_ADAPTER,) if concept_map_for_issuer(cik).balance_compositions_for(cik) else ()
 
 
 SEC_ISSUER_MANIFEST_V1: Tuple[IssuerValuationPolicy, ...] = (
@@ -98,12 +106,15 @@ SEC_ISSUER_MANIFEST_V1: Tuple[IssuerValuationPolicy, ...] = (
         cik="0000018230",
         fiscal_calendar_version=_calendar_version("0000018230"),
         concept_map_version=_concept_map_version("0000018230"),
-        sec_history_ready=True,
+        supplemental_source_adapters=_supplemental_source_adapters("0000018230"),
+        # Batch backfill-18230-35778836391-1 (v3) lacks term debt, so SEC
+        # valuation refused; v4 composes it from filing XBRL and needs its own
+        # verified backfill before this issuer is SEC-history ready again.
+        sec_history_ready=False,
         sec_live_approved=False,
         readiness_reason=(
-            "SEC history is published in batch backfill-18230-35778836391-1 and verified at the "
-            "2024-09-03 and publish cutoffs (Actions run 35778836391), but the repeated "
-            "shadow-cutover evidence gate has not approved automatic live use."
+            "Concept map sec-companyfacts-v4 composes consolidated term debt from filing "
+            "XBRL; SEC history is not ready until a v4 backfill is published and verified."
         ),
     ),
 )

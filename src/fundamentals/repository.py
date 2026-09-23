@@ -36,6 +36,9 @@ class FundamentalsQuery:
     concept_map_version: str
     fiscal_calendar_version: str
     max_periods_per_statement: int = 8
+    # Declared additional SEC sources for the same issuer policy (for example
+    # balances composed from filing XBRL); empty for single-source issuers.
+    supplemental_source_adapters: Tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "cik", normalize_cik(self.cik))
@@ -51,6 +54,15 @@ class FundamentalsQuery:
             raise ValueError("FundamentalsQuery.max_periods_per_statement must be positive.")
 
         _require_nonempty_text("FundamentalsQuery.source_adapter", self.source_adapter)
+        try:
+            supplemental = tuple(self.supplemental_source_adapters)
+        except TypeError:
+            raise ValueError("supplemental_source_adapters must be a collection.") from None
+        for adapter in supplemental:
+            _require_nonempty_text("FundamentalsQuery supplemental source adapter", adapter)
+        if len(set(supplemental)) != len(supplemental) or self.source_adapter in supplemental:
+            raise ValueError("Source adapters must be distinct.")
+        object.__setattr__(self, "supplemental_source_adapters", tuple(sorted(supplemental)))
         _require_nonempty_text("FundamentalsQuery.concept_map_version", self.concept_map_version)
         _require_nonempty_text(
             "FundamentalsQuery.fiscal_calendar_version", self.fiscal_calendar_version
@@ -66,6 +78,10 @@ class FundamentalsQuery:
         if len(concepts) != len(set(concepts)):
             raise ValueError("FundamentalsQuery.concepts must not contain duplicates.")
         object.__setattr__(self, "concepts", tuple(sorted(concepts)))
+
+    @property
+    def source_adapters(self) -> Tuple[str, ...]:
+        return (self.source_adapter,) + self.supplemental_source_adapters
 
 
 class FundamentalsRepository(Protocol):
@@ -184,7 +200,7 @@ class InMemoryFundamentalsRepository:
             and fact.identity.concept in concepts
             and fact.provenance.eligible_at <= query.knowledge_cutoff
             and fact.lineage.ingested_at <= query.data_vintage_cutoff
-            and fact.lineage.source_adapter == query.source_adapter
+            and fact.lineage.source_adapter in query.source_adapters
             and fact.lineage.concept_map_version == query.concept_map_version
             and fact.lineage.fiscal_calendar_version == query.fiscal_calendar_version
         )

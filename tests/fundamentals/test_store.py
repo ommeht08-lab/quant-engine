@@ -182,7 +182,7 @@ class TestPostgresFundamentalsRepository:
             (
                 query.cik,
                 list(query.concepts),
-                query.source_adapter,
+                [query.source_adapter],
                 query.concept_map_version,
                 query.fiscal_calendar_version,
                 query.knowledge_cutoff,
@@ -245,7 +245,7 @@ class TestAppendFacts:
             lambda *args, **kwargs: pytest.fail("invalid batch must not connect"),
         )
 
-        with pytest.raises(ValueError, match="one source, mapping version, calendar version, batch ID"):
+        with pytest.raises(FundamentalsPublishError, match="source-qualified batch ID"):
             append_facts((_fact(batch_id="a"), _fact(batch_id="b")), database_url="unused")
 
     def test_creates_schema_and_commits_one_atomic_batch(self, monkeypatch):

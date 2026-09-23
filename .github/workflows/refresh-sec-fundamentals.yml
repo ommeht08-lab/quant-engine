@@ -64,8 +64,9 @@ jobs:
             cik: "789019"
           - issuer: wmt
             cik: "104169"
-          - issuer: cat
-            cik: "18230"
+          # CAT is excluded: concept map sec-companyfacts-v4 composes its term
+          # debt from filing XBRL, and CAT stays off this schedule until a
+          # manual v4 backfill is published and verified.
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7

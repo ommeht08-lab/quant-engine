@@ -401,6 +401,18 @@ def build_sec_quality_statements(history: FundamentalHistory) -> Optional[SecQua
     )
 
 
+def describe_quality_gap(history: FundamentalHistory) -> str:
+    """Name what ``build_sec_quality_statements`` could not find."""
+
+    quarterly = assemble_quarterly_fundamentals(
+        history, required_concepts=_QUALITY_FLOW_REQUIRED, optional_concepts=_QUALITY_FLOW_OPTIONAL
+    )
+    if not quarterly.is_complete:
+        issue = quarterly.issues[0]
+        return f"{issue.concept or 'flows'} ({issue.code.value})"
+    return "no comparable period one year earlier"
+
+
 def load_sec_quality_history(
     repository, policy: IssuerValuationPolicy, knowledge_cutoff: datetime, data_vintage_cutoff: datetime
 ) -> FundamentalHistory:
@@ -414,6 +426,7 @@ def load_sec_quality_history(
             concept_map_version=policy.concept_map_version,
             fiscal_calendar_version=policy.fiscal_calendar_version,
             max_periods_per_statement=64,
+            supplemental_source_adapters=policy.supplemental_source_adapters,
         )
     )
     return select_point_in_time(facts, knowledge_cutoff, cik=policy.cik)
@@ -508,7 +521,9 @@ def decide_portfolio(
             record.reason = f"SEC quality history unavailable: {error}"
         record.sec_provenance = _provenance_dict(valuation_input.provenance, quality)
         if quality is None:
-            record.reason = record.reason or "SEC quality statements are incomplete at the cutoff."
+            record.reason = record.reason or (
+                "SEC quality statements are incomplete at the cutoff: " + describe_quality_gap(history)
+            )
             continue
         record.approximations.extend(quality.approximations)
 
