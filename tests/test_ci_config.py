@@ -327,6 +327,16 @@ class TestSecBacktestPilotWorkflow:
         for forbidden in ("APCA_", "SEC_USER_AGENT", "--publish", "UPSTASH"):
             assert forbidden not in run
 
+    def test_pins_prices_privately_and_cites_the_provisional_run(self):
+        content = self._content()
+        run = _job_block(content, "run")
+        assert 'default: "35809011675"' in content
+        assert '--github-run-id "${GITHUB_RUN_ID}"' in run
+        assert "^[0-9]+$" in run
+        assert "price_snapshot" in run
+        for forbidden in ("upload-artifact", "adjusted_open_close"):
+            assert forbidden not in content
+
     def test_runs_the_pilot_and_publishes_the_record_to_the_run(self):
         run = _job_block(self._content(), "run")
         assert "python -m src.backtesting.sec_pilot --output" in run
