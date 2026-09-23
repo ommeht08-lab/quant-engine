@@ -515,7 +515,7 @@ class TestRefreshSecFundamentalsWorkflow:
         assert "--batch-id" in block
         assert "--publish" in block
 
-    def test_publishes_the_four_verified_pilot_issuers_serially(self):
+    def test_publishes_the_ready_pilot_issuers_serially(self):
         block = _job_block(_read_refresh_sec_fundamentals_workflow(), "publish")
         assert "max-parallel: 1" in block
         assert "fail-fast: false" in block
@@ -523,9 +523,26 @@ class TestRefreshSecFundamentalsWorkflow:
             ("apple", "320193"),
             ("msft", "789019"),
             ("wmt", "104169"),
-            ("cat", "18230"),
         ):
             assert f'- issuer: {issuer}\n            cik: "{cik}"' in block
+
+    def test_schedule_cannot_publish_cat_before_its_v4_backfill_is_verified(self):
+        content = _read_refresh_sec_fundamentals_workflow()
+        code_lines = [line for line in content.splitlines() if not line.strip().startswith("#")]
+        # CAT (CIK 18230) appears nowhere in the workflow's executable content.
+        assert not any("18230" in line or "issuer: cat" in line for line in code_lines)
+        # The only CIKs the schedule can publish are the matrix entries, and the
+        # publish command takes its CIK solely from the matrix.
+        block = _job_block(content, "publish")
+        matrix_ciks = re.findall(r'^\s+cik: "(\d+)"$', block, flags=re.MULTILINE)
+        assert sorted(matrix_ciks) == ["104169", "320193", "789019"]
+        assert "ISSUER_CIK: ${{ matrix.cik }}" in block
+        assert '--cik "${ISSUER_CIK}"' in block
+        assert block.count("--cik") == 1
+        # The issuer manifest agrees: CAT is not SEC-history ready.
+        from src.fundamentals.issuer_manifest import issuer_policy_for
+
+        assert issuer_policy_for("CAT").sec_history_ready is False
 
 
 # GitHub deprecated the Node 20 runtime these action majors still ran
