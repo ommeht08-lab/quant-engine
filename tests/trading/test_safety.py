@@ -481,6 +481,29 @@ class TestHedgeIncrementalSizing:
         assert len(client.submitted_orders) == 1
         assert client.submitted_orders[0].qty == 6
 
+    def test_hedge_orders_and_market_closed_skips_are_recorded_in_the_run_ledger(self, monkeypatch):
+        from src.trading.run_health import OrderCounts, OrderLedger
+
+        self._setup(monkeypatch, target_contracts=10)
+        ledger = OrderLedger()
+        token = engine._ORDER_LEDGER.set(ledger)
+        try:
+            engine.execute_spy_var_hedge(
+                FakeTradingClient(), portfolio_var_dollars=50_000.0, equity=1_000_000.0,
+                dry_run=False, open_order_symbols=set(), existing_positions={},
+            )
+            closed = FakeTradingClient()
+            closed.market_open = False
+            engine.execute_spy_var_hedge(
+                closed, portfolio_var_dollars=50_000.0, equity=1_000_000.0,
+                dry_run=False, open_order_symbols=set(), existing_positions={},
+            )
+        finally:
+            engine._ORDER_LEDGER.reset(token)
+
+        assert [kind for kind, _symbol, _result in ledger.entries] == ["hedge", "hedge"]
+        assert ledger.counts() == OrderCounts(attempted=1, filled=1, partially_filled=0, skipped_market_closed=1)
+
     def test_over_hedged_position_buys_nothing_rather_than_negative(self, monkeypatch):
         self._setup(monkeypatch, target_contracts=5)
         client = FakeTradingClient()

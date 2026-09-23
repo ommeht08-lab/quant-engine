@@ -183,6 +183,13 @@ class TestFullOrchestration:
             engine.RunEventType.STARTED,
             engine.RunEventType.COMPLETED,
         ]
+        # CCC liquidation, AAA and BBB buys, and the AAA corrective trim all
+        # count (the hedge is stubbed in this test; see test_safety for it).
+        completed = run_events[-1]
+        assert completed.orders_attempted == 4
+        assert completed.orders_filled == 4
+        assert completed.orders_partially_filled == 0
+        assert completed.run_outcome == engine.RunOutcome.ORDERS_FILLED
 
     def test_dry_run_never_submits_orders_or_publishes_sector_medians(self, monkeypatch, caplog):
         caplog.set_level(logging.INFO, logger="src.trading.alpaca_execution")
@@ -414,3 +421,9 @@ class TestMarketClosesMidRun:
         # VaR was unavailable this run -> hedge phase never invoked at all.
         assert hedge_calls == []
         assert run_events[-1].completion_status == engine.RunCompletionStatus.INCOMPLETE
+        # Filled orders before the close are not masked by later skips.
+        completed = run_events[-1]
+        assert completed.orders_attempted == 2
+        assert completed.orders_filled == 2
+        assert completed.orders_skipped_market_closed == 2
+        assert completed.run_outcome == engine.RunOutcome.MARKET_CLOSED_AFTER_PARTIAL_EXECUTION

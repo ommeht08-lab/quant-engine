@@ -108,6 +108,9 @@ def test_append_run_event_inserts_typed_values_once(monkeypatch):
         "unlabelled",
         None,
         None,
+        False,
+        None,
+        None,
         None,
         None,
         None,
@@ -117,18 +120,26 @@ def test_append_run_event_inserts_typed_values_once(monkeypatch):
     )
 
 
+class _Order:
+    def __init__(self, status, filled_qty):
+        self.status = type("S", (), {"value": status})()
+        self.filled_qty = filled_qty
+
+
 def test_completed_event_persists_scheduler_and_order_diagnostics(monkeypatch):
     connection = FakeConnection()
     monkeypatch.setattr(run_health, "_get_database_url", lambda: "postgresql://synthetic.invalid/test")
     monkeypatch.setattr(run_health, "_connect", lambda _url: connection)
     started = datetime(2026, 9, 21, 21, 2, tzinfo=timezone.utc)
+    estimate, ambiguous = run_health.scheduled_time_estimate("37 14 * * 1-5", started)
     identity = replace(
         _identity(),
         mode=TradingMode.EXECUTE,
         trigger="schedule",
         account_epoch="alpaca-paper-100k-v1",
         started_at=started,
-        scheduled_for=run_health.scheduled_time_for("37 14 * * 1-5", started),
+        scheduled_for_estimate=estimate,
+        schedule_estimate_ambiguous=ambiguous,
     )
     event = RunHealthEvent(
         identity=identity,
@@ -139,6 +150,8 @@ def test_completed_event_persists_scheduler_and_order_diagnostics(monkeypatch):
         account_fingerprint=run_health.account_fingerprint("acct-uuid"),
         orders_attempted=0,
         orders_filled=0,
+        orders_partially_filled=0,
+        orders_skipped_market_closed=3,
         run_outcome=run_health.RunOutcome.MARKET_CLOSED,
     )
 
@@ -149,11 +162,14 @@ def test_completed_event_persists_scheduler_and_order_diagnostics(monkeypatch):
         "alpaca-paper-100k-v1",
         run_health.account_fingerprint("acct-uuid"),
         datetime(2026, 9, 21, 14, 37, tzinfo=timezone.utc),
+        False,
         started,
         6 * 3600 + 25 * 60,
         False,
         0,
         0,
+        0,
+        3,
         "market_closed",
     )
     assert "acct-uuid" not in repr(params)
@@ -163,18 +179,36 @@ def test_completed_event_persists_scheduler_and_order_diagnostics(monkeypatch):
     ("started", "expected"),
     (
         (datetime(2026, 9, 23, 15, 2, tzinfo=timezone.utc), datetime(2026, 9, 23, 14, 37, tzinfo=timezone.utc)),
-        # Before today's slot: the most recent weekday slot, skipping the weekend.
-        (datetime(2026, 9, 21, 14, 0, tzinfo=timezone.utc), datetime(2026, 9, 18, 14, 37, tzinfo=timezone.utc)),
+        (datetime(2026, 9, 22, 14, 0, tzinfo=timezone.utc), datetime(2026, 9, 21, 14, 37, tzinfo=timezone.utc)),
     ),
 )
-def test_scheduled_time_is_the_latest_weekday_slot_at_or_before_start(started, expected):
-    assert run_health.scheduled_time_for("37 14 * * 1-5", started) == expected
+def test_schedule_estimate_is_the_latest_weekday_slot_within_a_day(started, expected):
+    assert run_health.scheduled_time_estimate("37 14 * * 1-5", started) == (expected, False)
 
 
-def test_manual_or_unrecognized_cron_has_no_scheduled_time():
+def test_schedule_estimate_fails_closed_when_an_earlier_slot_is_equally_plausible():
+    # Monday 14:00: the latest slot is Friday 14:37, more than 24h earlier.
+    monday = datetime(2026, 9, 21, 14, 0, tzinfo=timezone.utc)
+    assert run_health.scheduled_time_estimate("37 14 * * 1-5", monday) == (None, True)
+    exactly_a_day = datetime(2026, 9, 24, 14, 37, tzinfo=timezone.utc) - run_health.SCHEDULE_ESTIMATE_MAX_DELAY
+    assert run_health.scheduled_time_estimate("37 14 * * 1-5", datetime(2026, 9, 24, 14, 36, tzinfo=timezone.utc)) == (
+        exactly_a_day,
+        False,
+    )
+
+
+def test_manual_or_unrecognized_cron_has_no_estimate():
     now = datetime(2026, 9, 23, 15, 0, tzinfo=timezone.utc)
-    assert run_health.scheduled_time_for(None, now) is None
-    assert run_health.scheduled_time_for("*/5 * * * *", now) is None
+    assert run_health.scheduled_time_estimate(None, now) == (None, False)
+    assert run_health.scheduled_time_estimate("*/5 * * * *", now) == (None, False)
+
+
+def test_ambiguous_schedule_records_no_queue_delay(monkeypatch):
+    monkeypatch.setenv("SCHEDULED_CRON", "37 14 * * 1-5")
+    identity = RunIdentity.from_environment(dry_run=False, now=datetime(2026, 9, 21, 14, 0, tzinfo=timezone.utc))
+    assert identity.scheduled_for_estimate is None
+    assert identity.schedule_estimate_ambiguous is True
+    assert identity.queue_delay_estimate_seconds is None
 
 
 def test_account_epoch_comes_from_the_environment_and_rejects_free_text(monkeypatch):
@@ -183,7 +217,7 @@ def test_account_epoch_comes_from_the_environment_and_rejects_free_text(monkeypa
     started = datetime(2026, 9, 23, 14, 40, tzinfo=timezone.utc)
     identity = RunIdentity.from_environment(dry_run=False, now=started)
     assert identity.account_epoch == "alpaca-paper-100k-v1"
-    assert identity.queue_delay_seconds == 180
+    assert identity.queue_delay_estimate_seconds == 180
 
     monkeypatch.setenv("ALPACA_ACCOUNT_EPOCH", "Not A Label; drop table")
     assert RunIdentity.from_environment(dry_run=False, now=started).account_epoch == "unlabelled"
@@ -191,50 +225,69 @@ def test_account_epoch_comes_from_the_environment_and_rejects_free_text(monkeypa
     assert RunIdentity.from_environment(dry_run=True, now=started).account_epoch == "unlabelled"
 
 
-def test_order_counts_distinguish_fills_skips_and_market_closed():
-    records = [
-        {"status": "ORDER FILLED"},
-        {"status": "LIQUIDATED"},
-        {"status": "PARTIALLY FILLED (qty=3)"},
-        {"status": "REJECTED"},
-        {"status": "SKIPPED (market closed)"},
-        {"status": "SKIPPED (within 3% drift threshold)"},
-        {"status": "DRY-RUN (would buy)"},
-    ]
-    assert run_health.order_counts(records) == (4, 3, 1)
+def test_only_a_filled_status_counts_as_a_full_fill():
+    assert run_health.classify_order(_Order("filled", 10)) is run_health.OrderResult.FILLED
+    assert run_health.classify_order(_Order("partially_filled", 3)) is run_health.OrderResult.PARTIALLY_FILLED
+    assert run_health.classify_order(_Order("canceled", 3)) is run_health.OrderResult.PARTIALLY_FILLED
+    assert run_health.classify_order(_Order("expired", 2)) is run_health.OrderResult.PARTIALLY_FILLED
+    assert run_health.classify_order(_Order("rejected", 0)) is run_health.OrderResult.NOT_FILLED
+    assert run_health.classify_order(_Order("new", 0)) is run_health.OrderResult.NOT_FILLED
+    assert run_health.classify_order(None) is run_health.OrderResult.NOT_FILLED
+
+
+def test_ledger_counts_every_order_kind():
+    ledger = run_health.OrderLedger()
+    ledger.resolved("liquidation", "AAA", _Order("filled", 1))
+    ledger.resolved("rebalance", "BBB", _Order("partially_filled", 1))
+    ledger.submission_failed("rebalance", "CCC")
+    ledger.resolved("hedge", "SPY260101P00500000", _Order("filled", 2))
+    ledger.resolved("cap_trim", "DDD", _Order("rejected", 0))
+    ledger.skipped_market_closed("cap_trim", "EEE")
+
+    assert ledger.counts() == run_health.OrderCounts(
+        attempted=5, filled=2, partially_filled=1, skipped_market_closed=1
+    )
+
+
+def _counts(attempted, filled=0, partial=0, closed=0):
+    return run_health.OrderCounts(attempted=attempted, filled=filled, partially_filled=partial, skipped_market_closed=closed)
 
 
 @pytest.mark.parametrize(
-    ("kwargs", "expected"),
+    ("dry_run", "has_candidates", "counts", "expected"),
     (
-        ({"dry_run": True, "has_candidates": True, "attempted": 0, "filled": 0, "skipped_market_closed": 2}, "dry_run"),
-        ({"dry_run": False, "has_candidates": True, "attempted": 0, "filled": 0, "skipped_market_closed": 2}, "market_closed"),
-        ({"dry_run": False, "has_candidates": False, "attempted": 0, "filled": 0, "skipped_market_closed": 0}, "no_eligible_candidates"),
-        ({"dry_run": False, "has_candidates": True, "attempted": 0, "filled": 0, "skipped_market_closed": 0}, "no_orders_needed"),
-        ({"dry_run": False, "has_candidates": True, "attempted": 3, "filled": 3, "skipped_market_closed": 0}, "orders_filled"),
-        ({"dry_run": False, "has_candidates": True, "attempted": 3, "filled": 2, "skipped_market_closed": 0}, "orders_incomplete"),
+        (True, True, _counts(0, closed=2), "dry_run"),
+        (False, True, _counts(0, closed=2), "market_closed"),
+        (False, True, _counts(2, filled=2, closed=1), "market_closed_after_partial_execution"),
+        (False, False, _counts(0), "no_eligible_candidates"),
+        (False, True, _counts(0), "no_orders_needed"),
+        (False, True, _counts(3, filled=3), "orders_filled"),
+        (False, True, _counts(3, filled=2, partial=1), "orders_incomplete"),
+        (False, True, _counts(1, partial=1), "orders_incomplete"),
     ),
 )
-def test_run_outcome_is_explicit(kwargs, expected):
-    assert run_health.classify_run_outcome(**kwargs).value == expected
+def test_run_outcome_is_explicit(dry_run, has_candidates, counts, expected):
+    assert run_health.classify_run_outcome(dry_run=dry_run, has_candidates=has_candidates, counts=counts).value == expected
 
 
-def test_run_outcome_only_on_completed_events_and_fills_bounded():
+def test_run_outcome_only_on_completed_events_and_counts_bounded():
     with pytest.raises(ValueError, match="run_outcome"):
         RunHealthEvent(identity=_identity(), event_type=RunEventType.STARTED, run_outcome=run_health.RunOutcome.DRY_RUN)
-    with pytest.raises(ValueError, match="orders_filled"):
+    with pytest.raises(ValueError, match="partially filled"):
         RunHealthEvent(
             identity=_identity(),
             event_type=RunEventType.COMPLETED,
             completion_status=RunCompletionStatus.HEALTHY,
-            orders_attempted=1,
-            orders_filled=2,
+            orders_attempted=2,
+            orders_filled=1,
+            orders_partially_filled=2,
         )
 
 
 def test_diagnostic_columns_are_added_idempotently_without_touching_rows():
     sql = db.ALTER_REBALANCE_RUN_EVENTS_DIAGNOSTICS_SQL
-    assert sql.count("ADD COLUMN IF NOT EXISTS") == 9
+    assert sql.count("ADD COLUMN IF NOT EXISTS") == 12
+    assert "market_closed_after_partial_execution" in sql
     for forbidden in ("DROP", "UPDATE", "DELETE", "TRUNCATE"):
         assert forbidden not in sql.upper()
 
