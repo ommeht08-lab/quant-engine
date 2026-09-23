@@ -1,0 +1,420 @@
+{
+  "audit_trail": {
+    "prior_provisional_run_ids": [
+      "35809011675"
+    ],
+    "run_id": "35809776344"
+  },
+  "base_cost_bps": 10,
+  "benchmark": "SPY",
+  "cost_cases": {
+    "10": {
+      "equal_weight_control": {
+        "annualized_volatility": 0.159491,
+        "costs_paid": 165.6,
+        "ending_value": 115504.68,
+        "excess_return_vs_benchmark": -0.033596,
+        "gross_return": 0.15686,
+        "max_drawdown": -0.174017,
+        "net_return": 0.155047,
+        "unallocated_cash_fraction": 0.25,
+        "weights": {
+          "AAPL": 0.25,
+          "MSFT": 0.25,
+          "WMT": 0.25
+        }
+      },
+      "spy_buy_and_hold": {
+        "annualized_volatility": 0.195842,
+        "costs_paid": 218.98,
+        "ending_value": 118864.3,
+        "excess_return_vs_benchmark": 0.0,
+        "gross_return": 0.191024,
+        "max_drawdown": -0.187552,
+        "net_return": 0.188643,
+        "unallocated_cash_fraction": 0.0,
+        "weights": {
+          "SPY": 1.0
+        }
+      },
+      "strategy": {
+        "annualized_volatility": 0.0,
+        "costs_paid": 0.0,
+        "ending_value": 100000.0,
+        "excess_return_vs_benchmark": -0.188643,
+        "gross_return": 0.0,
+        "max_drawdown": 0.0,
+        "net_return": 0.0,
+        "unallocated_cash_fraction": 1.0,
+        "weights": {}
+      }
+    },
+    "25": {
+      "equal_weight_control": {
+        "annualized_volatility": 0.159516,
+        "costs_paid": 413.65,
+        "ending_value": 115233.1,
+        "excess_return_vs_benchmark": -0.032745,
+        "gross_return": 0.15686,
+        "max_drawdown": -0.173959,
+        "net_return": 0.152331,
+        "unallocated_cash_fraction": 0.25,
+        "weights": {
+          "AAPL": 0.25,
+          "MSFT": 0.25,
+          "WMT": 0.25
+        }
+      },
+      "spy_buy_and_hold": {
+        "annualized_volatility": 0.195893,
+        "costs_paid": 547.01,
+        "ending_value": 118507.62,
+        "excess_return_vs_benchmark": 0.0,
+        "gross_return": 0.191024,
+        "max_drawdown": -0.187552,
+        "net_return": 0.185076,
+        "unallocated_cash_fraction": 0.0,
+        "weights": {
+          "SPY": 1.0
+        }
+      },
+      "strategy": {
+        "annualized_volatility": 0.0,
+        "costs_paid": 0.0,
+        "ending_value": 100000.0,
+        "excess_return_vs_benchmark": -0.185076,
+        "gross_return": 0.0,
+        "max_drawdown": 0.0,
+        "net_return": 0.0,
+        "unallocated_cash_fraction": 1.0,
+        "weights": {}
+      }
+    },
+    "5": {
+      "equal_weight_control": {
+        "annualized_volatility": 0.159487,
+        "costs_paid": 82.82,
+        "ending_value": 115595.3,
+        "excess_return_vs_benchmark": -0.03388,
+        "gross_return": 0.15686,
+        "max_drawdown": -0.174036,
+        "net_return": 0.155953,
+        "unallocated_cash_fraction": 0.25,
+        "weights": {
+          "AAPL": 0.25,
+          "MSFT": 0.25,
+          "WMT": 0.25
+        }
+      },
+      "spy_buy_and_hold": {
+        "annualized_volatility": 0.195831,
+        "costs_paid": 109.52,
+        "ending_value": 118983.31,
+        "excess_return_vs_benchmark": 0.0,
+        "gross_return": 0.191024,
+        "max_drawdown": -0.187552,
+        "net_return": 0.189833,
+        "unallocated_cash_fraction": 0.0,
+        "weights": {
+          "SPY": 1.0
+        }
+      },
+      "strategy": {
+        "annualized_volatility": 0.0,
+        "costs_paid": 0.0,
+        "ending_value": 100000.0,
+        "excess_return_vs_benchmark": -0.189833,
+        "gross_return": 0.0,
+        "max_drawdown": 0.0,
+        "net_return": 0.0,
+        "unallocated_cash_fraction": 1.0,
+        "weights": {}
+      }
+    }
+  },
+  "data_vintage_cutoff": "2026-09-23T02:18:43.569480+00:00",
+  "decision_date": "2024-09-03",
+  "disclaimer": "Pipeline validation only. Four companies and one formation date cannot establish an investment edge; this result is not evidence of investment performance.",
+  "entry_date": "2024-09-04",
+  "entry_price": "open",
+  "execution_delay_sessions": 1,
+  "exit_date": "2025-09-05",
+  "exit_price": "close",
+  "holding_sessions": 252,
+  "initial_capital": 100000.0,
+  "issuers": [
+    {
+      "altman_z_score": 9.99206,
+      "approximations": [
+        "sector_current_classification",
+        "fcf_growth_ttm_year_over_year",
+        "piotroski_shares_from_cover_page"
+      ],
+      "beta": 1.240438,
+      "conviction_score": null,
+      "fcf_growth_rate": null,
+      "fcf_yield": 0.030158,
+      "intrinsic_value": 66.405309,
+      "piotroski_f_score": 8,
+      "price": 222.770004,
+      "price_to_intrinsic": 3.354702,
+      "reason": "Failed sector-relative filter: P/IV of 3.35x exceeds the Technology sector median of 2.82x.",
+      "roic": null,
+      "rsi": 49.675121,
+      "sec_provenance": {
+        "concept_map_version": "sec-companyfacts-v2",
+        "data_vintage_cutoff": "2026-09-23T02:18:43.569480+00:00",
+        "filing_accessions": [
+          "0000320193-20-000010",
+          "0000320193-20-000052",
+          "0000320193-20-000062",
+          "0000320193-20-000096",
+          "0000320193-21-000010",
+          "0000320193-21-000056",
+          "0000320193-21-000065",
+          "0000320193-21-000105",
+          "0000320193-22-000007",
+          "0000320193-22-000059",
+          "0000320193-22-000070",
+          "0000320193-22-000108",
+          "0000320193-23-000006",
+          "0000320193-23-000064",
+          "0000320193-23-000077",
+          "0000320193-23-000106",
+          "0000320193-24-000006",
+          "0000320193-24-000069",
+          "0000320193-24-000081"
+        ],
+        "fiscal_calendar_version": "sec-filing-calendar-v3-fy2020-open-fy2026-q3",
+        "ingestion_batch_ids": [
+          "apple-sec-20260909-c636dc6"
+        ],
+        "knowledge_cutoff": "2024-09-03T16:00:00-04:00",
+        "policy_version": "sec-dcf-composition-v1",
+        "source": "sec",
+        "source_adapter": "sec_companyfacts",
+        "source_selection_reason": "SEC was explicitly required; Yahoo fallback is prohibited.",
+        "statement_period_end": "2024-06-29",
+        "statement_period_start": "2023-07-02"
+      },
+      "sector": "Technology",
+      "sector_median_price_to_intrinsic": 2.817584,
+      "status": "rejected_by_strategy",
+      "target_weight": 0.0,
+      "ticker": "AAPL",
+      "trend_passes": true
+    },
+    {
+      "altman_z_score": 9.231081,
+      "approximations": [
+        "sector_current_classification",
+        "fcf_growth_ttm_year_over_year",
+        "piotroski_shares_from_cover_page"
+      ],
+      "beta": 0.89756,
+      "conviction_score": null,
+      "fcf_growth_rate": 0.245414,
+      "fcf_yield": 0.024127,
+      "intrinsic_value": 179.542191,
+      "piotroski_f_score": 5,
+      "price": 409.440002,
+      "price_to_intrinsic": 2.280467,
+      "reason": "Failed absolute fair-value entry gate (price/intrinsic=2.280, required < 1.000).",
+      "roic": 0.29296,
+      "rsi": 42.32223,
+      "sec_provenance": {
+        "concept_map_version": "sec-companyfacts-v3",
+        "data_vintage_cutoff": "2026-09-23T02:18:43.569480+00:00",
+        "filing_accessions": [
+          "0000950170-23-014423",
+          "0000950170-23-035122",
+          "0000950170-23-054855",
+          "0000950170-24-008814",
+          "0000950170-24-048288",
+          "0000950170-24-087843",
+          "0001564590-19-037549",
+          "0001564590-20-002450",
+          "0001564590-20-019706",
+          "0001564590-20-034944",
+          "0001564590-20-047996",
+          "0001564590-21-002316",
+          "0001564590-21-020891",
+          "0001564590-21-039151",
+          "0001564590-21-051992",
+          "0001564590-22-002324",
+          "0001564590-22-015675",
+          "0001564590-22-026876",
+          "0001564590-22-035087",
+          "0001564590-23-000733"
+        ],
+        "fiscal_calendar_version": "sec-filing-calendar-v2-fy2020-fy2026",
+        "ingestion_batch_ids": [
+          "backfill-789019-35777629947-1"
+        ],
+        "knowledge_cutoff": "2024-09-03T16:00:00-04:00",
+        "policy_version": "sec-dcf-composition-v1",
+        "source": "sec",
+        "source_adapter": "sec_companyfacts",
+        "source_selection_reason": "SEC was explicitly required; Yahoo fallback is prohibited.",
+        "statement_period_end": "2024-06-30",
+        "statement_period_start": "2023-07-01"
+      },
+      "sector": "Technology",
+      "sector_median_price_to_intrinsic": 2.817584,
+      "status": "rejected_by_strategy",
+      "target_weight": 0.0,
+      "ticker": "MSFT",
+      "trend_passes": true
+    },
+    {
+      "altman_z_score": 5.662221,
+      "approximations": [
+        "sector_current_classification",
+        "fcf_growth_ttm_year_over_year",
+        "total_liabilities_derived_as_assets_minus_equity",
+        "piotroski_shares_from_cover_page"
+      ],
+      "beta": 0.513814,
+      "conviction_score": null,
+      "fcf_growth_rate": -0.376463,
+      "fcf_yield": 0.018485,
+      "intrinsic_value": 71.885118,
+      "piotroski_f_score": 7,
+      "price": 77.169998,
+      "price_to_intrinsic": 1.073518,
+      "reason": "Not eligible for Conviction Score: requires positive FCF growth AND positive ROIC (compounding characteristics); got fcf_growth_rate=-37.65%, roic=19.83%.",
+      "roic": 0.198338,
+      "rsi": 79.326996,
+      "sec_provenance": {
+        "concept_map_version": "sec-companyfacts-v3",
+        "data_vintage_cutoff": "2026-09-23T02:18:43.569480+00:00",
+        "filing_accessions": [
+          "0000104169-19-000024",
+          "0000104169-19-000064",
+          "0000104169-19-000088",
+          "0000104169-20-000011",
+          "0000104169-20-000020",
+          "0000104169-20-000042",
+          "0000104169-20-000076",
+          "0000104169-21-000033",
+          "0000104169-21-000042",
+          "0000104169-21-000058",
+          "0000104169-21-000072",
+          "0000104169-22-000012",
+          "0000104169-22-000029",
+          "0000104169-22-000072",
+          "0000104169-22-000083",
+          "0000104169-23-000020",
+          "0000104169-23-000052",
+          "0000104169-23-000097",
+          "0000104169-23-000132",
+          "0000104169-24-000056",
+          "0000104169-24-000105",
+          "0000104169-24-000141"
+        ],
+        "fiscal_calendar_version": "sec-filing-calendar-v2-fy2020-open-fy2027-q2",
+        "ingestion_batch_ids": [
+          "backfill-104169-35778664157-1"
+        ],
+        "knowledge_cutoff": "2024-09-03T16:00:00-04:00",
+        "policy_version": "sec-dcf-composition-v1",
+        "source": "sec",
+        "source_adapter": "sec_companyfacts",
+        "source_selection_reason": "SEC was explicitly required; Yahoo fallback is prohibited.",
+        "statement_period_end": "2024-07-31",
+        "statement_period_start": "2023-08-01"
+      },
+      "sector": "Consumer Defensive",
+      "sector_median_price_to_intrinsic": 1.073518,
+      "status": "rejected_by_strategy",
+      "target_weight": 0.0,
+      "ticker": "WMT",
+      "trend_passes": true
+    },
+    {
+      "altman_z_score": null,
+      "approximations": [
+        "sector_current_classification"
+      ],
+      "beta": null,
+      "conviction_score": null,
+      "fcf_growth_rate": null,
+      "fcf_yield": null,
+      "intrinsic_value": null,
+      "piotroski_f_score": null,
+      "price": null,
+      "price_to_intrinsic": null,
+      "reason": "SEC input refused: sec_snapshot_incomplete: The latest TTM end lacks one unambiguous consolidated USD cash or term-debt balance.",
+      "roic": null,
+      "rsi": null,
+      "sec_provenance": null,
+      "sector": "Industrials",
+      "sector_median_price_to_intrinsic": null,
+      "status": "refused",
+      "target_weight": 0.0,
+      "ticker": "CAT",
+      "trend_passes": null
+    }
+  ],
+  "knowledge_cutoff": "2024-09-03T16:00:00-04:00",
+  "label": "pipeline_validation",
+  "policy_version": "sec-backtest-pilot-v1",
+  "portfolio_approximations": [
+    "cash_earns_zero",
+    "prices_yahoo_split_and_dividend_adjusted_total_return_proxy",
+    "beta_estimated_from_five_year_monthly_returns_vs_spy",
+    "risk_free_rate_from_tnx_close_at_decision",
+    "sector_current_classification"
+  ],
+  "price_snapshot": {
+    "adjusted_rows": 6090,
+    "captured_at": "2026-09-23T02:18:59.024671+00:00",
+    "captured_in_run": "35809776344",
+    "format_version": "pilot-price-snapshot-v1",
+    "offline_replay_identical": true,
+    "sha256": "873827649a705fa29854e6bde3d0cdc74375f8dec6a8a6ad71b4d9f4d95a0245",
+    "source": "yahoo_finance_via_yfinance",
+    "storage": "private postgres table backtest_price_snapshots (not redistributed)",
+    "symbols": [
+      "AAPL",
+      "MSFT",
+      "SPY",
+      "WMT",
+      "^TNX"
+    ]
+  },
+  "private_full_record": {
+    "sha256": "906d0e8e0218075fb90c38c2f96823605fe846c31c9d52fe91e7c154184f4c42",
+    "storage": "private postgres table backtest_pilot_private_records (not redistributed)",
+    "withheld_fields": [
+      "curves_base_cost"
+    ]
+  },
+  "record_provenance": {
+    "pinned_run_code_commit": "0a35631e843b3a5af5b6c1ca9f60207bc268664f",
+    "pinned_run_id": "35809776344",
+    "price_snapshot_sha256": "873827649a705fa29854e6bde3d0cdc74375f8dec6a8a6ad71b4d9f4d95a0245",
+    "private_archive_code_commit": "53874fa2798d2018c1509c40cc0404feea1db14a",
+    "private_archive_run_id": "35810353420",
+    "private_full_record_sha256": "906d0e8e0218075fb90c38c2f96823605fe846c31c9d52fe91e7c154184f4c42",
+    "provisional_run_code_commit": "1e7ff90ecfee8688dc35a9aa4975e1f9e2412fb3",
+    "provisional_run_id": "35809011675",
+    "provisional_run_note": "Valid provisional result with identical decisions and returns; its price-derived signals differ in the 6th-7th significant digit because Yahoo adjusted prices are not bit-stable between downloads, and its prices were not pinned.",
+    "reproducible_reference": "Pinned run 35809776344 is the reproducible reference for this record: its exact price inputs are stored privately (snapshot below) and an offline replay from them reproduces this record exactly.",
+    "withheld_from_public_record": "Daily curves (Yahoo-derived) are kept only in the private full record."
+  },
+  "rejected_issuers": [
+    {
+      "reason": "SEC input refused: sec_snapshot_incomplete: The latest TTM end lacks one unambiguous consolidated USD cash or term-debt balance.",
+      "ticker": "CAT",
+      "unallocated_capital_fraction": 0.25
+    }
+  ],
+  "strategy_outcome": "no_eligible_candidates",
+  "universe": [
+    "AAPL",
+    "MSFT",
+    "WMT",
+    "CAT"
+  ]
+}
