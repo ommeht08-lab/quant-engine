@@ -125,6 +125,23 @@ than on the prior period end. It is retained with its source lineage for audit
 but is never relabeled to the prior period end, classified, published, or
 selected as a period-end balance.
 
+## Filing-XBRL balance composition
+
+An issuer-scoped concept-map rule that builds one consolidated balance-sheet
+line from a filing's own XBRL instance when the issuer tags that line only as
+members of one reporting axis (Company Facts omits dimensional facts). The
+members present must equal a declared complete set; a declared mirror member
+is dropped only if it equals its counterpart; any reported total or Company
+Facts value for the same filing and date must agree. Anything else refuses.
+Composed facts keep the filing's accession, acceptance time, instance URL,
+and the exact contexts summed.
+
+## Supplemental source adapter
+
+An additional SEC source declared by an issuer's policy (for example
+`sec_filing_xbrl` beside `sec_companyfacts`). Readers include it only when the
+issuer's manifest declares it, so single-source issuers read exactly as before.
+
 ## Filing fiscal label
 
 The SEC Company Facts `fy` and `fp` values describing the filing context in

@@ -27,6 +27,11 @@ logger = logging.getLogger(__name__)
 SEC_DATA_HOST = "data.sec.gov"
 SEC_COMPANY_FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
 SEC_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
+# Filing documents (index.json and XBRL instances) live on the archive host.
+SEC_ARCHIVE_HOST = "www.sec.gov"
+SEC_ARCHIVE_PATH_PREFIX = "/Archives/edgar/data/"
+_XML_CONTENT_TYPES = ("application/xml", "text/xml", "application/xbrl+xml")
+_LINKBASE_SUFFIXES = ("_cal.xml", "_def.xml", "_lab.xml", "_pre.xml")
 
 # SEC currently permits no more than 10 requests/second.  The slightly slower
 # default leaves room for clock granularity and other callers in this process.
@@ -307,8 +312,52 @@ class SecDownloader:
         backoff = self._config.retry_backoff_seconds
         return backoff[min(attempt_index, len(backoff) - 1)]
 
+    def fetch_filing_instance(self, cik: str, accession_number: str) -> Tuple[str, bytes]:
+        """Return (url, bytes) of one filing's XBRL instance document."""
+
+        normalized_cik = normalize_cik(cik)
+        if not isinstance(accession_number, str) or not re.fullmatch(r"\d{10}-\d{2}-\d{6}", accession_number):
+            raise SecDownloadError(SecDownloadErrorCode.NETWORK_FAILURE, "Invalid accession number.")
+        folder = (
+            f"https://{SEC_ARCHIVE_HOST}{SEC_ARCHIVE_PATH_PREFIX}"
+            f"{int(normalized_cik)}/{accession_number.replace('-', '')}/"
+        )
+        session = self._provided_session
+        owns_session = session is None
+        if session is None:
+            import requests
+
+            session = requests.Session()
+        try:
+            index = self._request(session, folder + "index.json", archive=True)
+            items = index.get("directory", {}).get("item", []) if isinstance(index, Mapping) else []
+            names = [item.get("name") for item in items if isinstance(item, Mapping) and isinstance(item.get("name"), str)]
+            instances = [name for name in names if name.endswith("_htm.xml")] or [
+                name
+                for name in names
+                if name.endswith(".xml")
+                and not name.endswith(_LINKBASE_SUFFIXES)
+                and name != "FilingSummary.xml"
+            ]
+            if len(instances) != 1 or not re.fullmatch(r"[A-Za-z0-9_.-]+", instances[0]):
+                raise SecDownloadError(
+                    SecDownloadErrorCode.INVALID_JSON,
+                    "The filing index does not identify exactly one XBRL instance.",
+                )
+            url = folder + instances[0]
+            return url, self._request(session, url, archive=True, raw=True)
+        finally:
+            if owns_session:
+                try:
+                    session.close()
+                except Exception as error:
+                    logger.warning("SEC session close failed (%s).", type(error).__name__)
+
     def _request_json(self, session, url: str) -> Mapping[str, Any]:
-        self._validate_url(url)
+        return self._request(session, url)
+
+    def _request(self, session, url: str, *, archive: bool = False, raw: bool = False):
+        self._validate_url(url, archive=archive)
         for attempt_index in range(self._config.max_attempts):
             self._pace()
             response = None
@@ -317,7 +366,7 @@ class SecDownloader:
                     url,
                     headers={
                         "User-Agent": self._config.user_agent,
-                        "Accept": "application/json",
+                        "Accept": "application/xml" if raw else "application/json",
                         "Accept-Encoding": "gzip, deflate",
                     },
                     timeout=(
@@ -346,7 +395,7 @@ class SecDownloader:
                         SecDownloadErrorCode.HTTP_STATUS,
                         f"SEC request failed with HTTP {status_code}.",
                     )
-                return self._read_json_response(response)
+                return self._read_bytes_response(response) if raw else self._read_json_response(response)
             except SecDownloadError as error:
                 if (
                     error.code is SecDownloadErrorCode.NETWORK_FAILURE
@@ -373,11 +422,16 @@ class SecDownloader:
         raise AssertionError("bounded SEC request loop exited unexpectedly")
 
     def _read_json_response(self, response) -> Mapping[str, Any]:
+        return _decode_json_document(
+            self._read_body(response, ("application/json", "application/problem+json"))
+        )
+
+    def _read_bytes_response(self, response) -> bytes:
+        return self._read_body(response, _XML_CONTENT_TYPES)
+
+    def _read_body(self, response, allowed_content_types) -> bytes:
         content_type = _header(getattr(response, "headers", {}), "Content-Type")
-        if content_type is None or content_type.split(";", 1)[0].strip().lower() not in (
-            "application/json",
-            "application/problem+json",
-        ):
+        if content_type is None or content_type.split(";", 1)[0].strip().lower() not in allowed_content_types:
             raise SecDownloadError(
                 SecDownloadErrorCode.INVALID_CONTENT_TYPE,
                 "SEC returned an unexpected response content type.",
@@ -421,7 +475,7 @@ class SecDownloader:
                 SecDownloadErrorCode.NETWORK_FAILURE,
                 "SEC response could not be read.",
             ) from None
-        return _decode_json_document(b"".join(chunks))
+        return b"".join(chunks)
 
     def _historical_submission_names(
         self,
@@ -491,11 +545,13 @@ class SecDownloader:
             )
 
     @staticmethod
-    def _validate_url(url: str) -> None:
+    def _validate_url(url: str, *, archive: bool = False) -> None:
         parsed = urlparse(url)
+        expected_host = SEC_ARCHIVE_HOST if archive else SEC_DATA_HOST
         if (
             parsed.scheme != "https"
-            or parsed.hostname != SEC_DATA_HOST
+            or parsed.hostname != expected_host
+            or (archive and not parsed.path.startswith(SEC_ARCHIVE_PATH_PREFIX))
             or parsed.username is not None
             or parsed.password is not None
             or parsed.port not in (None, 443)

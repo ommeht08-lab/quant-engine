@@ -242,7 +242,7 @@ WITH eligible AS (
     FROM fundamentals_facts
     WHERE cik = %s
       AND canonical_concept = ANY(%s)
-      AND source_adapter = %s
+      AND source_adapter = ANY(%s)
       AND concept_map_version = %s
       AND fiscal_calendar_version = %s
       AND eligible_at <= %s
@@ -616,7 +616,7 @@ class PostgresFundamentalsRepository:
                     (
                         query.cik,
                         list(query.concepts),
-                        query.source_adapter,
+                        list(query.source_adapters),
                         query.concept_map_version,
                         query.fiscal_calendar_version,
                         query.knowledge_cutoff,

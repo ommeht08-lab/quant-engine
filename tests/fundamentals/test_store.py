@@ -182,7 +182,7 @@ class TestPostgresFundamentalsRepository:
             (
                 query.cik,
                 list(query.concepts),
-                query.source_adapter,
+                [query.source_adapter],
                 query.concept_map_version,
                 query.fiscal_calendar_version,
                 query.knowledge_cutoff,

@@ -452,3 +452,65 @@ class TestHistoricalSubmissionIndex:
             _downloader(session, config=config).fetch_issuer(CIK)
 
         assert caught.value.code is SecDownloadErrorCode.INVALID_SUBMISSIONS_INDEX
+
+
+class TestFilingInstanceFetch:
+    """Archive-host XBRL instance retrieval for filing-XBRL compositions."""
+
+    ACCESSION = "0000018230-24-000045"
+    FOLDER = "https://www.sec.gov/Archives/edgar/data/18230/000001823024000045/"
+
+    def _index(self, *names):
+        return FakeResponse(json.dumps({"directory": {"item": [{"name": name} for name in names]}}).encode())
+
+    def _downloader(self, session):
+        clock = FakeClock()
+        return SecDownloader(
+            SecDownloaderConfig(user_agent=USER_AGENT),
+            session=session,
+            monotonic=clock.monotonic,
+            sleep=clock.sleep,
+        )
+
+    def test_selects_the_single_instance_and_returns_its_bytes(self):
+        session = FakeSession([
+            self._index("cat-20240630.htm", "cat-20240630_htm.xml", "cat-20240630_cal.xml", "FilingSummary.xml"),
+            FakeResponse(b"<xbrl/>", content_type="application/xml"),
+        ])
+
+        url, document = self._downloader(session).fetch_filing_instance("18230", self.ACCESSION)
+
+        assert url == self.FOLDER + "cat-20240630_htm.xml"
+        assert document == b"<xbrl/>"
+        assert [call[0] for call in session.calls] == [self.FOLDER + "index.json", url]
+        assert session.calls[1][1]["headers"]["User-Agent"] == USER_AGENT
+
+    def test_refuses_an_index_without_exactly_one_instance(self):
+        session = FakeSession([self._index("a_htm.xml", "b_htm.xml")])
+
+        with pytest.raises(SecDownloadError):
+            self._downloader(session).fetch_filing_instance("18230", self.ACCESSION)
+
+    def test_refuses_non_xml_instance_content(self):
+        session = FakeSession([
+            self._index("cat-20240630_htm.xml"),
+            FakeResponse(b"<html/>", content_type="text/html"),
+        ])
+
+        with pytest.raises(SecDownloadError) as error:
+            self._downloader(session).fetch_filing_instance("18230", self.ACCESSION)
+        assert error.value.code is SecDownloadErrorCode.INVALID_CONTENT_TYPE
+
+    def test_refuses_malformed_accessions_before_any_request(self):
+        session = FakeSession([])
+
+        with pytest.raises(SecDownloadError):
+            self._downloader(session).fetch_filing_instance("18230", "../../etc/passwd")
+        assert session.calls == []
+
+    def test_archive_urls_are_restricted_to_the_edgar_data_path(self):
+        with pytest.raises(SecDownloadError):
+            SecDownloader._validate_url("https://www.sec.gov/cgi-bin/browse-edgar", archive=True)
+        with pytest.raises(SecDownloadError):
+            SecDownloader._validate_url("https://www.sec.gov/Archives/edgar/data/1/x.xml")  # data host only
+        SecDownloader._validate_url("https://www.sec.gov/Archives/edgar/data/1/x.xml", archive=True)

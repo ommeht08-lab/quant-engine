@@ -293,6 +293,7 @@ class SecValuationInputAdapter:
             source_adapter=policy.source_adapter,
             concept_map_version=policy.concept_map_version,
             fiscal_calendar_version=policy.fiscal_calendar_version,
+            supplemental_source_adapters=policy.supplemental_source_adapters,
         )
         snapshot_result = load_valuation_fundamentals_snapshot(self._repository, request)
         if not snapshot_result.is_complete:
@@ -335,7 +336,7 @@ class SecValuationInputAdapter:
                     statement_period_start=prepared.snapshot.latest.period_start,
                     statement_period_end=prepared.snapshot.latest.period_end,
                     policy_version=prepared.policy.version,
-                    source_adapter=policy.source_adapter,
+                    source_adapter="+".join((policy.source_adapter,) + policy.supplemental_source_adapters),
                     concept_map_version=policy.concept_map_version,
                     fiscal_calendar_version=policy.fiscal_calendar_version,
                     ingestion_batch_ids=tuple(fact.lineage.ingestion_batch_id for fact in facts),

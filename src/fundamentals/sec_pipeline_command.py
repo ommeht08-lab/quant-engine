@@ -102,6 +102,7 @@ def run_offline_sec_ingestion(
         ingestion_batch_id=request.ingestion_batch_id,
         knowledge_cutoff=request.knowledge_cutoff,
         required_concepts=VALUATION_TTM_CONCEPTS,
+        filing_instance_fetcher=getattr(downloader, "fetch_filing_instance", None),
     )
     if not request.publish or not dry_run.is_complete:
         return OfflineSecIngestionResult(request=request, dry_run=dry_run)

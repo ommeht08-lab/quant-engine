@@ -19,6 +19,12 @@ from .adapters.sec_companyfacts import (
     extract_sec_company_facts,
 )
 from .adapters.sec_downloader import SecDownloadError, SecIssuerPayload
+from .adapters.sec_filing_xbrl import (
+    FilingReference,
+    FilingXbrlError,
+    compose_consolidated_balances,
+    parse_xbrl_instance,
+)
 from .concept_map import ConceptMap
 from .fiscal_calendar import (
     IssuerFiscalCalendarPolicy,
@@ -152,8 +158,15 @@ def run_sec_ingestion_dry_run(
     knowledge_cutoff: datetime,
     required_concepts: Iterable[str],
     optional_concepts: Iterable[str] = (),
+    filing_instance_fetcher: Optional[Callable[[str, str], Tuple[str, bytes]]] = None,
 ) -> SecIngestionDryRun:
-    """Run the complete non-publishing SEC path and return output or one refusal."""
+    """Run the complete non-publishing SEC path and return output or one refusal.
+
+    When the issuer's concept map declares balance compositions, every filing
+    public by the cutoff must supply its XBRL instance through
+    ``filing_instance_fetcher(cik, accession) -> (url, bytes)``; a missing
+    instance or an ambiguous composition refuses the whole run.
+    """
 
     normalized_cik = normalize_cik(cik)
     if not isinstance(calendar_policy, IssuerFiscalCalendarPolicy):
@@ -216,6 +229,14 @@ def run_sec_ingestion_dry_run(
             message="The downloader returned an invalid issuer payload bundle.",
         )
 
+    period_end_floor = min(
+        definition.period_start
+        for definition in (
+            *calendar_policy.fiscal_years,
+            *calendar_policy.transitions,
+            *calendar_policy.open_fiscal_years,
+        )
+    )
     extraction = extract_sec_company_facts(
         payload.company_facts,
         payload.submissions,
@@ -224,14 +245,7 @@ def run_sec_ingestion_dry_run(
         ingestion_batch_id=ingestion_batch_id,
         ingested_at=payload.downloaded_at,
         knowledge_cutoff=knowledge_cutoff,
-        period_end_floor=min(
-            definition.period_start
-            for definition in (
-                *calendar_policy.fiscal_years,
-                *calendar_policy.transitions,
-                *calendar_policy.open_fiscal_years,
-            )
-        ),
+        period_end_floor=period_end_floor,
     )
     if not extraction.is_complete:
         issue = extraction.issues[0]
@@ -267,6 +281,34 @@ def run_sec_ingestion_dry_run(
             extracted_fact_count=len(extraction.facts),
         )
 
+    compositions = concept_map.balance_compositions_for(normalized_cik)
+    composed_count = 0
+    if compositions:
+        composed, refusal = _compose_filing_balances(
+            eligible_facts,
+            compositions,
+            cik=normalized_cik,
+            fetcher=filing_instance_fetcher,
+            concept_map=concept_map,
+            ingestion_batch_id=ingestion_batch_id,
+            ingested_at=payload.downloaded_at,
+            period_end_floor=period_end_floor,
+        )
+        if refusal is not None:
+            code, message = refusal
+            return _refusal(
+                cik=normalized_cik,
+                knowledge_cutoff=knowledge_cutoff,
+                stage=SecDryRunIssueStage.EXTRACTION,
+                code=code,
+                message=message,
+                downloaded_at=payload.downloaded_at,
+                extracted_fact_count=len(extraction.facts),
+                eligible_fact_count=len(eligible_facts),
+            )
+        composed_count = len(composed)
+        eligible_facts = eligible_facts + composed
+
     canonical_facts, opening_balance_facts = partition_opening_balance_facts(
         eligible_facts,
         calendar_policy,
@@ -282,7 +324,7 @@ def run_sec_ingestion_dry_run(
             code=issue.code.value,
             message=issue.message,
             downloaded_at=payload.downloaded_at,
-            extracted_fact_count=len(extraction.facts),
+            extracted_fact_count=len(extraction.facts) + composed_count,
             eligible_fact_count=len(eligible_facts),
         )
 
@@ -300,7 +342,7 @@ def run_sec_ingestion_dry_run(
             code="inconsistent_point_in_time_facts",
             message="Eligible classified facts are structurally inconsistent.",
             downloaded_at=payload.downloaded_at,
-            extracted_fact_count=len(extraction.facts),
+            extracted_fact_count=len(extraction.facts) + composed_count,
             eligible_fact_count=len(eligible_facts),
         )
 
@@ -318,7 +360,7 @@ def run_sec_ingestion_dry_run(
             code=issue.code.value,
             message=issue.message,
             downloaded_at=payload.downloaded_at,
-            extracted_fact_count=len(extraction.facts),
+            extracted_fact_count=len(extraction.facts) + composed_count,
             eligible_fact_count=len(eligible_facts),
         )
 
@@ -326,7 +368,7 @@ def run_sec_ingestion_dry_run(
         cik=normalized_cik,
         knowledge_cutoff=knowledge_cutoff,
         downloaded_at=payload.downloaded_at,
-        extracted_fact_count=len(extraction.facts),
+        extracted_fact_count=len(extraction.facts) + composed_count,
         eligible_fact_count=len(eligible_facts),
         classified_facts=classification.facts,
         opening_balance_facts=opening_balance_facts,
@@ -334,6 +376,79 @@ def run_sec_ingestion_dry_run(
         quarterly=quarterly,
     )
 
+
+
+def _compose_filing_balances(
+    eligible_facts,
+    compositions,
+    *,
+    cik: str,
+    fetcher,
+    concept_map: ConceptMap,
+    ingestion_batch_id: str,
+    ingested_at: datetime,
+    period_end_floor,
+):
+    """``(composed facts, None)`` for every eligible filing, or ``((), (code, message))``."""
+
+    if fetcher is None:
+        return (), (
+            "filing_xbrl_required",
+            "This issuer's concept map composes balances from filing XBRL, but no "
+            "filing-instance source was provided.",
+        )
+    filings = {}
+    for fact in eligible_facts:
+        filings.setdefault(fact.provenance_accession_number, fact)
+    composed = []
+    for accession, sample in sorted(filings.items()):
+        try:
+            url, document = fetcher(cik, accession)
+        except (SecDownloadError, LookupError, ValueError, OSError):
+            return (), ("filing_instance_unavailable", f"The XBRL instance for {accession} is unavailable.")
+        reference = FilingReference(
+            cik=cik,
+            entity_name=sample.entity_name,
+            accession_number=accession,
+            form_type=sample.form_type,
+            filed_date=sample.filed_date,
+            accepted_at=sample.accepted_at,
+            report_date=sample.report_date,
+            primary_document=sample.primary_document,
+            instance_url=url,
+        )
+        try:
+            composed.extend(
+                compose_consolidated_balances(
+                    parse_xbrl_instance(document),
+                    compositions,
+                    filing=reference,
+                    concept_map_version=concept_map.version,
+                    ingestion_batch_id=ingestion_batch_id,
+                    ingested_at=ingested_at,
+                )
+            )
+        except FilingXbrlError as error:
+            return (), (error.code.value, f"{accession}: {error}")
+    # The same coverage window as Company Facts extraction: comparative
+    # instants before the calendar's first fiscal year are out of scope.
+    composed = [fact for fact in composed if fact.period_end >= period_end_floor]
+    # A composed balance must agree with any Company Facts value for the same
+    # concept, filing, and date (for example a year-end LongTermDebtNoncurrent).
+    reported = {}
+    for fact in eligible_facts:
+        reported.setdefault(
+            (fact.provenance_accession_number, fact.canonical_concept, fact.period_end, fact.unit), set()
+        ).add(fact.value)
+    for fact in composed:
+        values = reported.get((fact.provenance_accession_number, fact.canonical_concept, fact.period_end, fact.unit))
+        if values and values != {fact.value}:
+            return (), (
+                "synonym_conflict",
+                f"Composed {fact.canonical_concept} disagrees with the reported value in "
+                f"{fact.provenance_accession_number} at {fact.period_end}.",
+            )
+    return tuple(composed), None
 
 @dataclass(frozen=True)
 class SecIngestionPublishResult:

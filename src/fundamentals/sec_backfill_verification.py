@@ -25,6 +25,7 @@ from typing import Callable, Iterable, Optional, Sequence, Tuple
 
 from .adapters.sec_companyfacts import SOURCE_ADAPTER
 from .adapters.sec_downloader import SecDownloader, SecDownloaderConfig
+from .adapters.sec_filing_xbrl import SOURCE_ADAPTER as FILING_XBRL_SOURCE_ADAPTER
 from .calendar_catalog import SEC_FISCAL_CALENDAR_CATALOG_V1
 from .concept_map import concept_map_for_issuer
 from .repository import FundamentalsQuery
@@ -73,11 +74,20 @@ class _SinglePayloadDownloader:
     def __init__(self, downloader):
         self._downloader = downloader
         self._payload = None
+        self._instances = {}
 
     def fetch_issuer(self, cik: str):
         if self._payload is None:
             self._payload = self._downloader.fetch_issuer(cik)
         return self._payload
+
+    def fetch_filing_instance(self, cik: str, accession_number: str):
+        """Cached so every cutoff composes from the same filing documents."""
+
+        key = (cik, accession_number)
+        if key not in self._instances:
+            self._instances[key] = self._downloader.fetch_filing_instance(cik, accession_number)
+        return self._instances[key]
 
 
 def _source_key(fact: FinancialFact) -> FinancialFact:
@@ -127,6 +137,7 @@ def _verify_cutoff(
         ingestion_batch_id=ingestion_batch_id,
         knowledge_cutoff=knowledge_cutoff,
         required_concepts=VALUATION_TTM_CONCEPTS,
+        filing_instance_fetcher=getattr(downloader, "fetch_filing_instance", None),
     )
     if not expected_run.is_complete:
         issue = expected_run.issues[0]
@@ -148,6 +159,9 @@ def _verify_cutoff(
                 concept_map_version=concept_map.version,
                 fiscal_calendar_version=calendar_policy.version,
                 max_periods_per_statement=_READBACK_PERIOD_LIMIT,
+                supplemental_source_adapters=(
+                    (FILING_XBRL_SOURCE_ADAPTER,) if concept_map.balance_compositions_for(cik) else ()
+                ),
             )
         )
     )

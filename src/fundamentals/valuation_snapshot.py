@@ -52,9 +52,13 @@ class ValuationFundamentalsRequest:
     source_adapter: str
     concept_map_version: str
     fiscal_calendar_version: str
+    supplemental_source_adapters: Tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "cik", normalize_cik(self.cik))
+        object.__setattr__(
+            self, "supplemental_source_adapters", tuple(sorted(self.supplemental_source_adapters))
+        )
         for field_name in ("knowledge_cutoff", "data_vintage_cutoff"):
             value = getattr(self, field_name)
             if not isinstance(value, datetime) or not is_aware(value):
@@ -277,7 +281,8 @@ class ValuationFundamentalsSnapshot:
         if any(
             fact.provenance.eligible_at > self.request.knowledge_cutoff
             or fact.lineage.ingested_at > self.request.data_vintage_cutoff
-            or fact.lineage.source_adapter != self.request.source_adapter
+            or fact.lineage.source_adapter
+            not in (self.request.source_adapter,) + self.request.supplemental_source_adapters
             or fact.lineage.concept_map_version != self.request.concept_map_version
             or fact.lineage.fiscal_calendar_version != self.request.fiscal_calendar_version
             for fact in source_facts
@@ -378,6 +383,7 @@ def _repository_query(request: ValuationFundamentalsRequest) -> FundamentalsQuer
         concept_map_version=request.concept_map_version,
         fiscal_calendar_version=request.fiscal_calendar_version,
         max_periods_per_statement=_MAX_REPOSITORY_PERIODS_PER_STATEMENT,
+        supplemental_source_adapters=request.supplemental_source_adapters,
     )
 
 

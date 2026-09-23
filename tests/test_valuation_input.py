@@ -73,7 +73,6 @@ class RecordingAdapter:
 VERIFIED_BACKFILL_BATCHES = {
     "MSFT": "backfill-789019-35777629947-1",
     "WMT": "backfill-104169-35778664157-1",
-    "CAT": "backfill-18230-35778836391-1",
 }
 
 
@@ -88,16 +87,19 @@ def test_manifest_contains_the_exact_pilot_universe_without_implying_cutover():
     assert all(not policy.sec_live_approved for policy in SEC_ISSUER_MANIFEST_V1)
     assert issuer_policy_for(" aapl ").sec_history_ready is True
     assert issuer_policy_for("AAPL").concept_map_version == "sec-companyfacts-v2"
-    for ticker in ("MSFT", "WMT", "CAT"):
+    for ticker in ("MSFT", "WMT"):
         policy = issuer_policy_for(ticker)
         assert policy.fiscal_calendar_version is not None
         assert policy.concept_map_version == "sec-companyfacts-v3"
-        if ticker in VERIFIED_BACKFILL_BATCHES:
-            assert policy.sec_history_ready is True
-            assert VERIFIED_BACKFILL_BATCHES[ticker] in policy.readiness_reason
-        else:
-            assert policy.sec_history_ready is False
-            assert "not been backfilled" in policy.readiness_reason
+        assert policy.supplemental_source_adapters == ()
+        assert policy.sec_history_ready is True
+        assert VERIFIED_BACKFILL_BATCHES[ticker] in policy.readiness_reason
+    # Caterpillar's v4 term-debt composition needs its own verified backfill.
+    cat = issuer_policy_for("CAT")
+    assert cat.concept_map_version == "sec-companyfacts-v4"
+    assert cat.supplemental_source_adapters == ("sec_filing_xbrl",)
+    assert cat.sec_history_ready is False
+    assert "v4 backfill" in cat.readiness_reason
 
 
 def test_auto_reports_yahoo_and_the_reason_sec_was_not_used():
