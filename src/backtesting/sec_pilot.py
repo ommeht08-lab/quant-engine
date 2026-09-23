@@ -909,28 +909,114 @@ def _report(config, decisions, window, results, gross, data_vintage_cutoff) -> d
     }
 
 
+def run_pinned_pilot(
+    config: PilotConfig,
+    *,
+    repository,
+    live_prices: PriceProvider,
+    manifest_lookup: Callable[[str], Optional[IssuerValuationPolicy]],
+    data_vintage_cutoff: datetime,
+    store,
+    load,
+    github_run_id: Optional[str],
+    prior_run_ids: Sequence[str] = (),
+) -> dict:
+    """Run once against live prices while capturing them, persist the capture,
+    then replay offline from the stored copy and require identical output."""
+
+    from src.backtesting.price_snapshot import (
+        RecordingPriceProvider,
+        SnapshotIntegrityError,
+        SnapshotPriceProvider,
+        snapshot_sha256,
+    )
+
+    recording = RecordingPriceProvider(live_prices)
+    report = run_pilot(
+        config,
+        repository=repository,
+        prices=recording,
+        manifest_lookup=manifest_lookup,
+        data_vintage_cutoff=data_vintage_cutoff,
+    )
+    snapshot = recording.snapshot(source="yahoo_finance_via_yfinance", captured_at=datetime.now(timezone.utc))
+    digest = store(snapshot)
+    stored = load(digest)
+    if snapshot_sha256(stored) != digest:
+        raise SnapshotIntegrityError("Stored snapshot does not match its checksum.")
+    replay = run_pilot(
+        config,
+        repository=repository,
+        prices=SnapshotPriceProvider(stored),
+        manifest_lookup=manifest_lookup,
+        data_vintage_cutoff=data_vintage_cutoff,
+    )
+    if json.dumps(replay, sort_keys=True) != json.dumps(report, sort_keys=True):
+        raise SnapshotIntegrityError("Offline replay from the stored snapshot did not reproduce the run exactly.")
+    report["price_snapshot"] = {
+        "sha256": digest,
+        "format_version": snapshot["format_version"],
+        "source": snapshot["source"],
+        "captured_at": snapshot["captured_at"],
+        "captured_in_run": github_run_id,
+        "storage": "private postgres table backtest_price_snapshots (not redistributed)",
+        "symbols": sorted(snapshot["symbols"]),
+        "adjusted_rows": sum(len(item["adjusted_open_close"]) for item in snapshot["symbols"].values()),
+        "offline_replay_identical": True,
+    }
+    report["audit_trail"] = {
+        "run_id": github_run_id,
+        "prior_provisional_run_ids": list(prior_run_ids),
+    }
+    return report
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    from src.backtesting.price_snapshot import load_snapshot, store_snapshot
     from src.fundamentals.issuer_manifest import issuer_policy_for
     from src.fundamentals.store import PostgresFundamentalsRepository
 
-    parser = argparse.ArgumentParser(description="Run the SEC-only $100,000 backtest pilot (read-only).")
+    parser = argparse.ArgumentParser(description="Run the SEC-only $100,000 backtest pilot with pinned prices.")
     parser.add_argument("--output", required=True, help="path for the JSON pilot record")
+    parser.add_argument("--github-run-id", default=None)
+    parser.add_argument("--prior-run-id", action="append", default=[], help="earlier provisional run to cite")
     args = parser.parse_args(argv)
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
         print(json.dumps({"status": "failed", "message": "DATABASE_URL must be set."}))
         return 1
-    report = run_pilot(
+    if any(not run.isdigit() for run in args.prior_run_id + ([args.github_run_id] if args.github_run_id else [])):
+        print(json.dumps({"status": "failed", "message": "Run IDs must be numeric."}))
+        return 1
+    report = run_pinned_pilot(
         PilotConfig(),
         repository=PostgresFundamentalsRepository(database_url=database_url),
-        prices=YahooPriceProvider(),
+        live_prices=YahooPriceProvider(),
         manifest_lookup=issuer_policy_for,
         data_vintage_cutoff=datetime.now(timezone.utc),
+        store=lambda snapshot: store_snapshot(
+            snapshot,
+            database_url=database_url,
+            github_run_id=args.github_run_id,
+            pilot_policy_version=PILOT_POLICY_VERSION,
+        ),
+        load=lambda digest: load_snapshot(digest, database_url=database_url),
+        github_run_id=args.github_run_id,
+        prior_run_ids=args.prior_run_id,
     )
     with open(args.output, "w", encoding="utf-8") as handle:
         json.dump(report, handle, indent=2, sort_keys=True)
         handle.write("\n")
-    print(json.dumps({"status": "complete", "label": report["label"], "rejected_issuers": report["rejected_issuers"]}))
+    print(
+        json.dumps(
+            {
+                "status": "complete",
+                "label": report["label"],
+                "price_snapshot_sha256": report["price_snapshot"]["sha256"],
+                "rejected_issuers": report["rejected_issuers"],
+            }
+        )
+    )
     return 0
 
 
