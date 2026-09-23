@@ -142,3 +142,69 @@ def test_pinned_record_carries_checksum_and_audit_trail_but_no_prices(monkeypatc
     serialized = json.dumps(report)
     assert "adjusted_open_close" not in serialized
     assert "raw_close" not in serialized
+
+
+def _price_reading_run(config, *, prices, data_vintage_cutoff, **kwargs):
+    frame = prices.adjusted("AAA", DECISION - dt.timedelta(days=30), DECISION)
+    return {
+        "label": "pipeline_validation",
+        "data_vintage_cutoff": data_vintage_cutoff.isoformat(),
+        "signal": float(frame["Close"].sum()),
+        "curves_base_cost": {"spy_buy_and_hold": [["2024-09-04", float(frame["Close"].iloc[-1])]]},
+    }
+
+
+def test_archive_replay_rebuilds_the_pinned_runs_full_record_exactly(monkeypatch):
+    from src.backtesting.price_snapshot import public_record
+
+    monkeypatch.setattr(sec_pilot, "run_pilot", _price_reading_run)
+    vault = {}
+
+    def store(snapshot):
+        vault[snapshot_sha256(snapshot)] = json.loads(canonical_bytes(snapshot))
+        return snapshot_sha256(snapshot)
+
+    pinned = sec_pilot.run_pinned_pilot(
+        sec_pilot.PilotConfig(),
+        repository=None,
+        live_prices=_prices(),
+        manifest_lookup=lambda ticker: None,
+        data_vintage_cutoff=CAPTURED_AT,
+        store=store,
+        load=vault.__getitem__,
+        github_run_id="35809776344",
+        prior_run_ids=["35809011675"],
+    )
+    digest = pinned["price_snapshot"]["sha256"]
+    archived = sec_pilot.replay_pinned_run(
+        sec_pilot.PilotConfig(),
+        repository=None,
+        snapshot=vault[digest],
+        digest=digest,
+        manifest_lookup=lambda ticker: None,
+        data_vintage_cutoff=CAPTURED_AT,
+        original_run_id="35809776344",
+        prior_run_ids=["35809011675"],
+    )
+
+    assert snapshot_sha256(archived) == snapshot_sha256(json.loads(json.dumps(pinned)))
+    reduced = public_record(archived, private_record_sha256=snapshot_sha256(archived))
+    assert "curves_base_cost" not in reduced
+    assert reduced["signal"] == pinned["signal"]
+    assert reduced["private_full_record"]["sha256"] == snapshot_sha256(archived)
+    assert reduced["private_full_record"]["withheld_fields"] == ["curves_base_cost"]
+
+
+def test_archive_replay_refuses_a_snapshot_that_fails_its_checksum():
+    _, snapshot = _recorded()
+
+    with pytest.raises(SnapshotIntegrityError, match="checksum"):
+        sec_pilot.replay_pinned_run(
+            sec_pilot.PilotConfig(),
+            repository=None,
+            snapshot=snapshot,
+            digest="0" * 64,
+            manifest_lookup=lambda ticker: None,
+            data_vintage_cutoff=CAPTURED_AT,
+            original_run_id="1",
+        )

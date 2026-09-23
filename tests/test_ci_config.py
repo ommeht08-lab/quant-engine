@@ -337,6 +337,14 @@ class TestSecBacktestPilotWorkflow:
         for forbidden in ("upload-artifact", "adjusted_open_close"):
             assert forbidden not in content
 
+    def test_archive_mode_inputs_are_validated_and_logs_carry_only_the_reduced_record(self):
+        run = _job_block(self._content(), "run")
+        assert "^[0-9a-f]{64}$" in run
+        assert "--replay-snapshot" in run
+        assert "--replay-of-run" in run
+        assert "curves_base_cost" not in self._content()
+        assert "Reduced public record only" in run
+
     def test_runs_the_pilot_and_publishes_the_record_to_the_run(self):
         run = _job_block(self._content(), "run")
         assert "python -m src.backtesting.sec_pilot --output" in run

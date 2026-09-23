@@ -953,6 +953,12 @@ def run_pinned_pilot(
     )
     if json.dumps(replay, sort_keys=True) != json.dumps(report, sort_keys=True):
         raise SnapshotIntegrityError("Offline replay from the stored snapshot did not reproduce the run exactly.")
+    return attach_pinned_metadata(report, stored, digest, github_run_id=github_run_id, prior_run_ids=prior_run_ids)
+
+
+def attach_pinned_metadata(
+    report: dict, snapshot: dict, digest: str, *, github_run_id: Optional[str], prior_run_ids: Sequence[str]
+) -> dict:
     report["price_snapshot"] = {
         "sha256": digest,
         "format_version": snapshot["format_version"],
@@ -971,49 +977,117 @@ def run_pinned_pilot(
     return report
 
 
+def replay_pinned_run(
+    config: PilotConfig,
+    *,
+    repository,
+    snapshot: dict,
+    digest: str,
+    manifest_lookup: Callable[[str], Optional[IssuerValuationPolicy]],
+    data_vintage_cutoff: datetime,
+    original_run_id: str,
+    prior_run_ids: Sequence[str] = (),
+) -> dict:
+    """Rebuild a pinned run's full record offline from its stored snapshot and
+    its recorded data-vintage cutoff; the result is that run's record exactly."""
+
+    from src.backtesting.price_snapshot import SnapshotIntegrityError, SnapshotPriceProvider, snapshot_sha256
+
+    if snapshot_sha256(snapshot) != digest:
+        raise SnapshotIntegrityError("Stored snapshot does not match its checksum.")
+    report = run_pilot(
+        config,
+        repository=repository,
+        prices=SnapshotPriceProvider(snapshot),
+        manifest_lookup=manifest_lookup,
+        data_vintage_cutoff=data_vintage_cutoff,
+    )
+    return attach_pinned_metadata(report, snapshot, digest, github_run_id=original_run_id, prior_run_ids=prior_run_ids)
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    from src.backtesting.price_snapshot import load_snapshot, store_snapshot
+    from src.backtesting.price_snapshot import (
+        load_snapshot,
+        public_record,
+        store_private_record,
+        store_snapshot,
+    )
     from src.fundamentals.issuer_manifest import issuer_policy_for
     from src.fundamentals.store import PostgresFundamentalsRepository
 
     parser = argparse.ArgumentParser(description="Run the SEC-only $100,000 backtest pilot with pinned prices.")
-    parser.add_argument("--output", required=True, help="path for the JSON pilot record")
+    parser.add_argument("--output", required=True, help="path for the reduced public JSON record")
     parser.add_argument("--github-run-id", default=None)
     parser.add_argument("--prior-run-id", action="append", default=[], help="earlier provisional run to cite")
+    parser.add_argument("--replay-snapshot", default=None, help="archive mode: stored snapshot SHA-256 to replay")
+    parser.add_argument("--replay-data-vintage-cutoff", default=None, help="archive mode: the run's recorded cutoff")
+    parser.add_argument("--replay-of-run", default=None, help="archive mode: the run whose record is rebuilt")
     args = parser.parse_args(argv)
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
         print(json.dumps({"status": "failed", "message": "DATABASE_URL must be set."}))
         return 1
-    if any(not run.isdigit() for run in args.prior_run_id + ([args.github_run_id] if args.github_run_id else [])):
+    run_ids = args.prior_run_id + [value for value in (args.github_run_id, args.replay_of_run) if value]
+    if any(not run.isdigit() for run in run_ids):
         print(json.dumps({"status": "failed", "message": "Run IDs must be numeric."}))
         return 1
-    report = run_pinned_pilot(
-        PilotConfig(),
-        repository=PostgresFundamentalsRepository(database_url=database_url),
-        live_prices=YahooPriceProvider(),
-        manifest_lookup=issuer_policy_for,
-        data_vintage_cutoff=datetime.now(timezone.utc),
-        store=lambda snapshot: store_snapshot(
-            snapshot,
-            database_url=database_url,
+    replay_args = (args.replay_snapshot, args.replay_data_vintage_cutoff, args.replay_of_run)
+    if any(replay_args) and not all(replay_args):
+        print(json.dumps({"status": "failed", "message": "Archive mode needs snapshot, cutoff, and run."}))
+        return 1
+    repository = PostgresFundamentalsRepository(database_url=database_url)
+
+    if args.replay_snapshot:
+        full = replay_pinned_run(
+            PilotConfig(),
+            repository=repository,
+            snapshot=load_snapshot(args.replay_snapshot, database_url=database_url),
+            digest=args.replay_snapshot,
+            manifest_lookup=issuer_policy_for,
+            data_vintage_cutoff=datetime.fromisoformat(args.replay_data_vintage_cutoff),
+            original_run_id=args.replay_of_run,
+            prior_run_ids=args.prior_run_id,
+        )
+        record_run = args.replay_of_run
+    else:
+        full = run_pinned_pilot(
+            PilotConfig(),
+            repository=repository,
+            live_prices=YahooPriceProvider(),
+            manifest_lookup=issuer_policy_for,
+            data_vintage_cutoff=datetime.now(timezone.utc),
+            store=lambda snapshot: store_snapshot(
+                snapshot,
+                database_url=database_url,
+                github_run_id=args.github_run_id,
+                pilot_policy_version=PILOT_POLICY_VERSION,
+            ),
+            load=lambda digest: load_snapshot(digest, database_url=database_url),
             github_run_id=args.github_run_id,
-            pilot_policy_version=PILOT_POLICY_VERSION,
-        ),
-        load=lambda digest: load_snapshot(digest, database_url=database_url),
-        github_run_id=args.github_run_id,
-        prior_run_ids=args.prior_run_id,
+            prior_run_ids=args.prior_run_id,
+        )
+        record_run = args.github_run_id
+    private_digest = store_private_record(
+        full,
+        snapshot_digest=full["price_snapshot"]["sha256"],
+        database_url=database_url,
+        github_run_id=record_run,
     )
+    reduced = public_record(full, private_record_sha256=private_digest)
     with open(args.output, "w", encoding="utf-8") as handle:
-        json.dump(report, handle, indent=2, sort_keys=True)
+        json.dump(reduced, handle, indent=2, sort_keys=True)
         handle.write("\n")
     print(
         json.dumps(
             {
                 "status": "complete",
-                "label": report["label"],
-                "price_snapshot_sha256": report["price_snapshot"]["sha256"],
-                "rejected_issuers": report["rejected_issuers"],
+                "mode": "archive_replay" if args.replay_snapshot else "pinned_run",
+                "executed_in_run": args.github_run_id,
+                "record_of_run": record_run,
+                "label": reduced["label"],
+                "price_snapshot_sha256": reduced["price_snapshot"]["sha256"],
+                "private_full_record_sha256": private_digest,
+                "rejected_issuers": reduced["rejected_issuers"],
             }
         )
     )

@@ -192,3 +192,65 @@ def load_snapshot(digest: str, *, database_url: str) -> dict:
     if snapshot_sha256(snapshot) != digest:
         raise SnapshotIntegrityError("Stored snapshot does not match its checksum.")
     return snapshot
+
+
+# --------------------------------------------------------------------------
+# Private full pilot records (daily curves are Yahoo-derived: never public)
+# --------------------------------------------------------------------------
+
+PRIVATE_RECORD_TABLE = "backtest_pilot_private_records"
+PRIVATE_RECORD_FIELDS = ("curves_base_cost",)
+
+CREATE_PRIVATE_RECORD_TABLE_SQL = f"""
+CREATE TABLE IF NOT EXISTS {PRIVATE_RECORD_TABLE} (
+    record_sha256 TEXT PRIMARY KEY,
+    snapshot_sha256 TEXT NOT NULL REFERENCES {SNAPSHOT_TABLE} (snapshot_sha256),
+    github_run_id TEXT,
+    payload TEXT NOT NULL,
+    stored_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+"""
+INSERT_PRIVATE_RECORD_SQL = f"""
+INSERT INTO {PRIVATE_RECORD_TABLE} (record_sha256, snapshot_sha256, github_run_id, payload)
+VALUES (%s, %s, %s, %s)
+ON CONFLICT (record_sha256) DO NOTHING;
+"""
+SELECT_PRIVATE_RECORD_SQL = f"SELECT payload FROM {PRIVATE_RECORD_TABLE} WHERE record_sha256 = %s;"
+
+
+def public_record(full_record: dict, *, private_record_sha256: str) -> dict:
+    """The full record minus Yahoo-derived daily series, plus the checksum of
+    the private full record that holds them."""
+
+    reduced = {key: value for key, value in full_record.items() if key not in PRIVATE_RECORD_FIELDS}
+    reduced["private_full_record"] = {
+        "sha256": private_record_sha256,
+        "storage": f"private postgres table {PRIVATE_RECORD_TABLE} (not redistributed)",
+        "withheld_fields": list(PRIVATE_RECORD_FIELDS),
+    }
+    return reduced
+
+
+def store_private_record(
+    full_record: dict, *, snapshot_digest: str, database_url: str, github_run_id: Optional[str]
+) -> str:
+    """Append the full record privately, then read it back and re-verify."""
+
+    import psycopg2
+
+    digest = snapshot_sha256(full_record)
+    payload = canonical_bytes(full_record).decode("utf-8")
+    connection = psycopg2.connect(database_url, application_name="sec-pilot-private-record", connect_timeout=10)
+    try:
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute(CREATE_PRIVATE_RECORD_TABLE_SQL)
+                cursor.execute(INSERT_PRIVATE_RECORD_SQL, (digest, snapshot_digest, github_run_id, payload))
+            with connection.cursor() as cursor:
+                cursor.execute(SELECT_PRIVATE_RECORD_SQL, (digest,))
+                row = cursor.fetchone()
+    finally:
+        connection.close()
+    if row is None or snapshot_sha256(json.loads(row[0])) != digest:
+        raise SnapshotIntegrityError("Stored private record does not match its checksum.")
+    return digest

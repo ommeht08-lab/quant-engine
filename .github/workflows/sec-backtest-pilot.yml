@@ -6,8 +6,15 @@ name: SEC backtest pilot
 # loader with source=sec (no Yahoo statement fallback). Its only database write
 # is one append-only row in the private backtest_price_snapshots table: the
 # exact prices this run read, stored before an offline replay from that stored
-# copy must reproduce the run exactly. Prices are never printed or uploaded
-# (this repository is public); the record carries only their checksum.
+# copy must reproduce the run exactly, plus one append-only row holding the
+# full record (including the Yahoo-derived daily curves) in the private
+# backtest_pilot_private_records table. This repository is public: prices and
+# daily curves are never printed or uploaded; the log shows only the reduced
+# public record with the checksums of the private snapshot and full record.
+#
+# Archive mode (all three replay_* inputs): rebuild an earlier pinned run's
+# full record offline from its stored snapshot and recorded data-vintage
+# cutoff, and store it privately. No live prices are fetched.
 "on":
   workflow_dispatch:
     inputs:
@@ -15,6 +22,21 @@ name: SEC backtest pilot
         description: "Earlier provisional pilot run IDs to cite, space-separated"
         required: false
         default: "35809011675"
+        type: string
+      replay_snapshot_sha256:
+        description: "Archive mode: stored price snapshot SHA-256"
+        required: false
+        default: ""
+        type: string
+      replay_data_vintage_cutoff:
+        description: "Archive mode: the run's recorded data_vintage_cutoff (UTC ISO)"
+        required: false
+        default: ""
+        type: string
+      replay_of_run:
+        description: "Archive mode: the pinned run whose record is rebuilt"
+        required: false
+        default: ""
         type: string
 
 permissions:
@@ -65,14 +87,25 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           PRIOR_RUN_IDS: ${{ inputs.prior_run_ids }}
+          REPLAY_SNAPSHOT: ${{ inputs.replay_snapshot_sha256 }}
+          REPLAY_CUTOFF: ${{ inputs.replay_data_vintage_cutoff }}
+          REPLAY_OF_RUN: ${{ inputs.replay_of_run }}
         run: |
           prior_args=()
           for run_id in ${PRIOR_RUN_IDS}; do
             [[ "${run_id}" =~ ^[0-9]+$ ]] || { echo "Run IDs must be numeric." >&2; exit 1; }
             prior_args+=(--prior-run-id "${run_id}")
           done
+          replay_args=()
+          if [[ -n "${REPLAY_SNAPSHOT}${REPLAY_CUTOFF}${REPLAY_OF_RUN}" ]]; then
+            [[ "${REPLAY_SNAPSHOT}" =~ ^[0-9a-f]{64}$ ]] || { echo "Invalid snapshot SHA-256." >&2; exit 1; }
+            [[ "${REPLAY_CUTOFF}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+\+00:00$ ]] || { echo "Invalid cutoff." >&2; exit 1; }
+            [[ "${REPLAY_OF_RUN}" =~ ^[0-9]+$ ]] || { echo "Invalid run ID." >&2; exit 1; }
+            replay_args=(--replay-snapshot "${REPLAY_SNAPSHOT}" --replay-data-vintage-cutoff "${REPLAY_CUTOFF}" --replay-of-run "${REPLAY_OF_RUN}")
+          fi
           python -m src.backtesting.sec_pilot --output sec-pilot-2024-09-03.json \
-            --github-run-id "${GITHUB_RUN_ID}" "${prior_args[@]}"
+            --github-run-id "${GITHUB_RUN_ID}" "${prior_args[@]}" "${replay_args[@]}"
+          # Reduced public record only: no prices or daily curves.
           echo "----- BEGIN SEC PILOT RECORD -----"
           cat sec-pilot-2024-09-03.json
           echo "----- END SEC PILOT RECORD -----"
