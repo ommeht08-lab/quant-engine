@@ -324,3 +324,90 @@ def test_postgres_schema_enforces_exact_numeric_and_append_only_rows(empty_store
     finally:
         connection.rollback()
         connection.close()
+
+
+def _sourced(fact, source, batch_id):
+    return replace(fact, lineage=replace(fact.lineage, source_adapter=source, ingestion_batch_id=batch_id))
+
+
+def _mixed_publication(*, debt="500"):
+    return (
+        _sourced(_fact(StatementKind.INCOME_STATEMENT, "revenue", 2023, value="100"),
+                 "sec_companyfacts", "batch-mixed"),
+        _sourced(_fact(StatementKind.BALANCE_SHEET, "total_assets", 2023, value="900"),
+                 "sec_companyfacts", "batch-mixed"),
+        _sourced(_fact(StatementKind.BALANCE_SHEET, "current_debt", 2023, value=debt),
+                 "sec_filing_xbrl", "batch-mixed+sec_filing_xbrl"),
+    )
+
+
+def _store_contents():
+    connection = psycopg2.connect(DATABASE_URL)
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT ingestion_batch_id, source_adapter FROM fundamentals_ingestion_batches ORDER BY 1"
+            )
+            batches = cursor.fetchall()
+            cursor.execute(
+                "SELECT ingestion_batch_id, source_adapter, canonical_concept, value "
+                "FROM fundamentals_facts ORDER BY 1, 3"
+            )
+            facts = cursor.fetchall()
+        connection.rollback()
+        return batches, facts
+    finally:
+        connection.close()
+
+
+def test_mixed_source_publication_commits_both_batches_and_replays(empty_store):
+    assert append_facts(_mixed_publication(), database_url=DATABASE_URL) == 3
+    assert append_facts(tuple(reversed(_mixed_publication())), database_url=DATABASE_URL) == 0
+
+    batches, facts = _store_contents()
+    assert batches == [
+        ("batch-mixed", "sec_companyfacts"),
+        ("batch-mixed+sec_filing_xbrl", "sec_filing_xbrl"),
+    ]
+    assert facts == [
+        ("batch-mixed", "sec_companyfacts", "revenue", Decimal("100")),
+        ("batch-mixed", "sec_companyfacts", "total_assets", Decimal("900")),
+        ("batch-mixed+sec_filing_xbrl", "sec_filing_xbrl", "current_debt", Decimal("500")),
+    ]
+
+
+def test_conflicting_supplement_rolls_back_every_source(empty_store):
+    assert append_facts(_mixed_publication(), database_url=DATABASE_URL) == 3
+    before = _store_contents()
+    retry = tuple(
+        _sourced(fact, fact.lineage.source_adapter,
+                 fact.lineage.ingestion_batch_id.replace("batch-mixed", "batch-retry"))
+        for fact in _mixed_publication(debt="501")
+    ) + (
+        _sourced(_fact(StatementKind.INCOME_STATEMENT, "revenue", 2024, value="110"),
+                 "sec_companyfacts", "batch-retry"),
+    )
+
+    with pytest.raises(FundamentalsPublishError, match="conflicts"):
+        append_facts(retry, database_url=DATABASE_URL)
+
+    assert _store_contents() == before
+
+
+@pytest.mark.parametrize(
+    "ids",
+    (
+        {"sec_companyfacts": "batch-mixed+sec_companyfacts", "sec_filing_xbrl": "batch-mixed"},
+        {"sec_companyfacts": "batch-mixed", "sec_filing_xbrl": "batch-mixed"},
+    ),
+)
+def test_swapped_or_shared_batch_ids_write_nothing(empty_store, ids):
+    facts = tuple(
+        _sourced(fact, fact.lineage.source_adapter, ids[fact.lineage.source_adapter])
+        for fact in _mixed_publication()
+    )
+
+    with pytest.raises(FundamentalsPublishError):
+        append_facts(facts, database_url=DATABASE_URL)
+
+    assert _store_contents() == ([], [])
