@@ -288,6 +288,27 @@ class ValuationFundamentalsSnapshot:
     def latest(self) -> ValuationTrailingPeriod:
         return self.trailing_periods[-1]
 
+    @property
+    def source_facts(self) -> Tuple[FinancialFact, ...]:
+        """Every distinct stored fact that supports this snapshot.
+
+        Keeping this traversal on the snapshot itself prevents downstream
+        valuation callers from reimplementing its nested TTM structure when
+        they need immutable batch and filing provenance.
+        """
+
+        facts = (
+            tuple(
+                fact
+                for period in self.trailing_periods
+                for value in period.source_values
+                for quarter in value.quarters
+                for fact in quarter.source_facts
+            )
+            + self.latest_balance.source_facts
+        )
+        return tuple(dict.fromkeys(facts))
+
 
 class ValuationSnapshotIssueCode(str, Enum):
     STORE_UNAVAILABLE = "store_unavailable"

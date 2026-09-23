@@ -638,16 +638,22 @@ def check_trend_filter(ticker_symbol: str) -> bool:
         logger.warning("No price history available for %s trend filter.", ticker_symbol)
         return False
 
-    valid_history = history.dropna(subset=["Close"]).tail(TREND_SMA_WINDOW_DAYS)
-    if len(valid_history) < TREND_SMA_WINDOW_DAYS:
+    return trend_filter_passes(history["Close"], label=ticker_symbol)
+
+
+def trend_filter_passes(closes, label: str = "series") -> bool:
+    """The 200-SMA trend rule over a close series (oldest first). Pure:
+    shared by the live gate and point-in-time backtests."""
+    valid_closes = closes.dropna().tail(TREND_SMA_WINDOW_DAYS)
+    if len(valid_closes) < TREND_SMA_WINDOW_DAYS:
         logger.warning(
             "Only %d valid close(s) available for %s trend filter (need >= %d); failing safe.",
-            len(valid_history), ticker_symbol, TREND_SMA_WINDOW_DAYS,
+            len(valid_closes), label, TREND_SMA_WINDOW_DAYS,
         )
         return False
 
-    current_price = float(valid_history["Close"].iloc[-1])
-    sma_200 = float(valid_history["Close"].mean())
+    current_price = float(valid_closes.iloc[-1])
+    sma_200 = float(valid_closes.mean())
     if sma_200 <= 0:
         return False
 

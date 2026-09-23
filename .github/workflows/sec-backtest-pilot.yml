@@ -1,0 +1,82 @@
+name: SEC backtest pilot
+
+# Manual, read-only run of the SEC-only $100,000 backtest pilot (decision date
+# 2024-09-03). The result is PIPELINE VALIDATION, not evidence of investment
+# performance. It reads published SEC facts through the shared valuation-input
+# loader with source=sec (no Yahoo statement fallback) and never writes to the
+# database. The full JSON record is printed to the job log and summarized in
+# the run's step summary.
+"on":
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sec-backtest-pilot
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
+
+      - name: Run pilot, loader, and SEC fundamentals tests
+        run: >
+          python -m pytest -q tests/backtesting/test_sec_pilot.py
+          tests/test_valuation_input.py tests/fundamentals tests/test_ci_config.py
+
+  run:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install runtime dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements.txt
+
+      - name: Run the SEC-only pilot (read-only)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python -m src.backtesting.sec_pilot --output sec-pilot-2024-09-03.json
+          echo "----- BEGIN SEC PILOT RECORD -----"
+          cat sec-pilot-2024-09-03.json
+          echo "----- END SEC PILOT RECORD -----"
+          python - <<'PY' >> "${GITHUB_STEP_SUMMARY}"
+          import json
+          report = json.load(open("sec-pilot-2024-09-03.json"))
+          print("## SEC backtest pilot — pipeline validation\n")
+          print(f"> {report['disclaimer']}\n")
+          print(f"Decision {report['decision_date']} (cutoff {report['knowledge_cutoff']}); "
+                f"entry {report['entry_date']} open, exit {report['exit_date']} close; "
+                f"strategy outcome: {report['strategy_outcome']}\n")
+          print("| Cost (bps) | Curve | Net return | vs SPY | Max drawdown | Cash |")
+          print("|---|---|---|---|---|---|")
+          for cost, curves in report["cost_cases"].items():
+              for name, curve in curves.items():
+                  print(f"| {cost} | {name} | {curve['net_return']:.2%} | "
+                        f"{curve['excess_return_vs_benchmark']:.2%} | {curve['max_drawdown']:.2%} | "
+                        f"{curve['unallocated_cash_fraction']:.0%} |")
+          print("\n**Rejected issuers:**")
+          for item in report["rejected_issuers"] or [{"ticker": "none", "reason": "", "unallocated_capital_fraction": 0}]:
+              print(f"- {item['ticker']}: {item['reason']} (unallocated {item['unallocated_capital_fraction']:.0%})")
+          PY

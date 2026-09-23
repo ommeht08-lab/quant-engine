@@ -155,10 +155,21 @@ def calculate_f_score(ticker_symbol: str) -> int:
         logger.warning("Invalid ticker for Piotroski F-Score: %s", exc)
         return 0
 
-    income_stmt = get_income_statement(ticker_obj)
-    balance_sheet = get_balance_sheet(ticker_obj)
-    cash_flow = get_cash_flow_statement(ticker_obj)
+    return calculate_f_score_from_statements(
+        get_income_statement(ticker_obj),
+        get_balance_sheet(ticker_obj),
+        get_cash_flow_statement(ticker_obj),
+    )
 
+
+def calculate_f_score_from_statements(
+    income_stmt: Optional[pd.DataFrame],
+    balance_sheet: Optional[pd.DataFrame],
+    cash_flow: Optional[pd.DataFrame],
+) -> int:
+    """The F-Score from already-fetched statements whose two most recent
+    columns are the current (t) and prior (t-1) periods. Pure: shared by
+    the live screen and point-in-time backtests."""
     income_t, income_t1 = _two_most_recent_columns(income_stmt)
     balance_t, balance_t1 = _two_most_recent_columns(balance_sheet)
     cash_t, _ = _two_most_recent_columns(cash_flow)
