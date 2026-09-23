@@ -1,14 +1,17 @@
 name: Daily Portfolio Rebalance
 
 # The weekday schedule runs on GitHub's infrastructure, so the paper
-# strategy does not depend on a laptop being awake. 17:15 UTC is during
-# regular US market hours in both EDT (13:15) and EST (12:15), including
-# enough room before a standard 13:00 early close for the scan to finish.
-# Every individual order still rechecks Alpaca's market clock immediately
-# before submission and fails safe if the market is closed.
+# strategy does not depend on a laptop being awake. 14:37 UTC is 10:37 EDT /
+# 09:37 EST: just after the open, leaving several hours of tolerance for
+# GitHub's documented scheduled-run delays before a regular or early close
+# (a 2026-09-21 run scheduled for 17:15 UTC started after the close). Every
+# individual order still rechecks Alpaca's market clock immediately before
+# submission and fails safe if the market is closed. Each run records its
+# scheduled time, actual start, queue delay, market-clock state at start,
+# orders attempted/filled, and an explicit outcome.
 "on":
   schedule:
-    - cron: "15 17 * * 1-5"
+    - cron: "37 14 * * 1-5"
   workflow_dispatch:
     inputs:
       execute:
@@ -105,6 +108,11 @@ jobs:
           # dry runs still submit zero orders and write no trade rows, but
           # do append started/completed/failed health events for the dashboard.
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # Diagnostics only: GitHub's cron string for scheduled runs (empty
+          # for manual runs), and the non-secret paper-account epoch label
+          # set as a repository variable when the account's keys are rotated.
+          SCHEDULED_CRON: ${{ github.event.schedule }}
+          ALPACA_ACCOUNT_EPOCH: ${{ vars.ALPACA_ACCOUNT_EPOCH }}
           UPSTASH_REDIS_REST_URL: ${{ (github.event_name == 'schedule' || github.event.inputs.execute == 'execute') && secrets.UPSTASH_REDIS_REST_URL || '' }}
           UPSTASH_REDIS_REST_TOKEN: ${{ (github.event_name == 'schedule' || github.event.inputs.execute == 'execute') && secrets.UPSTASH_REDIS_REST_TOKEN || '' }}
         run: |

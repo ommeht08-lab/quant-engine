@@ -105,6 +105,32 @@ class TestFillHandling:
         assert "PARTIALLY FILLED" in results[0]["status"]
         assert "qty=3.0" in results[0]["status"]
 
+    def test_partial_fill_is_counted_as_partial_and_makes_the_run_incomplete(self, monkeypatch):
+        from src.trading.run_health import OrderLedger, RunOutcome, classify_run_outcome
+
+        pick = _pick("AAPL")
+        client = FakeTradingClient(positions=[], default_fill_price=150.0)
+        monkeypatch.setattr(engine.time, "sleep", lambda *_: None)
+        monkeypatch.setattr(engine, "_safe_log_trade", lambda **kwargs: None)
+        client.script_fill(
+            "AAPL",
+            statuses=[OrderStatus.PARTIALLY_FILLED] * 3,
+            filled_qtys=[3.0] * 3,
+            filled_avg_prices=[150.0] * 3,
+        )
+        ledger = OrderLedger()
+        token = engine._ORDER_LEDGER.set(ledger)
+        try:
+            engine.rebalance_target_positions(
+                client, {}, [pick], equity=100_000.0, dry_run=False, open_order_symbols=set()
+            )
+        finally:
+            engine._ORDER_LEDGER.reset(token)
+
+        counts = ledger.counts()
+        assert (counts.attempted, counts.filled, counts.partially_filled) == (1, 0, 1)
+        assert classify_run_outcome(dry_run=False, has_candidates=True, counts=counts) is RunOutcome.ORDERS_INCOMPLETE
+
     def test_rejected_order_is_not_logged_as_a_trade(self, monkeypatch):
         pick = _pick("AAPL")
         client = FakeTradingClient(positions=[], default_fill_price=150.0)

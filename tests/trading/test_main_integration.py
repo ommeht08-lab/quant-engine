@@ -183,6 +183,13 @@ class TestFullOrchestration:
             engine.RunEventType.STARTED,
             engine.RunEventType.COMPLETED,
         ]
+        # CCC liquidation, AAA and BBB buys, and the AAA corrective trim all
+        # count (the hedge is stubbed in this test; see test_safety for it).
+        completed = run_events[-1]
+        assert completed.orders_attempted == 4
+        assert completed.orders_filled == 4
+        assert completed.orders_partially_filled == 0
+        assert completed.run_outcome == engine.RunOutcome.ORDERS_FILLED
 
     def test_dry_run_never_submits_orders_or_publishes_sector_medians(self, monkeypatch, caplog):
         caplog.set_level(logging.INFO, logger="src.trading.alpaca_execution")
@@ -198,6 +205,7 @@ class TestFullOrchestration:
         assert logged_trades == []
         assert refreshed_caches == []
         assert "ALPACA_PIPELINE_COMPLETED mode=dry-run health=healthy decision=candidates" in caplog.text
+        assert "outcome=dry_run market_open_at_start=True orders_attempted=0 orders_filled=0" in caplog.text
         assert run_events[-1].completion_status == engine.RunCompletionStatus.HEALTHY
 
     def test_partial_run_raises_and_never_emits_completion_receipt(self, monkeypatch, caplog):
@@ -321,6 +329,8 @@ class TestFullOrchestration:
         assert risk_calls == [{"HOLD": 0.04}]
         assert len(hedge_calls) == 1
         assert "ALPACA_PIPELINE_COMPLETED mode=execute health=healthy decision=no_candidates" in caplog.text
+        assert "outcome=" in caplog.text and "outcome=dry_run" not in caplog.text
+        assert "epoch=unlabelled" in caplog.text
         assert run_events[-1].completion_status == engine.RunCompletionStatus.HEALTHY
 
     def test_no_candidate_run_is_incomplete_when_held_position_risk_is_unavailable(
@@ -411,3 +421,9 @@ class TestMarketClosesMidRun:
         # VaR was unavailable this run -> hedge phase never invoked at all.
         assert hedge_calls == []
         assert run_events[-1].completion_status == engine.RunCompletionStatus.INCOMPLETE
+        # Filled orders before the close are not masked by later skips.
+        completed = run_events[-1]
+        assert completed.orders_attempted == 2
+        assert completed.orders_filled == 2
+        assert completed.orders_skipped_market_closed == 2
+        assert completed.run_outcome == engine.RunOutcome.MARKET_CLOSED_AFTER_PARTIAL_EXECUTION

@@ -205,6 +205,7 @@ Usage:
 """
 
 import argparse
+import contextvars
 import datetime
 import json
 import logging
@@ -257,8 +258,12 @@ from src.trading.run_health import (
     RunEventType,
     RunHealthEvent,
     RunIdentity,
+    OrderLedger,
+    RunOutcome,
     StrategyDecision,
+    account_fingerprint,
     append_run_event,
+    classify_run_outcome,
 )
 from src.utils.db import ensure_schema, log_trade
 from src.utils.macro import get_risk_free_rate
@@ -268,6 +273,17 @@ from src.valuation.piotroski import calculate_f_score
 from src.valuation.technical import calculate_rsi
 
 logger = logging.getLogger(__name__)
+
+# The current run's order ledger (see run_health.OrderLedger). Every order
+# site records into it; outside a run a throwaway ledger absorbs records.
+_ORDER_LEDGER: "contextvars.ContextVar[Optional[OrderLedger]]" = contextvars.ContextVar(
+    "alpaca_order_ledger", default=None
+)
+
+
+def _ledger() -> OrderLedger:
+    return _ORDER_LEDGER.get() or OrderLedger()
+
 
 PAPER_TRADING_HOSTNAME = "paper-api.alpaca.markets"
 US_MARKET_TIMEZONE = ZoneInfo("America/New_York")
@@ -378,6 +394,13 @@ class PipelineCompletion:
     universe_count: int
     valued_count: int
     eligible_count: int
+    market_open_at_start: Optional[bool] = None
+    account_fingerprint: Optional[str] = None
+    orders_attempted: int = 0
+    orders_filled: int = 0
+    orders_partially_filled: int = 0
+    orders_skipped_market_closed: int = 0
+    run_outcome: Optional[RunOutcome] = None
 
 
 def load_config() -> AlpacaConfig:
@@ -1101,6 +1124,7 @@ def liquidate_non_target_positions(
 
         if not _market_is_open(trading_client):
             record["status"] = "SKIPPED (market closed)"
+            _ledger().skipped_market_closed("liquidation", symbol)
             results.append(record)
             continue
 
@@ -1109,12 +1133,14 @@ def liquidate_non_target_positions(
         except APIError as exc:
             logger.warning("Failed to submit liquidation for %s: %s", symbol, exc)
             record["status"] = f"FAILED ({exc})"
+            _ledger().submission_failed("liquidation", symbol)
             results.append(record)
             continue
 
         _mark_symbol_pending(symbol, open_order_symbols)
         order = _await_order_resolution(trading_client, submitted.id)
         _mark_symbol_resolved(symbol, order, open_order_symbols)
+        _ledger().resolved("liquidation", symbol, order)
         if order is None:
             record["status"] = "UNKNOWN (could not confirm order status)"
             results.append(record)
@@ -1498,6 +1524,7 @@ def rebalance_target_positions(
 
         if not _market_is_open(trading_client):
             record["status"] = "SKIPPED (market closed)"
+            _ledger().skipped_market_closed("rebalance", symbol)
             results.append(record)
             continue
 
@@ -1513,12 +1540,14 @@ def rebalance_target_positions(
         except APIError as exc:
             logger.warning("Failed to submit %s order for %s: %s", side.value, symbol, exc)
             record["status"] = f"FAILED ({exc})"
+            _ledger().submission_failed("rebalance", symbol)
             results.append(record)
             continue
 
         _mark_symbol_pending(symbol, open_order_symbols)
         order = _await_order_resolution(trading_client, submitted.id)
         _mark_symbol_resolved(symbol, order, open_order_symbols)
+        _ledger().resolved("rebalance", symbol, order)
         if order is None:
             record["status"] = "UNKNOWN (could not confirm order status)"
             results.append(record)
@@ -1960,6 +1989,7 @@ def execute_spy_var_hedge(
 
     if not _market_is_open(trading_client):
         logger.info("SKIPPED SPY VaR hedge: market closed at submission time.")
+        _ledger().skipped_market_closed("hedge", contract.symbol)
         return
 
     try:
@@ -1973,11 +2003,13 @@ def execute_spy_var_hedge(
         )
     except APIError as exc:
         logger.warning("Failed to submit SPY VaR hedge order (%s): %s", contract.symbol, exc)
+        _ledger().submission_failed("hedge", contract.symbol)
         return
 
     _mark_symbol_pending(contract.symbol, open_order_symbols)
     order = _await_order_resolution(trading_client, submitted.id)
     _mark_symbol_resolved(contract.symbol, order, open_order_symbols)
+    _ledger().resolved("hedge", contract.symbol, order)
     if order is None:
         logger.warning("Could not confirm SPY VaR hedge order status for %s.", contract.symbol)
         return
@@ -2079,6 +2111,7 @@ def _trim_position_to_cap(
 
     if not _market_is_open(trading_client):
         logger.warning("POST-FILL CAP CORRECTION for %s SKIPPED: market closed at submission time.", symbol)
+        _ledger().skipped_market_closed("cap_trim", symbol)
         return None
 
     try:
@@ -2092,11 +2125,13 @@ def _trim_position_to_cap(
         )
     except APIError as exc:
         logger.warning("Failed to submit post-fill cap-trim SELL for %s: %s", symbol, exc)
+        _ledger().submission_failed("cap_trim", symbol)
         return None
 
     _mark_symbol_pending(symbol, open_order_symbols)
     order = _await_order_resolution(trading_client, submitted.id)
     _mark_symbol_resolved(symbol, order, open_order_symbols)
+    _ledger().resolved("cap_trim", symbol, order)
     if order is None:
         logger.warning("Could not confirm post-fill cap-trim SELL order status for %s.", symbol)
         return None
@@ -2278,6 +2313,14 @@ def _safe_append_run_event(event: RunHealthEvent) -> None:
 
 
 def _run_rebalance(args: argparse.Namespace) -> PipelineCompletion:
+    token = _ORDER_LEDGER.set(OrderLedger())
+    try:
+        return _run_rebalance_with_ledger(args)
+    finally:
+        _ORDER_LEDGER.reset(token)
+
+
+def _run_rebalance_with_ledger(args: argparse.Namespace) -> PipelineCompletion:
     # Fails closed (raises RuntimeError -> sys.exit(1) below) unless
     # APCA_API_BASE_URL is exactly Alpaca's paper endpoint — see
     # `load_config`'s docstring: there is no bypass of any kind. No
@@ -2289,7 +2332,8 @@ def _run_rebalance(args: argparse.Namespace) -> PipelineCompletion:
     # Verify Alpaca connectivity before running the (multi-minute) DCF scan,
     # so bad credentials fail fast rather than after a long wait.
     try:
-        equity_before = float(trading_client.get_account().equity)
+        account = trading_client.get_account()
+        equity_before = float(account.equity)
         positions = get_current_positions(trading_client)
     except APIError as exc:
         raise RuntimeError(
@@ -2304,7 +2348,8 @@ def _run_rebalance(args: argparse.Namespace) -> PipelineCompletion:
     # starts — is never what actually gates an order. This just logs
     # a heads-up early; it does not (and must not) turn the whole run
     # into a dry run.
-    if not _market_is_open(trading_client) and not args.dry_run:
+    market_open_at_start = _market_is_open(trading_client)
+    if not market_open_at_start and not args.dry_run:
         logger.warning(
             "Alpaca market clock reports the market is CLOSED at scan start. The scan/analysis/"
             "risk-calc below still runs; individual order submissions each recheck the clock "
@@ -2510,6 +2555,7 @@ def _run_rebalance(args: argparse.Namespace) -> PipelineCompletion:
     # the portfolio was not successfully modeled. An empty equity book
     # has no exposure to model, so that normal state remains complete.
     risk_complete = not holdings or risk_result.is_ok
+    counts = _ledger().counts()
     return PipelineCompletion(
         health=(
             RunCompletionStatus.HEALTHY
@@ -2524,6 +2570,17 @@ def _run_rebalance(args: argparse.Namespace) -> PipelineCompletion:
         universe_count=len(DEFAULT_SP500_TOP_100_TICKERS),
         valued_count=sum(1 for valuation in valuations if valuation.is_valid),
         eligible_count=len(top_picks),
+        market_open_at_start=market_open_at_start,
+        account_fingerprint=account_fingerprint(getattr(account, "id", None)),
+        orders_attempted=counts.attempted,
+        orders_filled=counts.filled,
+        orders_partially_filled=counts.partially_filled,
+        orders_skipped_market_closed=counts.skipped_market_closed,
+        run_outcome=classify_run_outcome(
+            dry_run=effective_dry_run,
+            has_candidates=bool(top_picks),
+            counts=counts,
+        ),
     )
 
 
@@ -2574,16 +2631,44 @@ def main() -> None:
             universe_count=completion.universe_count,
             valued_count=completion.valued_count,
             eligible_count=completion.eligible_count,
+            market_open_at_start=completion.market_open_at_start,
+            account_fingerprint=completion.account_fingerprint,
+            orders_attempted=completion.orders_attempted,
+            orders_filled=completion.orders_filled,
+            orders_partially_filled=completion.orders_partially_filled,
+            orders_skipped_market_closed=completion.orders_skipped_market_closed,
+            run_outcome=completion.run_outcome,
         )
     )
     logger.info(
-        "ALPACA_PIPELINE_COMPLETED mode=%s health=%s decision=%s universe=%d valued=%d eligible=%d",
+        "ALPACA_PIPELINE_COMPLETED mode=%s health=%s decision=%s universe=%d valued=%d eligible=%d "
+        "outcome=%s market_open_at_start=%s orders_attempted=%d orders_filled=%d "
+        "orders_partially_filled=%d orders_skipped_market_closed=%d epoch=%s "
+        "scheduled_for_estimate=%s started_at=%s queue_delay_estimate_seconds=%s",
         identity.mode.value,
         completion.health.value,
         completion.decision.value,
         completion.universe_count,
         completion.valued_count,
         completion.eligible_count,
+        completion.run_outcome.value if completion.run_outcome else "unknown",
+        completion.market_open_at_start,
+        completion.orders_attempted,
+        completion.orders_filled,
+        completion.orders_partially_filled,
+        completion.orders_skipped_market_closed,
+        identity.account_epoch,
+        (
+            identity.scheduled_for_estimate.isoformat()
+            if identity.scheduled_for_estimate
+            else ("ambiguous" if identity.schedule_estimate_ambiguous else "manual")
+        ),
+        identity.started_at.isoformat() if identity.started_at else "unknown",
+        (
+            identity.queue_delay_estimate_seconds
+            if identity.queue_delay_estimate_seconds is not None
+            else "n/a"
+        ),
     )
 
 

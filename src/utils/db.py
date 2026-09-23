@@ -130,6 +130,33 @@ CREATE TABLE IF NOT EXISTS rebalance_run_events (
 );
 """
 
+# Additive, idempotent: scheduler-delay and account-epoch diagnostics.
+ALTER_REBALANCE_RUN_EVENTS_DIAGNOSTICS_SQL = """
+ALTER TABLE rebalance_run_events ADD COLUMN IF NOT EXISTS account_epoch TEXT;
+ALTER TABLE rebalance_run_events ADD COLUMN IF NOT EXISTS account_fingerprint TEXT;
+ALTER TABLE rebalance_run_events ADD COLUMN IF NOT EXISTS scheduled_for_estimate TIMESTAMPTZ;
+ALTER TABLE rebalance_run_events ADD COLUMN IF NOT EXISTS schedule_estimate_ambiguous BOOLEAN;
+ALTER TABLE rebalance_run_events ADD COLUMN IF NOT EXISTS started_at TIMESTAMPTZ;
+ALTER TABLE rebalance_run_events ADD COLUMN IF NOT EXISTS queue_delay_estimate_seconds INTEGER
+    CHECK (queue_delay_estimate_seconds IS NULL OR queue_delay_estimate_seconds >= 0);
+ALTER TABLE rebalance_run_events ADD COLUMN IF NOT EXISTS market_open_at_start BOOLEAN;
+ALTER TABLE rebalance_run_events ADD COLUMN IF NOT EXISTS orders_attempted INTEGER
+    CHECK (orders_attempted IS NULL OR orders_attempted >= 0);
+ALTER TABLE rebalance_run_events ADD COLUMN IF NOT EXISTS orders_filled INTEGER
+    CHECK (orders_filled IS NULL OR orders_filled >= 0);
+ALTER TABLE rebalance_run_events ADD COLUMN IF NOT EXISTS orders_partially_filled INTEGER
+    CHECK (orders_partially_filled IS NULL OR orders_partially_filled >= 0);
+ALTER TABLE rebalance_run_events ADD COLUMN IF NOT EXISTS orders_skipped_market_closed INTEGER
+    CHECK (orders_skipped_market_closed IS NULL OR orders_skipped_market_closed >= 0);
+ALTER TABLE rebalance_run_events ADD COLUMN IF NOT EXISTS run_outcome TEXT CHECK (
+    run_outcome IS NULL OR run_outcome IN (
+        'dry_run', 'market_closed', 'market_closed_after_order_attempts',
+        'market_closed_after_partial_execution',
+        'no_eligible_candidates', 'no_orders_needed', 'orders_filled', 'orders_incomplete'
+    )
+);
+"""
+
 CREATE_REBALANCE_RUN_EVENTS_INDEX_SQL = """
 CREATE INDEX IF NOT EXISTS rebalance_run_events_latest_idx
 ON rebalance_run_events (event_at DESC, id DESC);
@@ -194,6 +221,7 @@ def ensure_schema() -> None:
             cur.execute(ALTER_TABLE_ADD_VAR_CVAR_SQL)
             cur.execute(CREATE_BACKTEST_CURVE_TABLE_SQL)
             cur.execute(CREATE_REBALANCE_RUN_EVENTS_TABLE_SQL)
+            cur.execute(ALTER_REBALANCE_RUN_EVENTS_DIAGNOSTICS_SQL)
             cur.execute(CREATE_REBALANCE_RUN_EVENTS_INDEX_SQL)
             cur.execute(CREATE_REBALANCE_RUN_EVENTS_APPEND_ONLY_SQL)
         conn.commit()
