@@ -67,6 +67,26 @@ def calculate_altman_z(ticker_symbol: str) -> Optional[float]:
         )
         return None
 
+    return altman_z_from_statements(
+        balance_sheet,
+        income_stmt,
+        current_price=get_current_price(ticker_obj),
+        shares_outstanding=get_shares_outstanding(ticker_obj),
+        label=ticker_obj.ticker,
+    )
+
+
+def altman_z_from_statements(
+    balance_sheet,
+    income_stmt,
+    *,
+    current_price: Optional[float],
+    shares_outstanding: Optional[float],
+    label: str,
+) -> Optional[float]:
+    """The Altman Z-Score from already-fetched statements (most recent
+    column) and an equity price/share count. Pure: shared by the live
+    screen and point-in-time backtests."""
     bs_column = _most_recent_column(balance_sheet)
     inc_column = _most_recent_column(income_stmt)
 
@@ -85,8 +105,6 @@ def calculate_altman_z(ticker_symbol: str) -> Optional[float]:
         ebit = _get_row_value(income_stmt, ["Operating Income"], column=inc_column)
     total_revenue = _get_row_value(income_stmt, ["Total Revenue"], column=inc_column)
 
-    current_price = get_current_price(ticker_obj)
-    shares_outstanding = get_shares_outstanding(ticker_obj)
 
     required = {
         "current_assets": current_assets,
@@ -103,7 +121,7 @@ def calculate_altman_z(ticker_symbol: str) -> Optional[float]:
     if missing:
         logger.warning(
             "Cannot compute Altman Z-Score for %s; missing: %s.",
-            ticker_obj.ticker,
+            label,
             ", ".join(missing),
         )
         return None
@@ -111,7 +129,7 @@ def calculate_altman_z(ticker_symbol: str) -> Optional[float]:
     if total_assets == 0 or total_liabilities == 0:
         logger.warning(
             "Cannot compute Altman Z-Score for %s: total assets or total liabilities is zero.",
-            ticker_obj.ticker,
+            label,
         )
         return None
 

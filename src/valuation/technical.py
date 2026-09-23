@@ -76,11 +76,17 @@ def calculate_rsi(ticker_symbol: str, period: int = DEFAULT_RSI_PERIOD) -> Optio
     if history is None:
         return None
 
-    closes = history["Close"].dropna()
+    return rsi_from_closes(history["Close"], period=period, label=ticker_symbol)
+
+
+def rsi_from_closes(closes, period: int = DEFAULT_RSI_PERIOD, label: str = "series") -> Optional[float]:
+    """Wilder RSI over the given close series (oldest first). Pure: shared
+    by the live gate and point-in-time backtests."""
+    closes = closes.dropna()
     if len(closes) < period + 1:
         logger.warning(
             "Insufficient price history for %s RSI (%d day(s) available, need >= %d).",
-            ticker_symbol,
+            label,
             len(closes),
             period + 1,
         )
@@ -104,7 +110,7 @@ def calculate_rsi(ticker_symbol: str, period: int = DEFAULT_RSI_PERIOD) -> Optio
     rsi = 100.0 - (100.0 / (1.0 + rs))
 
     if not math.isfinite(rsi):
-        logger.warning("Computed non-finite RSI for %s; treating as unavailable.", ticker_symbol)
+        logger.warning("Computed non-finite RSI for %s; treating as unavailable.", label)
         return None
 
     return float(rsi)
