@@ -304,6 +304,36 @@ class TestRefreshSectorMediansWorkflow:
 
 
 
+
+class TestSecBacktestPilotWorkflow:
+    """The pilot is manual, read-only, test-gated, and labelled pipeline validation."""
+
+    def _content(self):
+        return (WORKFLOWS_DIR / "sec-backtest-pilot.yml").read_text()
+
+    def test_is_manual_only_with_read_only_permissions(self):
+        content = self._content()
+        assert "workflow_dispatch:" in content
+        assert "schedule:" not in content
+        assert "permissions:\n  contents: read" in content
+
+    def test_run_is_gated_on_tests_and_receives_only_the_database_secret(self):
+        content = self._content()
+        assert "secrets." not in _job_block(content, "test")
+        run = _job_block(content, "run")
+        assert "needs: test" in run
+        assert run.count("secrets.") == 1
+        assert "secrets.DATABASE_URL" in run
+        for forbidden in ("APCA_", "SEC_USER_AGENT", "--publish", "UPSTASH"):
+            assert forbidden not in run
+
+    def test_runs_the_pilot_and_publishes_the_record_to_the_run(self):
+        run = _job_block(self._content(), "run")
+        assert "python -m src.backtesting.sec_pilot --output" in run
+        assert "BEGIN SEC PILOT RECORD" in run
+        assert "GITHUB_STEP_SUMMARY" in run
+        assert "pipeline validation" in self._content()
+
 class TestBackfillSecFundamentalsWorkflow:
     """Manual pilot backfills publish one verified batch without touching the schedule."""
 
