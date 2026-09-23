@@ -692,15 +692,34 @@ def prepare_sec_dcf_inputs(
     )
 
 
-def _sec_financial_data(prepared: PreparedSecDCFInputs) -> Dict[str, object]:
+def build_sec_dcf_financial_data(prepared: PreparedSecDCFInputs) -> Dict[str, object]:
+    """Translate prepared SEC inputs into the legacy DCF's data contract."""
+
     latest = prepared.snapshot.latest
     balance = prepared.snapshot.latest_balance
     column = pd.Timestamp(latest.period_end)
+    income_statement = pd.DataFrame(
+        {
+            pd.Timestamp(period.period_end): {
+                "Total Revenue": float(period.revenue),
+                "Operating Income": float(period.operating_income),
+            }
+            for period in prepared.snapshot.trailing_periods
+        }
+    )
+    cash_flow = pd.DataFrame(
+        {
+            pd.Timestamp(period.period_end): {
+                "Operating Cash Flow": float(period.operating_cash_flow),
+                # The legacy DCF parser expects cash outflows to be negative.
+                "Capital Expenditure": -float(period.capital_expenditures),
+            }
+            for period in prepared.snapshot.trailing_periods
+        }
+    )
     return {
         "ticker": prepared.market.ticker,
-        "income_statement": pd.DataFrame(
-            {column: {"Total Revenue": float(latest.revenue), "Operating Income": float(latest.operating_income)}}
-        ),
+        "income_statement": income_statement,
         "balance_sheet": pd.DataFrame(
             {
                 column: {
@@ -709,15 +728,7 @@ def _sec_financial_data(prepared: PreparedSecDCFInputs) -> Dict[str, object]:
                 }
             }
         ),
-        "cash_flow": pd.DataFrame(
-            {
-                column: {
-                    "Operating Cash Flow": float(latest.operating_cash_flow),
-                    # The legacy DCF parser expects cash outflows to be negative.
-                    "Capital Expenditure": -float(latest.capital_expenditures),
-                }
-            }
-        ),
+        "cash_flow": cash_flow,
         "current_price": float(prepared.market.current_price),
         "shares_outstanding": float(prepared.market.current_shares_outstanding),
         "beta": float(prepared.market.levered_beta),
@@ -725,7 +736,9 @@ def _sec_financial_data(prepared: PreparedSecDCFInputs) -> Dict[str, object]:
     }
 
 
-def _sec_assumptions(prepared: PreparedSecDCFInputs) -> DCFAssumptions:
+def build_sec_dcf_assumptions(prepared: PreparedSecDCFInputs) -> DCFAssumptions:
+    """Translate the versioned SEC composition policy into DCF assumptions."""
+
     policy = prepared.policy
     return DCFAssumptions(
         revenue_growth_rate=float(prepared.revenue_growth_rate),
@@ -921,7 +934,10 @@ def run_sec_dcf_shadow(
         raise ValueError("period_alignment must be a SecYahooPeriodAlignment.")
 
     try:
-        sec_result = run_dcf_valuation(_sec_financial_data(prepared), _sec_assumptions(prepared))
+        sec_result = run_dcf_valuation(
+            build_sec_dcf_financial_data(prepared),
+            build_sec_dcf_assumptions(prepared),
+        )
     except ValueError:
         return SecDCFShadowResult(
             issues=_issue(
@@ -955,7 +971,7 @@ def run_sec_dcf_shadow(
     try:
         legacy_result = run_dcf_valuation(
             legacy_data,
-            _sec_assumptions(prepared),
+            build_sec_dcf_assumptions(prepared),
         )
     except ValueError:
         return SecDCFShadowResult(

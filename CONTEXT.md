@@ -200,6 +200,27 @@ One reproducible, SEC-derived set of historical trailing periods and ending
 balances for an issuer at exact knowledge and data-vintage cutoffs. It excludes
 market observations and forecast assumptions so sources cannot be silently mixed.
 
+## Valuation input
+
+The complete statement data, market observations, default assumptions when the
+source policy supplies them, and provenance required for one DCF run. It is
+created through the shared valuation-input loader so the live API and research
+code do not assemble provider statements independently.
+
+## Valuation input source policy
+
+The caller's explicit choice of `auto`, `sec`, or `yahoo`. `sec` is fail-closed
+and can never substitute Yahoo statements; `auto` selects SEC only for an issuer
+whose reviewed live policy is approved, otherwise it returns Yahoo with the
+specific reason SEC was not selected. Once `auto` selects SEC, an SEC failure is
+a refusal rather than a fallback.
+
+## Source selection reason
+
+Human-readable provenance explaining why a valuation used SEC or Yahoo. It is
+part of the result, not an ephemeral log message, so callers can display and
+persist the actual source decision.
+
 ## Valuation market observations
 
 The current price, current shares outstanding, levered beta, sector, and
