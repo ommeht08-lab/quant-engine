@@ -305,6 +305,31 @@ class TestRefreshSectorMediansWorkflow:
 
 
 
+
+class TestVerifySecPilotArchiveWorkflow:
+    """The archive check is manual, read-only, and prints no price data."""
+
+    def _content(self):
+        return (WORKFLOWS_DIR / "verify-sec-pilot-archive.yml").read_text()
+
+    def test_is_manual_read_only_and_gated_on_tests(self):
+        content = self._content()
+        assert "workflow_dispatch:" in content
+        assert "schedule:" not in content
+        assert "permissions:\n  contents: read" in content
+        assert "secrets." not in _job_block(content, "test")
+        assert "needs: test" in _job_block(content, "verify")
+
+    def test_verify_job_uses_only_the_driver_and_database_secret(self):
+        verify = _job_block(self._content(), "verify")
+        assert '"psycopg2-binary==2.9.12"' in verify
+        assert "requirements" not in verify
+        assert verify.count("secrets.") == 1
+        assert "secrets.DATABASE_URL" in verify
+        assert "python -m src.backtesting.verify_private_archive" in verify
+        for forbidden in ("--publish", "sec_pilot --output", "replay"):
+            assert forbidden not in verify
+
 class TestSecBacktestPilotWorkflow:
     """The pilot is manual, read-only, test-gated, and labelled pipeline validation."""
 
