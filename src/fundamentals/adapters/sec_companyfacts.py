@@ -514,8 +514,9 @@ def _extract_entry(
 def _derived_flow_entries(fact_namespaces, flows, period_end_floor):
     """[(flow, role, tag, unit, entry)] for every raw component or cross-check entry.
 
-    Supported-form entries inside the window are validated as strictly as
-    mapped tags: malformed entries, missing starts, and non-USD units refuse.
+    Only payload shape is enforced here. Each entry of a filing that is public
+    at the cutoff and inside the window is later validated as strictly as a
+    mapped tag (metadata, dimensions, unit, geometry).
     """
 
     collected = []
@@ -537,23 +538,17 @@ def _derived_flow_entries(fact_namespaces, flows, period_end_floor):
                         _fail(SecIngestionIssueCode.INVALID_PAYLOAD, f"Each {tag}/{unit} entry must be an object.")
                     if entry.get("form") not in _SUPPORTED_FORMS:
                         continue
-                    period_end = _parse_date(entry.get("end"), "end")
-                    if period_end_floor is not None and period_end < period_end_floor:
-                        continue
-                    if unit != "USD":
-                        _fail(
-                            SecIngestionIssueCode.UNSUPPORTED_UNIT,
-                            f"Derived-flow component {tag} in {entry.get('accn')} is reported in {unit!r}, not USD.",
-                            accession_number=entry.get("accn"),
-                            raw_tags=(tag,),
-                        )
-                    if "start" not in entry:
-                        _fail(
-                            SecIngestionIssueCode.MALFORMED_FACT,
-                            f"Derived-flow component {tag} in {entry.get('accn')} has no period start.",
-                            accession_number=entry.get("accn"),
-                            raw_tags=(tag,),
-                        )
+                    # As on the mapped path, only the period floor is applied
+                    # here; unit, start, and date validity are checked in
+                    # _derive_flows after future and out-of-window filings are
+                    # excluded, so later filings never affect an as-of run.
+                    raw_end = entry.get("end")
+                    if period_end_floor is not None and isinstance(raw_end, str):
+                        try:
+                            if date.fromisoformat(raw_end) < period_end_floor:
+                                continue
+                        except ValueError:
+                            pass
                     collected.append((flow, role, tag, unit, entry))
     return collected
 
@@ -581,12 +576,16 @@ def _derive_flows(derived_entries, flows, *, excluded_accessions, extract):
             key = (entry.get("accn"), entry.get("start"), entry.get("end"), unit)
             groups.setdefault(key, {}).setdefault(role, []).append((tag, entry))
         rule = _derived_rule(flow, flow.raw_tag)
-        for (accession, start, end, unit), roles in sorted(groups.items()):
-            # Every contributing entry passes the same filing-metadata,
-            # dimension, unit, and geometry checks as a directly mapped tag.
+        ordered = sorted(groups.items(), key=lambda item: tuple(repr(part) for part in item[0]))
+        # Every contributing entry passes the same filing-metadata, dimension,
+        # unit, and geometry checks as a directly mapped tag -- all of them,
+        # before any value is derived, so a malformed entry refuses with its
+        # own code rather than surfacing as a missing component.
+        for (_, _, _, unit), roles in ordered:
             for items in roles.values():
                 for tag, entry in items:
                     extract(_derived_rule(flow, tag), unit, entry)
+        for (accession, start, end, unit), roles in ordered:
             if "minuend" not in roles and "subtrahend" not in roles:
                 continue  # a cross-check reported alone (e.g. a 10-K quarterly note)
             values = {}
@@ -613,7 +612,8 @@ def _derive_flows(derived_entries, flows, *, excluded_accessions, extract):
                         raw_tags=(flow.raw_tag,),
                     )
             # One derived fact per distinct fiscal labelling of the minuend,
-            # as a directly tagged fact would give one fact per entry.
+            # as a directly tagged fact would give one fact per entry. Labels
+            # come from the minuend only; the other entries supply values.
             labellings = {}
             for _, entry in roles["minuend"]:
                 labellings.setdefault((entry.get("fy"), entry.get("fp"), entry.get("frame")), entry)

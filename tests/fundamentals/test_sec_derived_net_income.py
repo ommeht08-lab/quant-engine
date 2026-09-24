@@ -190,6 +190,28 @@ class TestComponentMetadata:
 
         assert _extract(fixture).issues[0].code is code
 
+    @pytest.mark.parametrize(
+        "bad",
+        (
+            {"unit": "EUR"},
+            {"end": "not-a-date"},
+            {"drop_start": True},
+        ),
+    )
+    def test_bad_entries_in_a_later_filing_never_affect_an_earlier_cutoff(self, bad):
+        fixture = _official()
+        entry = dict(self._q2(fixture, "ProfitLoss"))
+        if bad.get("drop_start"):
+            entry.pop("start")
+        if "end" in bad:
+            entry["end"] = bad["end"]
+        units = fixture["company_facts"]["facts"]["us-gaap"]["ProfitLoss"]["units"]
+        units.setdefault(bad.get("unit", "USD"), []).append(entry)
+        before_q2 = dt.datetime(2024, 8, 1, tzinfo=dt.timezone.utc)  # Q2 2024 10-Q accepted 2024-08-07
+
+        assert _extract(fixture, cutoff=before_q2).is_complete
+        assert not _extract(fixture).is_complete
+
     def test_non_object_component_entry_refuses(self):
         fixture = _official()
         _entries(fixture, "ProfitLoss").append("not-an-object")
