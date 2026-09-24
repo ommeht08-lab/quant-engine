@@ -92,7 +92,9 @@ def test_a_retry_of_the_same_publication_inserts_nothing(empty_store):
     retry = _publish(NEW_FILING)
 
     assert first.inserted_fact_count == 6
-    assert retry.inserted_fact_count == 0 and retry.reused_fact_count == 6
+    # A same-batch retry replays its own facts; nothing is attributed to an earlier batch.
+    assert retry.inserted_fact_count == 0 and retry.is_no_op
+    assert retry.replayed_fact_count == 6 and retry.reused_fact_count == 0
 
 
 def _raw_insert(batch_rows, facts):
@@ -155,3 +157,53 @@ def test_refresh_verification_reads_postgres_by_lineage(composing_issuer, empty_
     assert (ten_k.cutoffs[-1].this_refresh_fact_count, ten_k.cutoffs[-1].earlier_batch_fact_count) == (2, 6)
     assert ten_k.cutoffs[0].this_refresh_fact_count == 0
     assert no_op.is_verified and no_op.is_no_op
+
+
+def test_a_refresh_that_would_rewrite_frozen_history_rolls_back(empty_store):
+    # Only the Q2 facts are stored, so a refresh would insert Q1 facts that are
+    # visible at the frozen 2023-06-01 cutoff.
+    partial = tuple(fact for fact in _publication(*BACKFILL) if fact.period.period_end.year == 2023)
+    publish_incremental(partial, knowledge_cutoff=_utc(2023, 5, 2), database_url=DATABASE_URL)
+    before = _store_contents()
+
+    with pytest.raises(IncrementalPublicationError, match="frozen historical cutoff"):
+        _publish(NEW_FILING, history_frozen_through=_utc(2023, 6, 1))
+
+    assert _store_contents() == before
+
+
+def test_overlapping_publishes_for_one_issuer_serialize_instead_of_refusing(empty_store):
+    """Two overlapping publishes both succeed; the second waits and reuses the first's facts.
+
+    The issuer advisory lock guarantees this. Today ensure_schema's DDL also
+    happens to block behind the first transaction, so this test alone cannot
+    distinguish the two; the lock keeps the guarantee if that DDL moves out.
+    """
+    import threading
+    import time
+
+    first_holds_lock = threading.Event()
+    results = {}
+
+    def slow_proof(**inputs):
+        first_holds_lock.set()
+        time.sleep(0.5)
+        return prove_incremental_publication(**inputs)
+
+    def first():
+        results["first"] = _publish(NEW_FILING, prove=slow_proof)
+
+    thread = threading.Thread(target=first)
+    thread.start()
+    assert first_holds_lock.wait(5)
+    # Same facts under another batch ID, started while the first transaction
+    # still holds the issuer lock with its inserts uncommitted.
+    started = time.monotonic()
+    results["second"] = _publish((NEW_FILING[0], "refresh-2b", NEW_FILING[2]))
+    waited = time.monotonic() - started
+    thread.join(5)
+
+    assert results["first"].inserted_fact_count == 6
+    assert results["second"].inserted_fact_count == 0
+    assert results["second"].reused_fact_count == 6
+    assert waited >= 0.3

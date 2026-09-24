@@ -31,7 +31,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Iterable, Mapping, Optional, Sequence, Tuple
 
@@ -45,6 +45,8 @@ from .incremental_publication import (
     batch_lineage_problems,
     publication_batch_problems,
     read_batch_rows,
+    selected_source_keys,
+    source_key,
 )
 from .repository import FundamentalsQuery
 from .sec_ingestion import run_sec_ingestion_dry_run
@@ -52,12 +54,11 @@ from .sec_pipeline_command import _parse_aware_datetime
 from .selection import select_point_in_time
 from .store import PostgresFundamentalsRepository, source_qualified_batch_id
 from .time_policy import is_aware
-from .types import FinancialFact, FundamentalHistory, normalize_cik
+from .types import normalize_cik
 from .valuation_snapshot import VALUATION_TTM_CONCEPTS
 
 # Large enough to read an issuer's complete FY2020-onward history back.
 _READBACK_PERIOD_LIMIT = 10_000
-_NEUTRAL_INGESTED_AT = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 
 @dataclass(frozen=True)
@@ -109,32 +110,9 @@ class _SinglePayloadDownloader:
         return self._instances[key]
 
 
-def _source_key(fact: FinancialFact) -> FinancialFact:
-    """The fact without ingestion bookkeeping, which differs between runs."""
-
-    return replace(
-        fact,
-        lineage=replace(
-            fact.lineage,
-            ingestion_batch_id="-",
-            ingested_at=_NEUTRAL_INGESTED_AT,
-        ),
-    )
-
-
-def _selected_keys(history: FundamentalHistory) -> frozenset:
-    facts = [
-        fact
-        for periods in (
-            history.income_statement_periods,
-            history.balance_sheet_periods,
-            history.cash_flow_periods,
-        )
-        for period in periods
-        for fact in period.facts
-    ]
-    facts.extend(history.cover_facts)
-    return frozenset(_source_key(fact) for fact in facts)
+# One definition of "the same fact" for the pre-commit proof and this verifier.
+_source_key = source_key
+_selected_keys = selected_source_keys
 
 
 def _read_published(*, cik: str, knowledge_cutoff: datetime, data_vintage_cutoff: datetime, repository):
@@ -350,6 +328,22 @@ class RefreshVerificationResult:
         return bool(publish) and publish[-1].this_refresh_fact_count == 0
 
 
+class _CachingBatchReader:
+    """Read each batch row once per verification, however many cutoffs need it."""
+
+    def __init__(self, reader):
+        self._reader = reader
+        self._rows = {}
+        self._read = set()
+
+    def __call__(self, batch_ids):
+        missing = sorted(set(batch_ids) - self._read)
+        if missing:
+            self._rows.update(self._reader(missing))
+            self._read.update(missing)
+        return {batch_id: self._rows[batch_id] for batch_id in batch_ids if batch_id in self._rows}
+
+
 def _verify_refresh_cutoff(
     *,
     cik: str,
@@ -450,6 +444,7 @@ def verify_refresh_publication(
         raise ValueError("ingestion_batch_id must be non-empty text.")
     batch_ids = _expected_batch_ids(normalized_cik, ingestion_batch_id)
     shared_downloader = _SinglePayloadDownloader(downloader)
+    batch_reader = _CachingBatchReader(batch_reader)
     checks = [(cutoff, True) for cutoff in sorted(historical)] + [(publish_cutoff, False)]
     return RefreshVerificationResult(
         cik=normalized_cik,
@@ -458,9 +453,7 @@ def verify_refresh_publication(
         concept_map_version=concept_map_for_issuer(normalized_cik).version,
         fiscal_calendar_version=SEC_FISCAL_CALENDAR_CATALOG_V1.policy_for(normalized_cik).version,
         data_vintage_cutoff=data_vintage_cutoff,
-        publication_problems=publication_batch_problems(
-            batch_ids, batch_reader(sorted(set(batch_ids) | {ingestion_batch_id}))
-        ),
+        publication_problems=publication_batch_problems(batch_ids, batch_reader(batch_ids)),
         cutoffs=tuple(
             _verify_refresh_cutoff(
                 cik=normalized_cik,

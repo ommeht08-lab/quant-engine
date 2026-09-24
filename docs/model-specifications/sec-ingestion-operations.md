@@ -56,13 +56,26 @@ new batch (and, for issuers with filing-XBRL compositions, its
 - the issuer's stored facts at the knowledge cutoff equal the publication, and
   point-in-time selection over them is unchanged;
 - every supplemental batch pairs with a primary batch of the same mapping,
-  calendar, and ingestion time. The foreign key alone does not establish this.
+  calendar, and ingestion time. The foreign key alone does not establish this;
+- with `--history-frozen-through` (the recurring refresh passes the 2024-09-03
+  pilot cutoff), no inserted fact is eligible at or before that cutoff. A
+  concept-map change or a late SEC addition to an old filing must therefore
+  go through a reviewed backfill.
+
+Publications for one issuer take a transaction-scoped advisory lock, so
+overlapping runs serialize instead of refusing each other.
 
 Any mismatch rolls back every batch row and fact from that transaction. The
 command's JSON report gives `inserted_fact_count` (facts in this run's batches)
 separately from `publication.reused_fact_count_by_earlier_batch` (facts that
-were already stored and remain in earlier batches); a run that inserts nothing
-reports `"no_op": true`.
+were already stored and remain in earlier batches). A retry under the same batch
+ID reports its own previously stored facts as `replayed_fact_count`, never as
+earlier-batch reuse. A run that inserts nothing reports `"no_op": true`.
+
+Because the store is append-only, a stored fact that SEC later stops reporting
+(or re-tags) makes every later publication for that issuer and concept-map
+version refuse with "unexpected" stored facts. This fails closed by design;
+recovery is a reviewed concept-map version and backfill.
 
 ## Scheduled publication
 

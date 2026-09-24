@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import os
 from decimal import Decimal
-from typing import Iterable, Optional, Tuple
+from typing import Callable, Iterable, Optional, Tuple
 
 from .repository import FundamentalsQuery, FundamentalsRepositoryUnavailable
 from .types import (
@@ -579,18 +579,17 @@ def _publication_batch_keys(facts: Tuple[FinancialFact, ...]) -> Tuple[tuple, ..
     return (primary,) + tuple(sorted(key for key in batch_keys if key is not primary))
 
 
-def append_facts(
-    facts: Iterable[FinancialFact],
+def run_publish_transaction(
+    work: Callable,
     *,
     database_url: Optional[str] = None,
     conn=None,
-) -> int:
-    """Atomically append one publication: every source's batch commits or none does."""
-    facts = tuple(facts)
-    if not facts:
-        raise ValueError("append_facts requires at least one fact.")
+):
+    """Run ``work(cursor)`` in one write transaction; commit on return, roll back on any error.
 
-    batch_keys = _publication_batch_keys(facts)
+    Shared by every publisher so connection setup, schema creation, error
+    sanitizing, rollback, and close behave identically.
+    """
 
     owns_connection = conn is None
     connection = conn
@@ -608,33 +607,10 @@ def append_facts(
 
         connection.set_session(readonly=False, autocommit=False)
         ensure_schema(connection)
-        inserted = 0
         with connection.cursor() as cursor:
-            for batch_key in batch_keys:
-                cursor.execute(INSERT_BATCH_SQL, batch_key)
-                if cursor.fetchone() is None:
-                    cursor.execute(SELECT_BATCH_SQL, (batch_key[0],))
-                    if cursor.fetchone() != batch_key:
-                        raise FundamentalsPublishError(
-                            "an ingestion batch ID already exists with different immutable metadata."
-                        )
-            inserted = len(_execute_values(cursor, [_fact_to_row(fact) for fact in facts]))
-            existing_by_identity = {}
-            for batch_key in batch_keys:
-                group = tuple(fact for fact in facts if fact.lineage.source_adapter == batch_key[1])
-                cursor.execute(SELECT_EXISTING_FACTS_SQL, _existing_facts_lookup_params(group))
-                existing_by_identity.update(
-                    (_source_identity_key(existing), existing)
-                    for existing in (_row_to_fact(tuple(row)) for row in cursor.fetchall())
-                )
-            for fact in facts:
-                existing = existing_by_identity.get(_source_identity_key(fact))
-                if existing is None or not _same_source_fact(existing, fact):
-                    raise FundamentalsPublishError(
-                        "an existing point-in-time fact conflicts with the incoming batch."
-                    )
+            result = work(cursor)
         connection.commit()
-        return inserted
+        return result
     except FundamentalsPublishError:
         if connection is not None:
             _rollback_quietly(connection)
@@ -647,6 +623,61 @@ def append_facts(
     finally:
         if owns_connection and connection is not None:
             _close_quietly(connection)
+
+
+def insert_publication_batches(cursor, batch_keys: Iterable[tuple]) -> None:
+    """Insert each batch row, accepting an exact existing row and refusing different metadata."""
+
+    for batch_key in batch_keys:
+        cursor.execute(INSERT_BATCH_SQL, batch_key)
+        if cursor.fetchone() is None:
+            cursor.execute(SELECT_BATCH_SQL, (batch_key[0],))
+            if cursor.fetchone() != batch_key:
+                raise FundamentalsPublishError(
+                    "an ingestion batch ID already exists with different immutable metadata."
+                )
+
+
+def lookup_existing_facts(cursor, facts: Tuple[FinancialFact, ...], batch_keys: Iterable[tuple]) -> dict:
+    """Stored facts sharing an identity with ``facts``, read per source through ``cursor``."""
+
+    existing_by_identity = {}
+    for batch_key in batch_keys:
+        group = tuple(fact for fact in facts if fact.lineage.source_adapter == batch_key[1])
+        cursor.execute(SELECT_EXISTING_FACTS_SQL, _existing_facts_lookup_params(group))
+        existing_by_identity.update(
+            (_source_identity_key(existing), existing)
+            for existing in (_row_to_fact(tuple(row)) for row in cursor.fetchall())
+        )
+    return existing_by_identity
+
+
+def append_facts(
+    facts: Iterable[FinancialFact],
+    *,
+    database_url: Optional[str] = None,
+    conn=None,
+) -> int:
+    """Atomically append one publication: every source's batch commits or none does."""
+    facts = tuple(facts)
+    if not facts:
+        raise ValueError("append_facts requires at least one fact.")
+
+    batch_keys = _publication_batch_keys(facts)
+
+    def work(cursor) -> int:
+        insert_publication_batches(cursor, batch_keys)
+        inserted = len(_execute_values(cursor, [_fact_to_row(fact) for fact in facts]))
+        existing_by_identity = lookup_existing_facts(cursor, facts, batch_keys)
+        for fact in facts:
+            existing = existing_by_identity.get(_source_identity_key(fact))
+            if existing is None or not _same_source_fact(existing, fact):
+                raise FundamentalsPublishError(
+                    "an existing point-in-time fact conflicts with the incoming batch."
+                )
+        return inserted
+
+    return run_publish_transaction(work, database_url=database_url, conn=conn)
 
 
 class PostgresFundamentalsRepository:

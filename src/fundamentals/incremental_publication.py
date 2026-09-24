@@ -24,7 +24,15 @@ commit, requires:
    row ``X`` of a source that declares it, with the same mapping version,
    calendar version, and ingestion time;
 5. point-in-time selection over the stored facts equals selection over the
-   incoming facts.
+   incoming facts;
+6. when the caller freezes history before a cutoff (the recurring refresh
+   freezes 2024-09-03), no fact this transaction inserted is eligible at or
+   before it. A concept-map change or a late SEC addition to an old filing
+   therefore needs a reviewed backfill instead of slipping into a refresh.
+
+Publications for one issuer are serialized with a transaction-scoped
+advisory lock, so a concurrent publish cannot make an identity look neither
+inserted nor pre-existing.
 
 Any failure rolls the whole transaction back, so no batch row or fact from
 that transaction survives. Post-publication verification (see
@@ -41,23 +49,17 @@ from typing import Callable, Dict, Iterable, Mapping, Optional, Sequence, Tuple
 
 from .selection import select_point_in_time
 from .store import (
-    INSERT_BATCH_SQL,
-    PUBLISH_APPLICATION_NAME,
-    PUBLISH_CONNECT_TIMEOUT_SECONDS,
-    PUBLISH_PAGE_SIZE,
-    PUBLISH_STATEMENT_TIMEOUT_MS,
     READ_APPLICATION_NAME,
     READ_CONNECT_TIMEOUT_SECONDS,
     READ_STATEMENT_TIMEOUT_MS,
-    SELECT_BATCH_SQL,
-    SELECT_EXISTING_FACTS_SQL,
+    PUBLISH_PAGE_SIZE,
     SUPPLEMENTAL_SOURCES_BY_PRIMARY,
     FundamentalsPublishError,
     FundamentalsRepositoryUnavailable,
     _INSERT_COLUMNS,
+    _SUPPLEMENTAL_SOURCES,
     _close_quietly,
     _connect,
-    _existing_facts_lookup_params,
     _fact_to_row,
     _get_database_url,
     _publication_batch_keys,
@@ -65,7 +67,9 @@ from .store import (
     _row_to_fact,
     _same_source_fact,
     _source_identity_key,
-    ensure_schema,
+    insert_publication_batches,
+    lookup_existing_facts,
+    run_publish_transaction,
     source_qualified_batch_id,
 )
 from .time_policy import is_aware
@@ -73,7 +77,6 @@ from .types import FinancialFact, FundamentalHistory
 
 logger = logging.getLogger(__name__)
 
-_SUPPLEMENTAL_SOURCES = frozenset().union(*SUPPLEMENTAL_SOURCES_BY_PRIMARY.values())
 _NEUTRAL_INGESTED_AT = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
 INSERT_FACTS_RETURNING_SQL = f"""
@@ -92,6 +95,8 @@ WHERE cik = %s
   AND fiscal_calendar_version = %s
   AND eligible_at <= %s;
 """
+
+LOCK_ISSUER_SQL = "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0));"
 
 SELECT_BATCH_ROWS_SQL = """
 SELECT ingestion_batch_id, source_adapter, concept_map_version, fiscal_calendar_version, ingested_at
@@ -114,13 +119,15 @@ class IncrementalPublicationReceipt:
 
     ``inserted_by_batch`` counts facts this transaction inserted, per batch of
     this publication. ``reused_by_batch`` counts incoming facts that were
-    already stored, per the earlier batch that still holds them; those facts
-    are not in this publication's batches.
+    already stored in an earlier batch, per the batch that still holds them;
+    those facts are not in this publication's batches. ``replayed_fact_count``
+    counts facts a previous attempt with the same batch ID already stored.
     """
 
     batch_ids: Tuple[str, ...]
     inserted_by_batch: Tuple[Tuple[str, int], ...]
     reused_by_batch: Tuple[Tuple[str, int], ...]
+    replayed_fact_count: int = 0
 
     @property
     def inserted_fact_count(self) -> int:
@@ -256,6 +263,7 @@ def prove_incremental_publication(
     batch_keys: Sequence[tuple],
     knowledge_cutoff: datetime,
     cik: str,
+    history_frozen_through: Optional[datetime] = None,
 ) -> IncrementalPublicationReceipt:
     """Prove the transaction's effect exactly, or raise IncrementalPublicationError."""
 
@@ -306,6 +314,13 @@ def prove_incremental_publication(
     if conflicting:
         problems.append(f"{conflicting} stored facts conflict with the incoming publication.")
 
+    if history_frozen_through is not None:
+        rewritten = sum(1 for fact in returned if fact.provenance.eligible_at <= history_frozen_through)
+        if rewritten:
+            problems.append(
+                f"{rewritten} inserted facts are eligible at or before the frozen historical cutoff "
+                f"{history_frozen_through.isoformat()}."
+            )
     late = sum(1 for fact in incoming if fact.provenance.eligible_at > knowledge_cutoff)
     if late:
         problems.append(f"{late} incoming facts became public after the knowledge cutoff.")
@@ -332,12 +347,20 @@ def prove_incremental_publication(
     if problems:
         raise IncrementalPublicationError(problems)
 
+    own_batches = {key[0] for key in batch_keys}
     inserted_counts = Counter(fact.lineage.ingestion_batch_id for fact in returned)
-    reused_counts = Counter(fact.lineage.ingestion_batch_id for fact in pre_insert.values())
+    reused_counts = Counter(
+        fact.lineage.ingestion_batch_id
+        for fact in pre_insert.values()
+        if fact.lineage.ingestion_batch_id not in own_batches
+    )
     return IncrementalPublicationReceipt(
         batch_ids=tuple(key[0] for key in batch_keys),
         inserted_by_batch=tuple((key[0], inserted_counts.get(key[0], 0)) for key in batch_keys),
         reused_by_batch=tuple(sorted(reused_counts.items())),
+        replayed_fact_count=sum(
+            1 for fact in pre_insert.values() if fact.lineage.ingestion_batch_id in own_batches
+        ),
     )
 
 
@@ -362,6 +385,7 @@ def publish_incremental(
     facts: Iterable[FinancialFact],
     *,
     knowledge_cutoff: datetime,
+    history_frozen_through: Optional[datetime] = None,
     database_url: Optional[str] = None,
     conn=None,
     prove: Callable[..., IncrementalPublicationReceipt] = prove_incremental_publication,
@@ -371,8 +395,11 @@ def publish_incremental(
     facts = tuple(facts)
     if not facts:
         raise ValueError("publish_incremental requires at least one fact.")
-    if not isinstance(knowledge_cutoff, datetime) or not is_aware(knowledge_cutoff):
-        raise ValueError("knowledge_cutoff must be timezone-aware.")
+    for value in (knowledge_cutoff, history_frozen_through):
+        if value is not None and (not isinstance(value, datetime) or not is_aware(value)):
+            raise ValueError("cutoffs must be timezone-aware datetimes.")
+    if history_frozen_through is not None and history_frozen_through >= knowledge_cutoff:
+        raise ValueError("history_frozen_through must precede the knowledge cutoff.")
     ciks = {fact.identity.context.entity_cik for fact in facts}
     if len(ciks) != 1:
         raise FundamentalsPublishError("an incremental publication must cover exactly one issuer.")
@@ -380,71 +407,31 @@ def publish_incremental(
     batch_keys = _publication_batch_keys(facts)
     concept_map_version, fiscal_calendar_version = batch_keys[0][2], batch_keys[0][3]
 
-    owns_connection = conn is None
-    connection = conn
-    try:
-        if connection is None:
-            resolved_url = database_url or _get_database_url()
-            if not resolved_url:
-                raise FundamentalsPublishError("point-in-time fundamentals database is not configured.")
-            connection = _connect(
-                resolved_url,
-                application_name=PUBLISH_APPLICATION_NAME,
-                connect_timeout_seconds=PUBLISH_CONNECT_TIMEOUT_SECONDS,
-                statement_timeout_ms=PUBLISH_STATEMENT_TIMEOUT_MS,
-            )
-        connection.set_session(readonly=False, autocommit=False)
-        ensure_schema(connection)
-        with connection.cursor() as cursor:
-            for batch_key in batch_keys:
-                cursor.execute(INSERT_BATCH_SQL, batch_key)
-                if cursor.fetchone() is None:
-                    cursor.execute(SELECT_BATCH_SQL, (batch_key[0],))
-                    if cursor.fetchone() != batch_key:
-                        raise FundamentalsPublishError(
-                            "an ingestion batch ID already exists with different immutable metadata."
-                        )
-            # The pre-insert state, read inside the same transaction.
-            pre_insert: Dict[tuple, FinancialFact] = {}
-            for batch_key in batch_keys:
-                group = tuple(fact for fact in facts if fact.lineage.source_adapter == batch_key[1])
-                cursor.execute(SELECT_EXISTING_FACTS_SQL, _existing_facts_lookup_params(group))
-                for row in cursor.fetchall():
-                    existing = _row_to_fact(tuple(row))
-                    pre_insert[_source_identity_key(existing)] = existing
-            returned = [_row_to_fact(tuple(row)) for row in _insert_returning(cursor, [_fact_to_row(fact) for fact in facts])]
-            cursor.execute(
-                SELECT_ISSUER_FACTS_SQL,
-                (cik, sorted(key[1] for key in batch_keys), concept_map_version, fiscal_calendar_version, knowledge_cutoff),
-            )
-            stored = [_row_to_fact(tuple(row)) for row in cursor.fetchall()]
-            batch_rows = _read_batch_rows(
-                cursor, sorted(set(batch_ids_to_read(stored)) | {key[0] for key in batch_keys})
-            )
-            receipt = prove(
-                incoming=facts,
-                pre_insert=pre_insert,
-                returned=returned,
-                stored=stored,
-                batch_rows=batch_rows,
-                batch_keys=batch_keys,
-                knowledge_cutoff=knowledge_cutoff,
-                cik=cik,
-            )
-        connection.commit()
-        return receipt
-    except FundamentalsPublishError:
-        if connection is not None:
-            _rollback_quietly(connection)
-        raise
-    except Exception as error:
-        logger.error("incremental fundamentals publish failed (%s)", type(error).__name__)
-        if connection is not None:
-            _rollback_quietly(connection)
-        raise FundamentalsPublishError("point-in-time fundamentals publish failed.") from None
-    finally:
-        if owns_connection and connection is not None:
-            _close_quietly(connection)
+    def work(cursor) -> IncrementalPublicationReceipt:
+        cursor.execute(LOCK_ISSUER_SQL, (cik,))
+        insert_publication_batches(cursor, batch_keys)
+        # The pre-insert state, read inside the same transaction.
+        pre_insert = lookup_existing_facts(cursor, facts, batch_keys)
+        returned = [_row_to_fact(tuple(row)) for row in _insert_returning(cursor, [_fact_to_row(fact) for fact in facts])]
+        cursor.execute(
+            SELECT_ISSUER_FACTS_SQL,
+            (cik, sorted(key[1] for key in batch_keys), concept_map_version, fiscal_calendar_version, knowledge_cutoff),
+        )
+        stored = [_row_to_fact(tuple(row)) for row in cursor.fetchall()]
+        batch_rows = _read_batch_rows(cursor, sorted(set(batch_ids_to_read(stored)) | {key[0] for key in batch_keys}))
+        return prove(
+            incoming=facts,
+            pre_insert=pre_insert,
+            returned=returned,
+            stored=stored,
+            batch_rows=batch_rows,
+            batch_keys=batch_keys,
+            knowledge_cutoff=knowledge_cutoff,
+            cik=cik,
+            history_frozen_through=history_frozen_through,
+        )
+
+    return run_publish_transaction(work, database_url=database_url, conn=conn)
 
 
 def read_batch_rows(batch_ids: Sequence[str], *, database_url: Optional[str] = None) -> Dict[str, tuple]:

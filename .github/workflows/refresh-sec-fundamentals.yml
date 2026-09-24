@@ -10,7 +10,8 @@ name: Refresh SEC fundamentals
 # Each publication republishes the issuer's complete history. Facts already
 # stored stay in their earlier batches, and the publish transaction proves
 # which facts it inserted (pre-insert state plus INSERT ... RETURNING) and
-# rolls back on any mismatch. A read-only refresh-mode verification then
+# rolls back on any mismatch, including any inserted fact visible at the
+# 2024-09-03 pilot cutoff (history before it is frozen for refreshes). A read-only refresh-mode verification then
 # re-checks the committed result by batch lineage; it can only detect a
 # problem after commit, not undo it.
 "on":
@@ -109,6 +110,7 @@ jobs:
             --cik "${ISSUER_CIK}" \
             --knowledge-cutoff "${knowledge_cutoff}" \
             --batch-id "${batch_id}" \
+            --history-frozen-through "2024-09-03T16:00:00-04:00" \
             --publish
 
       - name: Verify the ${{ matrix.issuer }} refresh by batch lineage (read-only)

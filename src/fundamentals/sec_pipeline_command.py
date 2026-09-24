@@ -23,7 +23,6 @@ from .sec_ingestion import (
     run_sec_ingestion_dry_run,
 )
 from .incremental_publication import publish_incremental
-from .store import append_facts
 from .time_policy import is_aware
 from .types import normalize_cik
 from .valuation_snapshot import VALUATION_TTM_CONCEPTS
@@ -37,6 +36,9 @@ class OfflineSecIngestionRequest:
     knowledge_cutoff: datetime
     ingestion_batch_id: str
     publish: bool = False
+    # A recurring refresh freezes history: it may not insert any fact eligible
+    # at or before this cutoff. Backfills leave it unset.
+    history_frozen_through: Optional[datetime] = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "cik", normalize_cik(self.cik))
@@ -52,6 +54,12 @@ class OfflineSecIngestionRequest:
             raise ValueError("ingestion_batch_id must be non-empty, trimmed text.")
         if not isinstance(self.publish, bool):
             raise ValueError("publish must be boolean.")
+        if self.history_frozen_through is not None and (
+            not isinstance(self.history_frozen_through, datetime)
+            or not is_aware(self.history_frozen_through)
+            or self.history_frozen_through >= self.knowledge_cutoff
+        ):
+            raise ValueError("history_frozen_through must be timezone-aware and precede the knowledge cutoff.")
 
 
 @dataclass(frozen=True)
@@ -109,12 +117,23 @@ def run_offline_sec_ingestion(
         return OfflineSecIngestionResult(request=request, dry_run=dry_run)
     publish_result = publish_sec_ingestion_dry_run(
         dry_run,
-        publisher=publisher or append_facts,
+        publisher=publisher or _incremental_publisher(request),
     )
     return OfflineSecIngestionResult(
         request=request,
         dry_run=dry_run,
         publish_result=publish_result,
+    )
+
+
+def _incremental_publisher(request: OfflineSecIngestionRequest, database_url: Optional[str] = None):
+    """Every publication republishes complete history and proves its increment before commit."""
+
+    return lambda facts: publish_incremental(
+        facts,
+        knowledge_cutoff=request.knowledge_cutoff,
+        history_frozen_through=request.history_frozen_through,
+        database_url=database_url,
     )
 
 
@@ -146,6 +165,11 @@ def _parser() -> argparse.ArgumentParser:
         "--publish",
         action="store_true",
         help="publish the verified batch; omission guarantees no database write",
+    )
+    parser.add_argument(
+        "--history-frozen-through",
+        type=_parse_aware_datetime,
+        help="refuse (and roll back) a publication that inserts facts eligible at or before this cutoff",
     )
     return parser
 
@@ -199,6 +223,7 @@ def _summary(result: OfflineSecIngestionResult) -> dict:
                 "inserted_fact_count_by_batch": dict(publication.inserted_by_batch),
                 "reused_fact_count": publication.reused_fact_count,
                 "reused_fact_count_by_earlier_batch": dict(publication.reused_by_batch),
+                "replayed_fact_count": publication.replayed_fact_count,
                 "no_op": publication.is_no_op,
             }
         if result.publish_result.issues:
@@ -219,6 +244,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             knowledge_cutoff=args.knowledge_cutoff,
             ingestion_batch_id=args.batch_id,
             publish=args.publish,
+            history_frozen_through=args.history_frozen_through,
         )
         downloader = SecDownloader(SecDownloaderConfig.from_environment())
         publisher = None
@@ -228,14 +254,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 raise ValueError(
                     "DATABASE_URL must be set in the process environment for --publish."
                 )
-            # Each publication republishes the issuer's complete history; facts
-            # already stored stay in their earlier batches, and the increment
-            # is proven inside the publish transaction before it commits.
-            publisher = lambda facts: publish_incremental(
-                facts,
-                knowledge_cutoff=request.knowledge_cutoff,
-                database_url=database_url,
-            )
+            publisher = _incremental_publisher(request, database_url)
         result = run_offline_sec_ingestion(
             request,
             downloader=downloader,

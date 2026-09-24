@@ -78,7 +78,7 @@ class _Store:
         self.facts = {}
         self.batches = {}
 
-    def publish(self, incoming, cutoff):
+    def publish(self, incoming, cutoff, history_frozen_through=None):
         """Simulate the transaction and return the proof's inputs, before any commit."""
 
         batch_keys = _publication_batch_keys(incoming)
@@ -101,10 +101,11 @@ class _Store:
             batch_keys=batch_keys,
             knowledge_cutoff=cutoff,
             cik=CIK,
+            history_frozen_through=history_frozen_through,
         ), batches
 
-    def commit(self, incoming, cutoff):
-        inputs, batches = self.publish(incoming, cutoff)
+    def commit(self, incoming, cutoff, history_frozen_through=None):
+        inputs, batches = self.publish(incoming, cutoff, history_frozen_through)
         receipt = prove_incremental_publication(**inputs)
         for fact in inputs["returned"]:
             self.facts[_source_identity_key(fact)] = fact
@@ -233,6 +234,34 @@ def test_a_missing_primary_batch_row_refuses(history):
     _refuses(inputs, "refresh-2\\+sec_filing_xbrl")
 
 
+def test_frozen_history_refuses_a_refresh_that_inserts_a_fact_visible_at_the_frozen_cutoff():
+    # A fact from the Q1 filing was never stored (as after a concept-map change
+    # or a late SEC addition), so this refresh would insert it into history.
+    store = _Store()
+    backfill = _publication(_utc(2023, 6, 1), "backfill-1", _utc(2023, 6, 2))
+    assert backfill  # the store is empty: every Q1/Q2 fact would be newly inserted
+    incoming = _publication(_utc(2023, 9, 1), "refresh-2", _utc(2023, 9, 2))
+
+    with pytest.raises(IncrementalPublicationError, match="frozen historical cutoff"):
+        prove_incremental_publication(**store.publish(incoming, _utc(2023, 9, 1), HISTORICAL)[0])
+
+
+def test_frozen_history_accepts_a_refresh_that_only_adds_later_filings(history):
+    receipt = history.commit(
+        _publication(_utc(2024, 1, 1), "refresh-4", _utc(2024, 1, 2)), _utc(2024, 1, 1), HISTORICAL
+    )
+
+    assert receipt.inserted_fact_count == 2
+
+
+def test_a_same_batch_retry_is_a_replay_not_earlier_batch_reuse(history):
+    receipt = history.commit(_publication(_utc(2023, 9, 1), "refresh-2", _utc(2023, 9, 2)), _utc(2023, 9, 1))
+
+    assert receipt.is_no_op
+    assert receipt.replayed_fact_count == 2
+    assert dict(receipt.reused_by_batch) == {"backfill-1": 2, "backfill-1+sec_filing_xbrl": 2}
+
+
 def test_pairing_rules_directly():
     row = ("b+sec_filing_xbrl", XBRL, "map", "cal", _utc(2024, 1, 1))
     primary = ("b", "sec_companyfacts", "map", "cal", _utc(2024, 1, 1))
@@ -283,6 +312,40 @@ def _transaction(monkeypatch, store, incoming, cutoff, *, returned=None):
 
     monkeypatch.setattr("src.fundamentals.incremental_publication._insert_returning", insert_returning)
     return connection
+
+
+def test_the_offline_run_publishes_incrementally_by_default(monkeypatch):
+    from src.fundamentals import sec_pipeline_command
+
+    calls = []
+
+    def fake_publish(facts, **kwargs):
+        calls.append(kwargs)
+        return IncrementalPublicationReceipt(batch_ids=("b",), inserted_by_batch=(("b", 0),), reused_by_batch=())
+
+    monkeypatch.setattr(sec_pipeline_command, "publish_incremental", fake_publish)
+    monkeypatch.setattr(sec_pipeline_command, "run_sec_ingestion_dry_run", lambda **kwargs: _run(_utc(2024, 1, 1), fetcher=InstanceSource(DOCUMENTS)))
+    request = sec_pipeline_command.OfflineSecIngestionRequest(
+        cik=CIK, knowledge_cutoff=_utc(2024, 1, 1), ingestion_batch_id="b", publish=True,
+        history_frozen_through=HISTORICAL,
+    )
+
+    result = sec_pipeline_command.run_offline_sec_ingestion(request, downloader=None)
+
+    assert result.publish_result.publication.is_no_op
+    assert calls == [{"knowledge_cutoff": _utc(2024, 1, 1), "history_frozen_through": HISTORICAL, "database_url": None}]
+
+
+def test_the_transaction_takes_the_issuer_lock_first(monkeypatch, history):
+    from src.fundamentals.incremental_publication import LOCK_ISSUER_SQL
+
+    incoming = _publication(_utc(2024, 1, 1), "refresh-4", _utc(2024, 1, 2))
+    connection = _transaction(monkeypatch, history, incoming, _utc(2024, 1, 1))
+
+    publish_incremental(incoming, knowledge_cutoff=_utc(2024, 1, 1), conn=connection)
+
+    executed = [event for event in connection.events if event[0] == "execute" and "CREATE" not in event[1]]
+    assert executed[0][1:] == (LOCK_ISSUER_SQL, (CIK,))
 
 
 def test_the_transaction_reads_the_pre_insert_state_before_inserting_and_commits_once(monkeypatch, history):

@@ -516,6 +516,7 @@ class TestRefreshSecFundamentalsWorkflow:
         assert "--knowledge-cutoff" in block
         assert "--batch-id" in block
         assert "--publish" in block
+        assert '--history-frozen-through "2024-09-03T16:00:00-04:00"' in block
 
     def test_publishes_the_ready_pilot_issuers_serially(self):
         block = _job_block(_read_refresh_sec_fundamentals_workflow(), "publish")
