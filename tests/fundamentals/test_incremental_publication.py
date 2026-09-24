@@ -26,6 +26,7 @@ from src.fundamentals.incremental_publication import (
     paired_primary_batch_id,
     prove_incremental_publication,
     publication_batch_problems,
+    publication_issuer_problems,
     publish_incremental,
 )
 from src.fundamentals.repository import InMemoryFundamentalsRepository
@@ -107,10 +108,22 @@ class _Store:
     def commit(self, incoming, cutoff, history_frozen_through=None):
         inputs, batches = self.publish(incoming, cutoff, history_frozen_through)
         receipt = prove_incremental_publication(**inputs)
-        for fact in inputs["returned"]:
-            self.facts[_source_identity_key(fact)] = fact
-        self.batches = batches
+        if receipt.batch_written:  # a no-op is rolled back and writes nothing
+            for fact in inputs["returned"]:
+                self.facts[_source_identity_key(fact)] = fact
+            self.batches = batches
         return receipt
+
+    def fact_ciks(self, batch_ids):
+        """Every fact's issuer per batch, across all issuers (the verifier's binding read)."""
+
+        result = {}
+        for fact in self.facts.values():
+            if fact.lineage.ingestion_batch_id in set(batch_ids):
+                counts = result.setdefault(fact.lineage.ingestion_batch_id, {})
+                cik = fact.identity.context.entity_cik
+                counts[cik] = counts.get(cik, 0) + 1
+        return result
 
 
 @pytest.fixture
@@ -442,6 +455,7 @@ def _verify_refresh(store, batch_id, publish_cutoff, historical=(HISTORICAL,)):
         downloader=_Downloader(),
         repository=InMemoryFundamentalsRepository(tuple(store.facts.values())),
         batch_reader=lambda ids: {key: row for key, row in store.batches.items() if key in set(ids)},
+        batch_fact_reader=store.fact_ciks,
     )
 
 
@@ -460,14 +474,20 @@ def test_refresh_verification_separates_inserted_facts_from_earlier_batches(comp
     assert summary["cutoffs"][1]["facts_in_earlier_batches"] == 6
 
 
-def test_refresh_verification_reports_a_no_op(composing_issuer, history):
-    history.commit(_publication(_utc(2023, 10, 1), "refresh-3", _utc(2023, 10, 2)), _utc(2023, 10, 1))
+def test_a_no_op_writes_no_batch_and_verification_says_so(composing_issuer, history):
+    batches_before = dict(history.batches)
+    receipt = history.commit(_publication(_utc(2023, 10, 1), "refresh-3", _utc(2023, 10, 2)), _utc(2023, 10, 1))
+
+    assert receipt.is_no_op and not receipt.batch_written
+    assert history.batches == batches_before
 
     result = _verify_refresh(history, "refresh-3", _utc(2023, 10, 1))
 
+    # Only the issuer's stored result is verified; no batch is claimed.
     assert result.is_verified, (result.publication_problems, [item.problems for item in result.cutoffs])
-    assert result.is_no_op
-    assert sec_backfill_verification._refresh_summary(result)["no_op"] is True
+    assert result.is_no_op and not result.batch_written
+    summary = sec_backfill_verification._refresh_summary(result)
+    assert summary["no_op"] is True and summary["batch_written"] is False
 
 
 def test_the_backfill_verifier_rejects_a_valid_refresh_which_is_why_refresh_mode_exists(composing_issuer, history):
@@ -544,3 +564,55 @@ def test_ingested_at_is_part_of_the_pairing(history):
     rows["refresh-2+sec_filing_xbrl"] = companion[:4] + (companion[4] + later,)
 
     assert publication_batch_problems(["refresh-2", "refresh-2+sec_filing_xbrl"], rows)
+
+
+# --- Cross-issuer substitution ----------------------------------------------
+
+def _foreign_no_op_batch_rows(store, batch_id):
+    """Batch rows another issuer's no-op refresh left behind: rows, but no facts.
+
+    The batch table carries no issuer, and the mapping and calendar versions
+    are copied from this issuer's rows, so nothing in the rows says whose they are.
+    """
+
+    primary = store.batches["refresh-2"]
+    companion = store.batches["refresh-2+sec_filing_xbrl"]
+    ingested_at = _utc(2023, 10, 3)
+    store.batches[batch_id] = (batch_id,) + primary[1:4] + (ingested_at,)
+    store.batches[f"{batch_id}+sec_filing_xbrl"] = (f"{batch_id}+sec_filing_xbrl",) + companion[1:4] + (ingested_at,)
+
+
+def test_another_issuers_zero_fact_batch_does_not_verify_as_this_issuers_no_op(composing_issuer, history):
+    _foreign_no_op_batch_rows(history, "msft-sec-9-1")
+
+    result = _verify_refresh(history, "msft-sec-9-1", _utc(2023, 10, 1))
+
+    assert not result.is_verified
+    assert any("issuer" in problem for problem in result.publication_problems)
+
+
+def test_another_issuers_batch_with_facts_does_not_verify_as_this_issuers_refresh(composing_issuer, history):
+    # MSFT's refresh inserted facts; none belong to this issuer, so every one
+    # of this issuer's facts sits in an earlier batch and would look like a no-op.
+    foreign_cik = "0000789019"
+    incoming = _publication(_utc(2024, 1, 1), "msft-sec-8-1", _utc(2024, 1, 2))
+    fact = incoming[-1]
+    foreign = replace(
+        fact, identity=replace(fact.identity, context=replace(fact.identity.context, entity_cik=foreign_cik))
+    )
+    history.facts[("foreign",)] = foreign
+    history.batches.update(
+        {key[0]: key for key in _publication_batch_keys(incoming)}
+    )
+
+    result = _verify_refresh(history, "msft-sec-8-1", _utc(2023, 10, 1))
+
+    assert not result.is_verified
+    assert any("other issuers: 0000789019" in problem for problem in result.publication_problems)
+
+
+def test_issuer_binding_rules_directly():
+    assert publication_issuer_problems(CIK, ["b"], {"b": {CIK: 3}}) == ()
+    assert publication_issuer_problems(CIK, ["b", "b+x"], {"b+x": {CIK: 1}}) == ()
+    assert "no facts" in publication_issuer_problems(CIK, ["b"], {})[0]
+    assert "other issuers" in publication_issuer_problems(CIK, ["b"], {"b": {CIK: 1, "0000000002": 1}})[0]

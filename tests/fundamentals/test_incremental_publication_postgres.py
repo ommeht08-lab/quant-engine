@@ -13,6 +13,7 @@ from src.fundamentals.incremental_publication import (
     IncrementalPublicationError,
     prove_incremental_publication,
     publish_incremental,
+    read_batch_fact_ciks,
     read_batch_rows,
 )
 from src.fundamentals.store import INSERT_BATCH_SQL, PostgresFundamentalsRepository, _execute_values, _fact_to_row
@@ -61,11 +62,11 @@ def test_backfill_new_filing_no_op_and_ten_k_prove_exactly_what_each_inserted(em
     assert receipts[2].is_no_op
     # The receipts' per-batch inserted counts are exactly what the database holds.
     stored = _facts_by_batch()
-    for receipt in receipts:
+    for receipt in (r for r in receipts if r.batch_written):
         for batch_id, inserted in receipt.inserted_by_batch:
             assert stored[batch_id] == inserted
-    # A no-op still records its two batch rows, with no facts in them.
-    assert stored["refresh-3"] == stored["refresh-3+sec_filing_xbrl"] == 0
+    # A no-op is rolled back: it records no batch rows at all.
+    assert "refresh-3" not in stored and "refresh-3+sec_filing_xbrl" not in stored
     assert dict(receipts[3].reused_by_batch) == {
         "backfill-1": 2,
         "backfill-1+sec_filing_xbrl": 2,
@@ -148,6 +149,7 @@ def test_refresh_verification_reads_postgres_by_lineage(composing_issuer, empty_
             downloader=_Downloader(),
             repository=PostgresFundamentalsRepository(database_url=DATABASE_URL),
             batch_reader=lambda ids: read_batch_rows(ids, database_url=DATABASE_URL),
+            batch_fact_reader=lambda ids: read_batch_fact_ciks(ids, database_url=DATABASE_URL),
         )
 
     ten_k = verify("refresh-4", _utc(2024, 1, 1))
@@ -156,7 +158,7 @@ def test_refresh_verification_reads_postgres_by_lineage(composing_issuer, empty_
     assert ten_k.is_verified, (ten_k.publication_problems, [item.problems for item in ten_k.cutoffs])
     assert (ten_k.cutoffs[-1].this_refresh_fact_count, ten_k.cutoffs[-1].earlier_batch_fact_count) == (2, 6)
     assert ten_k.cutoffs[0].this_refresh_fact_count == 0
-    assert no_op.is_verified and no_op.is_no_op
+    assert no_op.is_verified and no_op.is_no_op and not no_op.batch_written
 
 
 def test_a_refresh_that_would_rewrite_frozen_history_rolls_back(empty_store):
@@ -207,3 +209,81 @@ def test_overlapping_publishes_for_one_issuer_serialize_instead_of_refusing(empt
     assert results["second"].inserted_fact_count == 0
     assert results["second"].reused_fact_count == 6
     assert waited >= 0.3
+
+
+def _verify_refresh_in_postgres(batch_id, publish_cutoff):
+    return sec_backfill_verification.verify_refresh_publication(
+        cik=CIK,
+        ingestion_batch_id=batch_id,
+        publish_cutoff=publish_cutoff,
+        historical_cutoffs=(_utc(2023, 6, 1),),
+        data_vintage_cutoff=_utc(2027, 1, 1),
+        downloader=_Downloader(),
+        repository=PostgresFundamentalsRepository(database_url=DATABASE_URL),
+        batch_reader=lambda ids: read_batch_rows(ids, database_url=DATABASE_URL),
+        batch_fact_reader=lambda ids: read_batch_fact_ciks(ids, database_url=DATABASE_URL),
+    )
+
+
+def test_another_issuers_zero_fact_batch_does_not_verify_in_postgres(composing_issuer, empty_store):
+    for step in (BACKFILL, NEW_FILING):
+        _publish(step)
+    # A legacy no-op refresh for another issuer: batch rows with no facts. The
+    # rows carry no issuer, and here even share this issuer's versions.
+    sample = _publication(*NEW_FILING)[0].lineage
+    _raw_insert(
+        [
+            ("msft-sec-9-1", "sec_companyfacts", sample.concept_map_version, sample.fiscal_calendar_version, _utc(2023, 10, 3)),
+            ("msft-sec-9-1+sec_filing_xbrl", XBRL, sample.concept_map_version, sample.fiscal_calendar_version, _utc(2023, 10, 3)),
+        ],
+        (),
+    )
+
+    result = _verify_refresh_in_postgres("msft-sec-9-1", _utc(2023, 10, 1))
+
+    assert not result.is_verified
+    assert any("issuer" in problem for problem in result.publication_problems)
+
+
+def test_another_issuers_batch_with_facts_does_not_verify_in_postgres(composing_issuer, empty_store):
+    for step in (BACKFILL, NEW_FILING):
+        _publish(step)
+    # Another issuer's refresh that did insert facts, under versions equal to this issuer's.
+    from dataclasses import replace
+
+    fact = _publication(*TEN_K)[0]
+    foreign = replace(
+        fact,
+        identity=replace(fact.identity, context=replace(fact.identity.context, entity_cik="0000789019")),
+        lineage=replace(fact.lineage, ingestion_batch_id="msft-sec-8-1"),
+    )
+    lineage = foreign.lineage
+    _raw_insert(
+        [("msft-sec-8-1", lineage.source_adapter, lineage.concept_map_version, lineage.fiscal_calendar_version, lineage.ingested_at)],
+        (foreign,),
+    )
+
+    result = _verify_refresh_in_postgres("msft-sec-8-1", _utc(2023, 10, 1))
+
+    assert not result.is_verified
+    assert any("other issuers: 0000789019" in problem for problem in result.publication_problems)
+
+
+def test_a_legacy_zero_fact_batch_of_this_issuer_is_not_claimed_verified(composing_issuer, empty_store):
+    # Before this change a no-op still committed its batch rows. Even when the
+    # name suggests this issuer, nothing stored ties the rows to it.
+    for step in (BACKFILL, NEW_FILING):
+        _publish(step)
+    sample = _publication(*NEW_FILING)[0].lineage
+    _raw_insert(
+        [
+            ("apple-sec-7-1", "sec_companyfacts", sample.concept_map_version, sample.fiscal_calendar_version, _utc(2023, 10, 3)),
+            ("apple-sec-7-1+sec_filing_xbrl", XBRL, sample.concept_map_version, sample.fiscal_calendar_version, _utc(2023, 10, 3)),
+        ],
+        (),
+    )
+
+    result = _verify_refresh_in_postgres("apple-sec-7-1", _utc(2023, 10, 1))
+
+    assert not result.is_verified
+    assert any("cannot establish their issuer" in problem for problem in result.publication_problems)

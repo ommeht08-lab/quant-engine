@@ -72,7 +72,11 @@ command's JSON report gives `inserted_fact_count` (facts in this run's batches)
 separately from `publication.reused_fact_count_by_earlier_batch` (facts that
 were already stored and remain in earlier batches). A retry under the same batch
 ID reports its own previously stored facts as `replayed_fact_count`, never as
-earlier-batch reuse. A run that inserts nothing reports `"no_op": true`.
+earlier-batch reuse. A run that inserts nothing reports `"no_op": true` and
+`"batch_written": false`: it is rolled back and writes nothing, not even batch
+rows. The batch table has no issuer column, so a batch row without facts could
+never be tied to an issuer; every committed batch therefore holds at least one
+fact, and each fact carries its issuer.
 
 Because the store is append-only, a stored fact that SEC later stops reporting
 (or re-tags) makes every later publication for that issuer and concept-map
@@ -101,7 +105,13 @@ After each publish, a read-only step runs
 checks the committed result against the pipeline at the 2024-09-03 cutoff and
 the refresh's own cutoff, accepting earlier batches by lineage rather than by
 name. It also requires that the refresh contributes no facts visible at
-2024-09-03. This check runs after commit, so it can only report a problem; the
+2024-09-03. A written refresh is bound to its issuer only through its facts:
+its batches must hold at least one fact, every one for the requested issuer.
+Another issuer's batch, or a legacy zero-fact batch from before no-ops were
+rolled back, fails with that reason. When no rows exist under the batch ID (a
+no-op), the report says `"batch_written": false` and only the issuer's stored
+result is verified; the absence of rows alone cannot prove the publish step
+ran, which the workflow's step ordering asserts instead. This check runs after commit, so it can only report a problem; the
 pre-commit proof above is what prevents one.
 
 The publication job cannot start unless its credential-free fundamentals tests

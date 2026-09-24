@@ -22,6 +22,13 @@ remain in earlier batches, and at each historical cutoff this refresh may
 contribute no facts at all. This runs after commit, so it detects problems;
 the pre-commit proof in ``incremental_publication`` is what prevents them.
 
+The batch table has no issuer column, so a written refresh is tied to the
+issuer only through its facts: its batches must hold at least one fact, every
+one for the requested issuer. A no-op refresh is rolled back and writes no
+batch rows; the verifier then reports ``batch_written: false`` and verifies the
+issuer's stored result directly. It does not verify any batch, and the absence
+of rows alone cannot show that the publish step ran.
+
 Like ``sec_pipeline_command`` this module needs only ``requests`` and
 ``psycopg2``; it never writes to the database.
 """
@@ -44,6 +51,8 @@ from .incremental_publication import (
     batch_ids_to_read,
     batch_lineage_problems,
     publication_batch_problems,
+    publication_issuer_problems,
+    read_batch_fact_ciks,
     read_batch_rows,
     selected_source_keys,
     source_key,
@@ -309,6 +318,7 @@ class RefreshVerificationResult:
     concept_map_version: str
     fiscal_calendar_version: str
     data_vintage_cutoff: datetime
+    batch_written: bool
     publication_problems: Tuple[str, ...]
     cutoffs: Tuple[RefreshCutoffVerification, ...]
 
@@ -322,10 +332,9 @@ class RefreshVerificationResult:
 
     @property
     def is_no_op(self) -> bool:
-        """True when this refresh inserted no facts: every published fact is in an earlier batch."""
+        """No rows exist under this batch ID: a no-op refresh is rolled back and writes nothing."""
 
-        publish = [item for item in self.cutoffs if not item.historical]
-        return bool(publish) and publish[-1].this_refresh_fact_count == 0
+        return not self.batch_written
 
 
 class _CachingBatchReader:
@@ -428,6 +437,7 @@ def verify_refresh_publication(
     downloader,
     repository,
     batch_reader: Callable[[Sequence[str]], Mapping[str, tuple]],
+    batch_fact_reader: Callable[[Sequence[str]], Mapping[str, Mapping[str, int]]],
 ) -> RefreshVerificationResult:
     """Verify one committed refresh by lineage; read-only and after the fact."""
 
@@ -445,6 +455,13 @@ def verify_refresh_publication(
     batch_ids = _expected_batch_ids(normalized_cik, ingestion_batch_id)
     shared_downloader = _SinglePayloadDownloader(downloader)
     batch_reader = _CachingBatchReader(batch_reader)
+    rows = batch_reader(batch_ids)
+    batch_written = any(batch_id in rows for batch_id in batch_ids)
+    publication_problems: Tuple[str, ...] = ()
+    if batch_written:
+        publication_problems = publication_batch_problems(batch_ids, rows) + publication_issuer_problems(
+            normalized_cik, batch_ids, batch_fact_reader(batch_ids)
+        )
     checks = [(cutoff, True) for cutoff in sorted(historical)] + [(publish_cutoff, False)]
     return RefreshVerificationResult(
         cik=normalized_cik,
@@ -453,7 +470,8 @@ def verify_refresh_publication(
         concept_map_version=concept_map_for_issuer(normalized_cik).version,
         fiscal_calendar_version=SEC_FISCAL_CALENDAR_CATALOG_V1.policy_for(normalized_cik).version,
         data_vintage_cutoff=data_vintage_cutoff,
-        publication_problems=publication_batch_problems(batch_ids, batch_reader(batch_ids)),
+        batch_written=batch_written,
+        publication_problems=publication_problems,
         cutoffs=tuple(
             _verify_refresh_cutoff(
                 cik=normalized_cik,
@@ -481,6 +499,9 @@ def _refresh_summary(result: RefreshVerificationResult) -> dict:
         "calendar_version": result.fiscal_calendar_version,
         "data_vintage_cutoff": result.data_vintage_cutoff.isoformat(),
         "no_op": result.is_no_op,
+        # False means no rows exist under this ID: only the issuer's stored
+        # result was verified, not a batch.
+        "batch_written": result.batch_written,
         "publication_problems": list(result.publication_problems),
         "cutoffs": [
             {
@@ -574,6 +595,7 @@ def main(
                 downloader=downloader,
                 repository=repository,
                 batch_reader=lambda ids: read_batch_rows(ids, database_url=database_url),
+                batch_fact_reader=lambda ids: read_batch_fact_ciks(ids, database_url=database_url),
             )
             summary = _refresh_summary(result)
         else:

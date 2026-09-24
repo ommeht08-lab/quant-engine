@@ -584,8 +584,12 @@ def run_publish_transaction(
     *,
     database_url: Optional[str] = None,
     conn=None,
+    commit_when: Optional[Callable] = None,
 ):
     """Run ``work(cursor)`` in one write transaction; commit on return, roll back on any error.
+
+    With ``commit_when``, a successful result it rejects is rolled back instead
+    of committed and still returned, so the transaction leaves no trace.
 
     Shared by every publisher so connection setup, schema creation, error
     sanitizing, rollback, and close behave identically.
@@ -609,7 +613,10 @@ def run_publish_transaction(
         ensure_schema(connection)
         with connection.cursor() as cursor:
             result = work(cursor)
-        connection.commit()
+        if commit_when is None or commit_when(result):
+            connection.commit()
+        else:
+            connection.rollback()
         return result
     except FundamentalsPublishError:
         if connection is not None:

@@ -30,6 +30,12 @@ commit, requires:
    before it. A concept-map change or a late SEC addition to an old filing
    therefore needs a reviewed backfill instead of slipping into a refresh.
 
+A publication that would insert no facts is a no-op and is rolled back, so it
+writes nothing, not even batch rows. The batch table has no issuer column, so
+a batch row without facts could never be tied to an issuer by stored
+provenance; every batch this module commits holds at least one fact, and each
+fact carries its issuer.
+
 Publications for one issuer are serialized with a transaction-scoped
 advisory lock, so a concurrent publish cannot make an identity look neither
 inserted nor pre-existing.
@@ -102,6 +108,13 @@ ISSUER_LOCK_WAIT_MS = 300_000
 LOCK_ISSUER_SQL = "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0));"
 SET_LOCAL_STATEMENT_TIMEOUT_SQL = "SELECT set_config('statement_timeout', %s, true);"
 
+SELECT_BATCH_FACT_CIKS_SQL = """
+SELECT ingestion_batch_id, cik, COUNT(*)
+FROM fundamentals_facts
+WHERE ingestion_batch_id = ANY(%s)
+GROUP BY ingestion_batch_id, cik;
+"""
+
 SELECT_BATCH_ROWS_SQL = """
 SELECT ingestion_batch_id, source_adapter, concept_map_version, fiscal_calendar_version, ingested_at
 FROM fundamentals_ingestion_batches
@@ -144,6 +157,12 @@ class IncrementalPublicationReceipt:
     @property
     def is_no_op(self) -> bool:
         return self.inserted_fact_count == 0
+
+    @property
+    def batch_written(self) -> bool:
+        """A no-op is rolled back, so its batch rows are never committed."""
+
+        return not self.is_no_op
 
 
 def source_key(fact: FinancialFact) -> FinancialFact:
@@ -437,12 +456,40 @@ def publish_incremental(
             history_frozen_through=history_frozen_through,
         )
 
-    return run_publish_transaction(work, database_url=database_url, conn=conn)
+    return run_publish_transaction(
+        work,
+        database_url=database_url,
+        conn=conn,
+        commit_when=lambda receipt: receipt.batch_written,
+    )
 
 
-def read_batch_rows(batch_ids: Sequence[str], *, database_url: Optional[str] = None) -> Dict[str, tuple]:
-    """Read-only lookup of ingestion batch rows, for post-publication verification."""
+def publication_issuer_problems(
+    cik: str, batch_ids: Sequence[str], fact_ciks: Mapping[str, Mapping[str, int]]
+) -> Tuple[str, ...]:
+    """Bind written batches to one issuer through their facts, the only stored issuer provenance.
 
+    ``fact_ciks`` maps each batch ID to the issuers of every fact it holds,
+    across all issuers. The batch table has no issuer column, so a publication
+    whose batches hold no facts cannot be tied to any issuer and is refused.
+    """
+
+    problems = []
+    counts = Counter()
+    for batch_id in batch_ids:
+        counts.update(fact_ciks.get(batch_id, {}))
+    foreign = sorted(other for other in counts if other != cik)
+    if foreign:
+        problems.append(f"The publication's batches hold facts for other issuers: {', '.join(foreign)}.")
+    if not counts:
+        problems.append(
+            "The publication's batches hold no facts, so stored provenance cannot establish their "
+            "issuer; a zero-fact batch cannot be verified."
+        )
+    return tuple(problems)
+
+
+def _read_only(read, *, database_url: Optional[str]):
     resolved_url = database_url or _get_database_url()
     if not resolved_url:
         raise FundamentalsRepositoryUnavailable("point-in-time fundamentals store is not configured.")
@@ -456,9 +503,9 @@ def read_batch_rows(batch_ids: Sequence[str], *, database_url: Optional[str] = N
         )
         connection.set_session(readonly=True, autocommit=False)
         with connection.cursor() as cursor:
-            rows = _read_batch_rows(cursor, batch_ids)
+            result = read(cursor)
         connection.rollback()
-        return rows
+        return result
     except Exception as error:
         logger.error("ingestion batch read failed (%s)", type(error).__name__)
         if connection is not None:
@@ -467,3 +514,24 @@ def read_batch_rows(batch_ids: Sequence[str], *, database_url: Optional[str] = N
     finally:
         if connection is not None:
             _close_quietly(connection)
+
+
+def read_batch_rows(batch_ids: Sequence[str], *, database_url: Optional[str] = None) -> Dict[str, tuple]:
+    """Read-only lookup of ingestion batch rows, for post-publication verification."""
+
+    return _read_only(lambda cursor: _read_batch_rows(cursor, batch_ids), database_url=database_url)
+
+
+def read_batch_fact_ciks(
+    batch_ids: Sequence[str], *, database_url: Optional[str] = None
+) -> Dict[str, Dict[str, int]]:
+    """Read-only: the issuers of every fact in each batch, across all issuers."""
+
+    def read(cursor):
+        cursor.execute(SELECT_BATCH_FACT_CIKS_SQL, (list(batch_ids),))
+        result: Dict[str, Dict[str, int]] = {}
+        for batch_id, cik, count in cursor.fetchall():
+            result.setdefault(batch_id, {})[cik] = int(count)
+        return result
+
+    return _read_only(read, database_url=database_url)
