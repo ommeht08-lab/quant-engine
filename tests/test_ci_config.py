@@ -379,19 +379,61 @@ class TestSecBacktestPilotWorkflow:
         assert "pipeline validation" in self._content()
 
 class TestBackfillSecFundamentalsWorkflow:
-    """Manual pilot backfills publish one verified batch without touching the schedule."""
+    """Manual pilot backfills, AAPL included, publish one verified batch without touching the schedule."""
 
     def _content(self):
         return BACKFILL_SEC_FUNDAMENTALS_WORKFLOW_PATH.read_text()
 
-    def test_is_manual_only_and_limited_to_the_unscheduled_pilot_issuers(self):
+    def _dispatch_ciks(self):
+        cik_input = self._content().split("      cik:\n", 1)[1].split("      verify_batch_id:", 1)[0]
+        return re.findall(r'^\s+- "(\d+)"$', cik_input, flags=re.MULTILINE)
+
+    def _publish_guard_ciks(self):
+        guard = re.search(r"^\s+([0-9|]+)\) ;;$", _job_block(self._content(), "publish"), flags=re.MULTILINE)
+        assert guard, "the publish step must allow-list issuers before publishing"
+        return guard.group(1).split("|")
+
+    def test_is_manual_only_and_limited_to_the_four_pilot_issuers(self):
         content = self._content()
         assert "workflow_dispatch:" in content
         assert "schedule:" not in content
         assert "cron:" not in content
-        for cik in ("789019", "104169", "18230"):
-            assert f'- "{cik}"' in content
-        assert "320193" not in content
+        assert sorted(self._dispatch_ciks()) == ["104169", "18230", "320193", "789019"]
+
+    def test_the_dispatch_choices_and_the_publish_guard_allow_exactly_the_same_issuers(self):
+        # A CIK offered in the form but refused by the guard, or the reverse,
+        # would let the two allow-lists drift apart silently.
+        assert sorted(self._publish_guard_ciks()) == sorted(self._dispatch_ciks())
+
+    def test_aapl_uses_the_same_publish_and_verify_path_as_every_other_issuer(self):
+        # No issuer-specific branches: AAPL gets the run-scoped batch, the
+        # complete-or-refuse publish, and the issuer-bound verify-only check
+        # exactly as MSFT, WMT, and CAT do.
+        content = self._content()
+        for job in ("publish", "verify"):
+            block = _job_block(content, job)
+            assert "ISSUER_CIK: ${{ inputs.cik }}" in block
+            script = block.split("run: |", 1)[1].replace("|".join(self._publish_guard_ciks()) + ") ;;", "")
+            for cik in self._dispatch_ciks():
+                assert cik not in script
+        assert "^backfill-${ISSUER_CIK}-[0-9]+-[0-9]+$" in _job_block(content, "verify")
+
+    def test_every_allowed_issuer_has_a_pinned_policy_but_no_live_approval(self):
+        from src.fundamentals.calendar_catalog import SEC_FISCAL_CALENDAR_CATALOG_V1
+        from src.fundamentals.concept_map import concept_map_for_issuer
+        from src.fundamentals.issuer_manifest import SEC_ISSUER_MANIFEST_V1
+
+        manifest = {policy.cik.lstrip("0"): policy for policy in SEC_ISSUER_MANIFEST_V1}
+        for cik in self._dispatch_ciks():
+            assert SEC_FISCAL_CALENDAR_CATALOG_V1.policy_for(cik).version
+            assert concept_map_for_issuer(cik).version
+            # Backfill access neither approves live SEC use nor schedules the issuer.
+            assert manifest[cik].sec_live_approved is False
+
+    def test_adding_aapl_to_backfills_leaves_the_recurring_schedule_unchanged(self):
+        block = _job_block(_read_refresh_sec_fundamentals_workflow(), "publish")
+        assert sorted(re.findall(r'^\s+cik: "(\d+)"$', block, flags=re.MULTILINE)) == ["104169", "320193", "789019"]
+        assert 'cron: "23 3 * * 2-6"' in _read_refresh_sec_fundamentals_workflow()
 
     def test_shares_the_recurring_publication_concurrency_group(self):
         content = self._content()
@@ -406,7 +448,7 @@ class TestBackfillSecFundamentalsWorkflow:
         assert "needs: test" in publish
         assert 'batch_id="backfill-${ISSUER_CIK}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"' in publish
         assert "--publish" in publish
-        assert "789019|104169|18230) ;;" in publish
+        assert "320193|789019|104169|18230) ;;" in publish
 
     def test_verifies_both_cutoffs_read_only_after_publishing(self):
         verify = _job_block(self._content(), "verify")
