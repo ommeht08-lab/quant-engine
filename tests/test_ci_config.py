@@ -190,6 +190,7 @@ class TestFundamentalsPostgresIntegration:
             "postgresql://postgres:postgres@127.0.0.1:5432/valuation_engine_test"
         ) in content
         assert "python -m pytest -q tests/fundamentals/test_store_postgres.py" in content
+        assert "tests/fundamentals/test_incremental_publication_postgres.py" in content
 
     def test_workflow_still_has_no_repository_secret_reference(self):
         assert "secrets." not in TESTS_WORKFLOW_PATH.read_text()
@@ -415,7 +416,7 @@ class TestBackfillSecFundamentalsWorkflow:
         assert "python -m src.fundamentals.sec_backfill_verification" in verify
         assert '--cutoff "2024-09-03T16:00:00-04:00"' in verify
         assert '--cutoff "${PUBLISH_CUTOFF}"' in verify
-        assert "--publish" not in verify
+        assert not re.search(r"--publish(\s|$)", verify)
 
     def test_verify_only_mode_skips_publication_and_validates_its_inputs(self):
         content = self._content()
@@ -477,9 +478,10 @@ class TestRefreshSecFundamentalsWorkflow:
 
     def test_publish_job_receives_only_its_two_required_secrets(self):
         block = _job_block(_read_refresh_sec_fundamentals_workflow(), "publish")
-        assert "secrets.DATABASE_URL" in block
-        assert "secrets.SEC_USER_AGENT" in block
-        assert block.count("secrets.") == 2
+        # The publish step and the read-only verify step each receive the same two.
+        assert block.count("secrets.DATABASE_URL") == 2
+        assert block.count("secrets.SEC_USER_AGENT") == 2
+        assert block.count("secrets.") == 4
         for forbidden in (
             "APCA_API_KEY_ID",
             "APCA_API_SECRET_KEY",
@@ -514,6 +516,7 @@ class TestRefreshSecFundamentalsWorkflow:
         assert "--knowledge-cutoff" in block
         assert "--batch-id" in block
         assert "--publish" in block
+        assert '--history-frozen-through "2024-09-03T16:00:00-04:00"' in block
 
     def test_publishes_the_ready_pilot_issuers_serially(self):
         block = _job_block(_read_refresh_sec_fundamentals_workflow(), "publish")
@@ -526,6 +529,21 @@ class TestRefreshSecFundamentalsWorkflow:
         ):
             assert f'- issuer: {issuer}\n            cik: "{cik}"' in block
 
+    def test_every_publish_is_followed_by_read_only_refresh_verification(self):
+        block = _job_block(_read_refresh_sec_fundamentals_workflow(), "publish")
+        publish_at = block.index("python -m src.fundamentals.sec_pipeline_command")
+        verify_at = block.index("python -m src.fundamentals.sec_backfill_verification")
+        assert publish_at < verify_at
+        verify = block[verify_at:]
+        assert "--mode refresh" in verify
+        assert '--batch-id "${BATCH_ID}"' in verify
+        assert '--cutoff "2024-09-03T16:00:00-04:00"' in verify
+        assert '--publish-cutoff "${PUBLISH_CUTOFF}"' in verify
+        assert "BATCH_ID: ${{ steps.publish.outputs.batch_id }}" in block
+        assert "PUBLISH_CUTOFF: ${{ steps.publish.outputs.knowledge_cutoff }}" in block
+        assert 'echo "batch_id=${batch_id}" >> "${GITHUB_OUTPUT}"' in block
+        assert not re.search(r"--publish(\s|$)", verify)
+
     def test_schedule_excludes_cat_until_incremental_refresh_verification_exists(self):
         content = _read_refresh_sec_fundamentals_workflow()
         code_lines = [line for line in content.splitlines() if not line.strip().startswith("#")]
@@ -536,9 +554,10 @@ class TestRefreshSecFundamentalsWorkflow:
         block = _job_block(content, "publish")
         matrix_ciks = re.findall(r'^\s+cik: "(\d+)"$', block, flags=re.MULTILINE)
         assert sorted(matrix_ciks) == ["104169", "320193", "789019"]
-        assert "ISSUER_CIK: ${{ matrix.cik }}" in block
-        assert '--cik "${ISSUER_CIK}"' in block
-        assert block.count("--cik") == 1
+        # Both the publish and the verify step take their CIK solely from the matrix.
+        assert block.count("ISSUER_CIK: ${{ matrix.cik }}") == 2
+        assert block.count('--cik "${ISSUER_CIK}"') == 2
+        assert block.count("--cik") == 2
         # SEC-history readiness does not approve the schedule or live use.
         from src.fundamentals.issuer_manifest import issuer_policy_for
 

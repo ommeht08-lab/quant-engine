@@ -34,6 +34,7 @@ from .fiscal_calendar import (
 )
 from .quarterly import QuarterlyFundamentals, assemble_quarterly_fundamentals
 from .selection import select_point_in_time
+from .incremental_publication import IncrementalPublicationError, IncrementalPublicationReceipt
 from .store import FundamentalsPublishError, append_facts, source_qualified_batch_id
 from .time_policy import is_aware
 from .types import FinancialFact, FundamentalHistory, normalize_cik
@@ -456,6 +457,9 @@ class SecIngestionPublishResult:
     dry_run: SecIngestionDryRun
     inserted_fact_count: int = 0
     issues: Tuple[SecDryRunIssue, ...] = field(default_factory=tuple)
+    # Present when the publisher proved an incremental publication: what this
+    # transaction inserted, and which earlier batches still hold reused facts.
+    publication: Optional[IncrementalPublicationReceipt] = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.dry_run, SecIngestionDryRun) or not self.dry_run.is_complete:
@@ -473,6 +477,11 @@ class SecIngestionPublishResult:
             raise ValueError("A refused publish cannot report inserted facts.")
         if self.inserted_fact_count > len(self.dry_run.classified_facts):
             raise ValueError("inserted_fact_count cannot exceed the published fact count.")
+        if self.publication is not None and (
+            not isinstance(self.publication, IncrementalPublicationReceipt)
+            or self.publication.inserted_fact_count != self.inserted_fact_count
+        ):
+            raise ValueError("publication must be the receipt that reports inserted_fact_count.")
 
     @property
     def is_complete(self) -> bool:
@@ -492,17 +501,17 @@ def publish_sec_ingestion_dry_run(
         raise ValueError("publisher must be callable.")
     try:
         inserted = publisher(dry_run.classified_facts)
-    except FundamentalsPublishError:
+    except FundamentalsPublishError as error:
+        message = "The complete SEC ingestion batch could not be published atomically."
+        if isinstance(error, IncrementalPublicationError):
+            message += " " + str(error)
         return SecIngestionPublishResult(
             dry_run=dry_run,
-            issues=(
-                SecDryRunIssue(
-                    SecDryRunIssueStage.PUBLISH,
-                    "publish_failed",
-                    "The complete SEC ingestion batch could not be published atomically.",
-                ),
-            ),
+            issues=(SecDryRunIssue(SecDryRunIssueStage.PUBLISH, "publish_failed", message),),
         )
+    publication = None
+    if isinstance(inserted, IncrementalPublicationReceipt):
+        publication, inserted = inserted, inserted.inserted_fact_count
     if (
         isinstance(inserted, bool)
         or not isinstance(inserted, int)
@@ -510,4 +519,4 @@ def publish_sec_ingestion_dry_run(
         or inserted > len(dry_run.classified_facts)
     ):
         raise ValueError("publisher must return a non-negative inserted fact count.")
-    return SecIngestionPublishResult(dry_run=dry_run, inserted_fact_count=inserted)
+    return SecIngestionPublishResult(dry_run=dry_run, inserted_fact_count=inserted, publication=publication)

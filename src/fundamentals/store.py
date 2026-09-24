@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import os
 from decimal import Decimal
-from typing import Iterable, Optional, Tuple
+from typing import Callable, Iterable, Optional, Tuple
 
 from .repository import FundamentalsQuery, FundamentalsRepositoryUnavailable
 from .types import (
@@ -430,12 +430,12 @@ def _row_to_fact(row: tuple) -> FinancialFact:
     )
 
 
-def _execute_values(cursor, rows):
+def _execute_values(cursor, rows, sql=INSERT_FACTS_SQL):
     from psycopg2.extras import execute_values
 
     return execute_values(
         cursor,
-        INSERT_FACTS_SQL,
+        sql,
         rows,
         page_size=PUBLISH_PAGE_SIZE,
         fetch=True,
@@ -579,18 +579,21 @@ def _publication_batch_keys(facts: Tuple[FinancialFact, ...]) -> Tuple[tuple, ..
     return (primary,) + tuple(sorted(key for key in batch_keys if key is not primary))
 
 
-def append_facts(
-    facts: Iterable[FinancialFact],
+def run_publish_transaction(
+    work: Callable,
     *,
     database_url: Optional[str] = None,
     conn=None,
-) -> int:
-    """Atomically append one publication: every source's batch commits or none does."""
-    facts = tuple(facts)
-    if not facts:
-        raise ValueError("append_facts requires at least one fact.")
+    before_schema: Optional[Callable] = None,
+):
+    """Run ``work(cursor)`` in one write transaction; commit on return, roll back on any error.
 
-    batch_keys = _publication_batch_keys(facts)
+    ``before_schema(cursor)`` runs first in the same transaction, before
+    ``ensure_schema`` takes its table locks; publishers use it to serialize.
+
+    Shared by every publisher so connection setup, schema creation, error
+    sanitizing, rollback, and close behave identically.
+    """
 
     owns_connection = conn is None
     connection = conn
@@ -607,34 +610,14 @@ def append_facts(
             )
 
         connection.set_session(readonly=False, autocommit=False)
+        if before_schema is not None:
+            with connection.cursor() as cursor:
+                before_schema(cursor)
         ensure_schema(connection)
-        inserted = 0
         with connection.cursor() as cursor:
-            for batch_key in batch_keys:
-                cursor.execute(INSERT_BATCH_SQL, batch_key)
-                if cursor.fetchone() is None:
-                    cursor.execute(SELECT_BATCH_SQL, (batch_key[0],))
-                    if cursor.fetchone() != batch_key:
-                        raise FundamentalsPublishError(
-                            "an ingestion batch ID already exists with different immutable metadata."
-                        )
-            inserted = len(_execute_values(cursor, [_fact_to_row(fact) for fact in facts]))
-            existing_by_identity = {}
-            for batch_key in batch_keys:
-                group = tuple(fact for fact in facts if fact.lineage.source_adapter == batch_key[1])
-                cursor.execute(SELECT_EXISTING_FACTS_SQL, _existing_facts_lookup_params(group))
-                existing_by_identity.update(
-                    (_source_identity_key(existing), existing)
-                    for existing in (_row_to_fact(tuple(row)) for row in cursor.fetchall())
-                )
-            for fact in facts:
-                existing = existing_by_identity.get(_source_identity_key(fact))
-                if existing is None or not _same_source_fact(existing, fact):
-                    raise FundamentalsPublishError(
-                        "an existing point-in-time fact conflicts with the incoming batch."
-                    )
+            result = work(cursor)
         connection.commit()
-        return inserted
+        return result
     except FundamentalsPublishError:
         if connection is not None:
             _rollback_quietly(connection)
@@ -649,6 +632,102 @@ def append_facts(
             _close_quietly(connection)
 
 
+def run_read_transaction(read: Callable, *, database_url: Optional[str] = None):
+    """Run ``read(cursor)`` in one read-only transaction and always roll it back.
+
+    Shared by every reader so connection settings and error sanitizing match.
+    """
+
+    database_url = database_url or _get_database_url()
+    if not database_url:
+        raise FundamentalsRepositoryUnavailable(
+            "point-in-time fundamentals store is not configured."
+        )
+
+    connection = None
+    try:
+        connection = _connect(
+            database_url,
+            application_name=READ_APPLICATION_NAME,
+            connect_timeout_seconds=READ_CONNECT_TIMEOUT_SECONDS,
+            statement_timeout_ms=READ_STATEMENT_TIMEOUT_MS,
+        )
+        # Must precede cursor creation and the first SQL statement so the
+        # database enforces read-only behavior for this transaction.
+        connection.set_session(readonly=True, autocommit=False)
+        with connection.cursor() as cursor:
+            result = read(cursor)
+        connection.rollback()
+        return result
+    except FundamentalsRepositoryUnavailable:
+        raise
+    except Exception as error:
+        logger.error("point-in-time fundamentals read failed (%s)", type(error).__name__)
+        if connection is not None:
+            _rollback_quietly(connection)
+        raise FundamentalsRepositoryUnavailable(
+            "point-in-time fundamentals store is unavailable."
+        ) from None
+    finally:
+        if connection is not None:
+            _close_quietly(connection)
+
+
+def insert_publication_batches(cursor, batch_keys: Iterable[tuple]) -> None:
+    """Insert each batch row, accepting an exact existing row and refusing different metadata."""
+
+    for batch_key in batch_keys:
+        cursor.execute(INSERT_BATCH_SQL, batch_key)
+        if cursor.fetchone() is None:
+            cursor.execute(SELECT_BATCH_SQL, (batch_key[0],))
+            if cursor.fetchone() != batch_key:
+                raise FundamentalsPublishError(
+                    "an ingestion batch ID already exists with different immutable metadata."
+                )
+
+
+def lookup_existing_facts(cursor, facts: Tuple[FinancialFact, ...], batch_keys: Iterable[tuple]) -> dict:
+    """Stored facts sharing an identity with ``facts``, read per source through ``cursor``."""
+
+    existing_by_identity = {}
+    for batch_key in batch_keys:
+        group = tuple(fact for fact in facts if fact.lineage.source_adapter == batch_key[1])
+        cursor.execute(SELECT_EXISTING_FACTS_SQL, _existing_facts_lookup_params(group))
+        existing_by_identity.update(
+            (_source_identity_key(existing), existing)
+            for existing in (_row_to_fact(tuple(row)) for row in cursor.fetchall())
+        )
+    return existing_by_identity
+
+
+def append_facts(
+    facts: Iterable[FinancialFact],
+    *,
+    database_url: Optional[str] = None,
+    conn=None,
+) -> int:
+    """Atomically append one publication: every source's batch commits or none does."""
+    facts = tuple(facts)
+    if not facts:
+        raise ValueError("append_facts requires at least one fact.")
+
+    batch_keys = _publication_batch_keys(facts)
+
+    def work(cursor) -> int:
+        insert_publication_batches(cursor, batch_keys)
+        inserted = len(_execute_values(cursor, [_fact_to_row(fact) for fact in facts]))
+        existing_by_identity = lookup_existing_facts(cursor, facts, batch_keys)
+        for fact in facts:
+            existing = existing_by_identity.get(_source_identity_key(fact))
+            if existing is None or not _same_source_fact(existing, fact):
+                raise FundamentalsPublishError(
+                    "an existing point-in-time fact conflicts with the incoming batch."
+                )
+        return inserted
+
+    return run_publish_transaction(work, database_url=database_url, conn=conn)
+
+
 class PostgresFundamentalsRepository:
     """Production read adapter for FundamentalsRepository."""
 
@@ -656,49 +735,21 @@ class PostgresFundamentalsRepository:
         self._database_url = database_url
 
     def get_facts(self, query: FundamentalsQuery) -> Tuple[FinancialFact, ...]:
-        database_url = self._database_url or _get_database_url()
-        if not database_url:
-            raise FundamentalsRepositoryUnavailable(
-                "point-in-time fundamentals store is not configured."
+        def read(cursor):
+            cursor.execute(
+                SELECT_FACTS_SQL,
+                (
+                    query.cik,
+                    list(query.concepts),
+                    list(query.source_adapters),
+                    query.concept_map_version,
+                    query.fiscal_calendar_version,
+                    query.knowledge_cutoff,
+                    query.data_vintage_cutoff,
+                    query.max_periods_per_statement,
+                ),
             )
+            return cursor.fetchall()
 
-        connection = None
-        try:
-            connection = _connect(
-                database_url,
-                application_name=READ_APPLICATION_NAME,
-                connect_timeout_seconds=READ_CONNECT_TIMEOUT_SECONDS,
-                statement_timeout_ms=READ_STATEMENT_TIMEOUT_MS,
-            )
-            # Must precede cursor creation and the first SQL statement so the
-            # database enforces read-only behavior for this transaction.
-            connection.set_session(readonly=True, autocommit=False)
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    SELECT_FACTS_SQL,
-                    (
-                        query.cik,
-                        list(query.concepts),
-                        list(query.source_adapters),
-                        query.concept_map_version,
-                        query.fiscal_calendar_version,
-                        query.knowledge_cutoff,
-                        query.data_vintage_cutoff,
-                        query.max_periods_per_statement,
-                    ),
-                )
-                rows = cursor.fetchall()
-            connection.rollback()
-            return tuple(_row_to_fact(tuple(row)) for row in rows)
-        except FundamentalsRepositoryUnavailable:
-            raise
-        except Exception as error:
-            logger.error("point-in-time fundamentals read failed (%s)", type(error).__name__)
-            if connection is not None:
-                _rollback_quietly(connection)
-            raise FundamentalsRepositoryUnavailable(
-                "point-in-time fundamentals store is unavailable."
-            ) from None
-        finally:
-            if connection is not None:
-                _close_quietly(connection)
+        rows = run_read_transaction(read, database_url=self._database_url)
+        return tuple(_row_to_fact(tuple(row)) for row in rows)

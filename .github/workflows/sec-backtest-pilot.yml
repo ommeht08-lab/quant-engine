@@ -8,9 +8,12 @@ name: SEC backtest pilot
 # exact prices this run read, stored before an offline replay from that stored
 # copy must reproduce the run exactly, plus one append-only row holding the
 # full record (including the Yahoo-derived daily curves) in the private
-# backtest_pilot_private_records table. This repository is public: prices and
-# daily curves are never printed or uploaded; the log shows only the reduced
-# public record with the checksums of the private snapshot and full record.
+# backtest_pilot_private_records table. This repository is public: the stored
+# price series and the daily curves are never printed or uploaded. The log does
+# print the reduced public record, which includes each issuer's decision-date
+# closing price, beta, and RSI and each cost case's summary statistics (ending
+# value, returns, drawdown, volatility), plus the checksums of the private
+# snapshot and full record.
 #
 # Archive mode (all three replay_* inputs): rebuild an earlier pinned run's
 # full record offline from its stored snapshot and recorded data-vintage
@@ -105,7 +108,8 @@ jobs:
           fi
           python -m src.backtesting.sec_pilot --output sec-pilot-2024-09-03.json \
             --github-run-id "${GITHUB_RUN_ID}" "${prior_args[@]}" "${replay_args[@]}"
-          # Reduced public record only: no prices or daily curves.
+          # Reduced public record only: no price series or daily curves, but it
+          # does include decision-date prices and summary statistics.
           echo "----- BEGIN SEC PILOT RECORD -----"
           cat sec-pilot-2024-09-03.json
           echo "----- END SEC PILOT RECORD -----"

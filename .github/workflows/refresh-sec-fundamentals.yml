@@ -6,6 +6,14 @@ name: Refresh SEC fundamentals
 # verification; CAT is excluded from this schedule (see the matrix). This is an
 # offline data job only: the live valuation request path remains unchanged and
 # never performs SEC downloads.
+#
+# Each publication republishes the issuer's complete history. Facts already
+# stored stay in their earlier batches, and the publish transaction proves
+# which facts it inserted (pre-insert state plus INSERT ... RETURNING) and
+# rolls back on any mismatch, including any inserted fact visible at the
+# 2024-09-03 pilot cutoff (history before it is frozen for refreshes). A read-only refresh-mode verification then
+# re-checks the committed result by batch lineage; it can only detect a
+# problem after commit, not undo it.
 "on":
   schedule:
     # GitHub Actions cron uses UTC. Tuesday-Saturday at 03:23 UTC follows
@@ -87,6 +95,7 @@ jobs:
           "requests==2.32.5" "psycopg2-binary==2.9.12"
 
       - name: Download, validate, and publish ${{ matrix.issuer }} SEC fundamentals
+        id: publish
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
@@ -95,8 +104,26 @@ jobs:
         run: |
           knowledge_cutoff="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           batch_id="${ISSUER}-sec-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "batch_id=${batch_id}" >> "${GITHUB_OUTPUT}"
+          echo "knowledge_cutoff=${knowledge_cutoff}" >> "${GITHUB_OUTPUT}"
           python -m src.fundamentals.sec_pipeline_command \
             --cik "${ISSUER_CIK}" \
             --knowledge-cutoff "${knowledge_cutoff}" \
             --batch-id "${batch_id}" \
+            --history-frozen-through "2024-09-03T16:00:00-04:00" \
             --publish
+
+      - name: Verify the ${{ matrix.issuer }} refresh by batch lineage (read-only)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+          ISSUER_CIK: ${{ matrix.cik }}
+          BATCH_ID: ${{ steps.publish.outputs.batch_id }}
+          PUBLISH_CUTOFF: ${{ steps.publish.outputs.knowledge_cutoff }}
+        run: |
+          python -m src.fundamentals.sec_backfill_verification \
+            --mode refresh \
+            --cik "${ISSUER_CIK}" \
+            --batch-id "${BATCH_ID}" \
+            --cutoff "2024-09-03T16:00:00-04:00" \
+            --publish-cutoff "${PUBLISH_CUTOFF}"

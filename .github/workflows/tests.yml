@@ -67,7 +67,9 @@ jobs:
         env:
           ALLOW_TEST_POSTGRES: '1'
           FUNDAMENTALS_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/valuation_engine_test
-        run: python -m pytest -q tests/fundamentals/test_store_postgres.py
+        run: >
+          python -m pytest -q tests/fundamentals/test_store_postgres.py
+          tests/fundamentals/test_incremental_publication_postgres.py
 
   frontend:
     runs-on: ubuntu-latest
