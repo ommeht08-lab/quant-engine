@@ -526,7 +526,7 @@ class TestRefreshSecFundamentalsWorkflow:
         ):
             assert f'- issuer: {issuer}\n            cik: "{cik}"' in block
 
-    def test_schedule_cannot_publish_cat_before_its_v4_backfill_is_verified(self):
+    def test_schedule_excludes_cat_until_incremental_refresh_verification_exists(self):
         content = _read_refresh_sec_fundamentals_workflow()
         code_lines = [line for line in content.splitlines() if not line.strip().startswith("#")]
         # CAT (CIK 18230) appears nowhere in the workflow's executable content.
@@ -539,10 +539,10 @@ class TestRefreshSecFundamentalsWorkflow:
         assert "ISSUER_CIK: ${{ matrix.cik }}" in block
         assert '--cik "${ISSUER_CIK}"' in block
         assert block.count("--cik") == 1
-        # The issuer manifest agrees: CAT is not SEC-history ready.
+        # SEC-history readiness does not approve the schedule or live use.
         from src.fundamentals.issuer_manifest import issuer_policy_for
 
-        assert issuer_policy_for("CAT").sec_history_ready is False
+        assert issuer_policy_for("CAT").sec_live_approved is False
 
 
 # GitHub deprecated the Node 20 runtime these action majors still ran

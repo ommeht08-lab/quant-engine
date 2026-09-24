@@ -107,16 +107,17 @@ SEC_ISSUER_MANIFEST_V1: Tuple[IssuerValuationPolicy, ...] = (
         fiscal_calendar_version=_calendar_version("0000018230"),
         concept_map_version=_concept_map_version("0000018230"),
         supplemental_source_adapters=_supplemental_source_adapters("0000018230"),
-        # Batch backfill-18230-35778836391-1 (v3) lacks term debt and net
-        # income; v5 composes term debt from filing XBRL and derives net income
-        # by the ASC 810 identity, and needs its own verified backfill before
-        # this issuer is SEC-history ready again.
-        sec_history_ready=False,
+        # Concept map v5 composes term debt from filing XBRL and derives net
+        # income by the ASC 810 identity, so its history spans two sources: the
+        # Company Facts batch and its "+sec_filing_xbrl" companion.
+        sec_history_ready=True,
         sec_live_approved=False,
         readiness_reason=(
-            "Concept map sec-companyfacts-v5 composes consolidated term debt from filing "
-            "XBRL and derives net income attributable to the parent; SEC history is not "
-            "ready until a v5 backfill is published and verified."
+            "SEC history is published in batch backfill-18230-35940788245-1 and its companion "
+            "backfill-18230-35940788245-1+sec_filing_xbrl (concept map sec-companyfacts-v5) and "
+            "verified at the 2024-09-03 cutoff (1,071 facts) and the 2026-09-24T00:58:34Z publish "
+            "cutoff (1,629 facts) in Actions run 35940788245, but the repeated shadow-cutover "
+            "evidence gate has not approved automatic live use."
         ),
     ),
 )
