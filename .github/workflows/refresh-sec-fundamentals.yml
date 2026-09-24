@@ -1,10 +1,11 @@
 name: Refresh SEC fundamentals
 
-# Downloads, validates, and atomically publishes SEC fundamentals for the four
-# pilot issuers (AAPL, MSFT, WMT, CAT), each as its own immutable ingestion
-# batch. MSFT, WMT, and CAT joined only after their manual backfills passed
-# read-only verification. This is an offline data job only: the live valuation
-# request path remains unchanged and never performs SEC downloads.
+# Downloads, validates, and atomically publishes SEC fundamentals for three of
+# the four pilot issuers (AAPL, MSFT, WMT), each as its own immutable ingestion
+# batch. MSFT and WMT joined only after their manual backfills passed read-only
+# verification; CAT is excluded from this schedule (see the matrix). This is an
+# offline data job only: the live valuation request path remains unchanged and
+# never performs SEC downloads.
 "on":
   schedule:
     # GitHub Actions cron uses UTC. Tuesday-Saturday at 03:23 UTC follows
@@ -64,9 +65,10 @@ jobs:
             cik: "789019"
           - issuer: wmt
             cik: "104169"
-          # CAT is excluded: concept map sec-companyfacts-v5 composes its term
-          # debt from filing XBRL and derives its net income, and CAT stays off
-          # this schedule until a manual v5 backfill is published and verified.
+          # CAT is excluded: its verified v5 backfill spans two sources (Company
+          # Facts plus a filing-XBRL companion batch), and CAT stays off this
+          # schedule until refreshes verify incremental publication across
+          # both sources.
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7

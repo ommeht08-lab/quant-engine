@@ -73,6 +73,7 @@ class RecordingAdapter:
 VERIFIED_BACKFILL_BATCHES = {
     "MSFT": "backfill-789019-35777629947-1",
     "WMT": "backfill-104169-35778664157-1",
+    "CAT": "backfill-18230-35940788245-1",
 }
 
 
@@ -95,12 +96,16 @@ def test_manifest_contains_the_exact_pilot_universe_without_implying_cutover():
         assert policy.sec_history_ready is True
         assert VERIFIED_BACKFILL_BATCHES[ticker] in policy.readiness_reason
     # Caterpillar's v5 policy (filing-XBRL term debt, derived net income)
-    # needs its own verified backfill.
+    # spans two sources, so its provenance names both batches and the run.
     cat = issuer_policy_for("CAT")
+    assert cat.fiscal_calendar_version is not None
     assert cat.concept_map_version == "sec-companyfacts-v5"
     assert cat.supplemental_source_adapters == ("sec_filing_xbrl",)
-    assert cat.sec_history_ready is False
-    assert "v5 backfill" in cat.readiness_reason
+    assert cat.sec_history_ready is True
+    assert cat.sec_live_approved is False
+    assert VERIFIED_BACKFILL_BATCHES["CAT"] in cat.readiness_reason
+    assert f'{VERIFIED_BACKFILL_BATCHES["CAT"]}+sec_filing_xbrl' in cat.readiness_reason
+    assert "35940788245" in cat.readiness_reason
 
 
 def test_auto_reports_yahoo_and_the_reason_sec_was_not_used():
