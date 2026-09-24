@@ -66,7 +66,7 @@ from src.backtesting.historical_tester import (
 )
 from src.dcf_model.dcf import extract_valuation_inputs, run_dcf_valuation
 from src.fundamentals.issuer_manifest import IssuerValuationPolicy
-from src.fundamentals.quarterly import assemble_quarterly_fundamentals
+from src.fundamentals.quarterly import QuarterlyAssemblyIssueCode, assemble_quarterly_fundamentals
 from src.fundamentals.repository import FundamentalsQuery
 from src.fundamentals.selection import select_point_in_time
 from src.fundamentals.time_policy import knowledge_cutoff_for_date
@@ -117,6 +117,37 @@ _QUALITY_FLOW_REQUIRED = (
     "revenue",
 )
 _QUALITY_FLOW_OPTIONAL = ("cost_of_revenue", "gross_profit")
+_GROSS_PROFIT_DROPPED = "gross_profit_partial_series_dropped_margin_from_revenue_less_cost_of_revenue"
+
+
+def _assemble_quality_flows(history: FundamentalHistory):
+    """Assemble quality flows; returns (assembly, approximations).
+
+    Gross margin needs either gross profit or cost of revenue. Some issuers tag
+    ``GrossProfit`` only in isolated disclosures (Caterpillar: one 10-K's
+    quarterly note, on a narrower basis than total revenues), so the series
+    has gaps. Such a partial series is dropped wholesale -- never mixed with
+    revenue less cost of revenue across periods -- and only when cost of
+    revenue is complete for every period the quality inputs need. Every
+    other incompleteness still refuses.
+    """
+
+    quarterly = assemble_quarterly_fundamentals(
+        history, required_concepts=_QUALITY_FLOW_REQUIRED, optional_concepts=_QUALITY_FLOW_OPTIONAL
+    )
+    if quarterly.is_complete:
+        return quarterly, ()
+    issue = quarterly.issues[0]
+    if issue.concept == "gross_profit" and issue.code is QuarterlyAssemblyIssueCode.MISSING_PERIOD:
+        fallback = assemble_quarterly_fundamentals(
+            history,  # gross_profit is simply not requested
+            required_concepts=_QUALITY_FLOW_REQUIRED + ("cost_of_revenue",),
+        )
+        if fallback.is_complete:
+            return fallback, (_GROSS_PROFIT_DROPPED,)
+        if fallback.issues[0].concept != "cost_of_revenue":
+            return fallback, ()  # name the remaining blocker, not the dropped series
+    return quarterly, ()
 _QUALITY_BALANCE = (
     "cash_and_cash_equivalents",
     "current_assets",
@@ -288,11 +319,7 @@ def _year_ago(items, key_end, latest_end: date):
 def build_sec_quality_statements(history: FundamentalHistory) -> Optional[SecQualityStatements]:
     """Two comparable periods, one year apart, from point-in-time SEC facts."""
 
-    quarterly = assemble_quarterly_fundamentals(
-        history,
-        required_concepts=_QUALITY_FLOW_REQUIRED,
-        optional_concepts=_QUALITY_FLOW_OPTIONAL,
-    )
+    quarterly, flow_approximations = _assemble_quality_flows(history)
     if not quarterly.is_complete:
         return None
     ttm: Dict[str, Dict[date, float]] = {}
@@ -311,7 +338,7 @@ def build_sec_quality_statements(history: FundamentalHistory) -> Optional[SecQua
     if balance_t1 is None:
         return None
 
-    approximations: List[str] = ["fcf_growth_ttm_year_over_year"]
+    approximations: List[str] = ["fcf_growth_ttm_year_over_year", *flow_approximations]
     columns = (pd.Timestamp(latest_end), pd.Timestamp(prior_end))
     income_rows: Dict[str, Dict[pd.Timestamp, float]] = {}
     for yahoo_row, concept in (
@@ -404,9 +431,7 @@ def build_sec_quality_statements(history: FundamentalHistory) -> Optional[SecQua
 def describe_quality_gap(history: FundamentalHistory) -> str:
     """Name what ``build_sec_quality_statements`` could not find."""
 
-    quarterly = assemble_quarterly_fundamentals(
-        history, required_concepts=_QUALITY_FLOW_REQUIRED, optional_concepts=_QUALITY_FLOW_OPTIONAL
-    )
+    quarterly, _ = _assemble_quality_flows(history)
     if not quarterly.is_complete:
         issue = quarterly.issues[0]
         return f"{issue.concept or 'flows'} ({issue.code.value})"
