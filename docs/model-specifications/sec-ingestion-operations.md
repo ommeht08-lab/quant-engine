@@ -44,13 +44,50 @@ After reviewing a successful dry run, rerun the same coordinates with
 ID is safe: the store accepts exact retries and rejects conflicting batch
 metadata or facts.
 
+Every publication republishes the issuer's complete classified history. Facts
+that are already stored keep their original batch; only new facts land in the
+new batch (and, for issuers with filing-XBRL compositions, its
+`+sec_filing_xbrl` companion). Inside the publish transaction, before commit,
+`incremental_publication.publish_incremental` proves the increment exactly:
+
+- the identities returned by `INSERT ... RETURNING` and the identities stored
+  before the insert are disjoint and together equal the publication;
+- every inserted row is in this publication's batch for its source;
+- the issuer's stored facts at the knowledge cutoff equal the publication, and
+  point-in-time selection over them is unchanged;
+- every supplemental batch pairs with a primary batch of the same mapping,
+  calendar, and ingestion time. The foreign key alone does not establish this.
+
+Any mismatch rolls back every batch row and fact from that transaction. The
+command's JSON report gives `inserted_fact_count` (facts in this run's batches)
+separately from `publication.reused_fact_count_by_earlier_batch` (facts that
+were already stored and remain in earlier batches); a run that inserts nothing
+reports `"no_op": true`.
+
 ## Scheduled publication
 
 [`refresh-sec-fundamentals.yml`](../../.github/workflows/refresh-sec-fundamentals.yml)
 runs after each Monday-Friday SEC filing window and also supports manual dispatch.
-It currently publishes Apple only because the exact issuer-calendar catalog is
-the authority for supported coverage; it does not guess unsupported issuers or
-future fiscal boundaries.
+It publishes AAPL, MSFT, and WMT. An issuer joins the schedule only after:
+
+1. a manual [`backfill-sec-fundamentals.yml`](../../.github/workflows/backfill-sec-fundamentals.yml)
+   run publishes it and verifies it read-only at the 2024-09-03 cutoff and the
+   publish cutoff (backfill mode: every fact is in the supplied batch);
+2. the issuer manifest records that batch and run and marks it SEC-history
+   ready;
+3. a separate reviewed change adds it to the matrix.
+
+CAT is SEC-history ready from its verified v5 backfill but stays off the
+schedule until refresh verification has run cleanly on the scheduled issuers.
+Live SEC selection (`sec_live_approved`) is a separate gate for every issuer.
+
+After each publish, a read-only step runs
+`sec_backfill_verification --mode refresh`. It re-downloads SEC data and
+checks the committed result against the pipeline at the 2024-09-03 cutoff and
+the refresh's own cutoff, accepting earlier batches by lineage rather than by
+name. It also requires that the refresh contributes no facts visible at
+2024-09-03. This check runs after commit, so it can only report a problem; the
+pre-commit proof above is what prevents one.
 
 The publication job cannot start unless its credential-free fundamentals tests
 pass. The job receives only `SEC_USER_AGENT` and `DATABASE_URL`, prevents

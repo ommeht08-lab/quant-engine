@@ -12,6 +12,16 @@ published facts back from PostgreSQL and requires:
   compositions, exactly its source-qualified ID for the composed facts;
 * point-in-time selection over the published facts equals the pipeline's.
 
+``--mode refresh`` verifies a recurring refresh instead. A refresh republishes
+the complete history under a new batch ID, but facts already stored keep
+their earlier batches, so batch membership is checked by lineage rather than
+by the supplied ID: every published fact's batch row must match it, and every
+supplemental batch must pair with a primary batch of equal metadata. The
+report separates facts inserted into this refresh's batches from facts that
+remain in earlier batches, and at each historical cutoff this refresh may
+contribute no facts at all. This runs after commit, so it detects problems;
+the pre-commit proof in ``incremental_publication`` is what prevents them.
+
 Like ``sec_pipeline_command`` this module needs only ``requests`` and
 ``psycopg2``; it never writes to the database.
 """
@@ -23,13 +33,19 @@ import json
 import os
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-from typing import Callable, Iterable, Optional, Sequence, Tuple
+from typing import Callable, Iterable, Mapping, Optional, Sequence, Tuple
 
 from .adapters.sec_companyfacts import SOURCE_ADAPTER
 from .adapters.sec_downloader import SecDownloader, SecDownloaderConfig
 from .adapters.sec_filing_xbrl import SOURCE_ADAPTER as FILING_XBRL_SOURCE_ADAPTER
 from .calendar_catalog import SEC_FISCAL_CALENDAR_CATALOG_V1
 from .concept_map import concept_map_for_issuer
+from .incremental_publication import (
+    batch_ids_to_read,
+    batch_lineage_problems,
+    publication_batch_problems,
+    read_batch_rows,
+)
 from .repository import FundamentalsQuery
 from .sec_ingestion import run_sec_ingestion_dry_run
 from .sec_pipeline_command import _parse_aware_datetime
@@ -121,37 +137,10 @@ def _selected_keys(history: FundamentalHistory) -> frozenset:
     return frozenset(_source_key(fact) for fact in facts)
 
 
-def _verify_cutoff(
-    *,
-    cik: str,
-    knowledge_cutoff: datetime,
-    data_vintage_cutoff: datetime,
-    ingestion_batch_id: str,
-    downloader,
-    repository,
-) -> CutoffVerification:
+def _read_published(*, cik: str, knowledge_cutoff: datetime, data_vintage_cutoff: datetime, repository):
     calendar_policy = SEC_FISCAL_CALENDAR_CATALOG_V1.policy_for(cik)
     concept_map = concept_map_for_issuer(cik)
-    expected_run = run_sec_ingestion_dry_run(
-        downloader=downloader,
-        cik=cik,
-        calendar_policy=calendar_policy,
-        concept_map=concept_map,
-        ingestion_batch_id=ingestion_batch_id,
-        knowledge_cutoff=knowledge_cutoff,
-        required_concepts=VALUATION_TTM_CONCEPTS,
-        filing_instance_fetcher=getattr(downloader, "fetch_filing_instance", None),
-    )
-    if not expected_run.is_complete:
-        issue = expected_run.issues[0]
-        return CutoffVerification(
-            knowledge_cutoff=knowledge_cutoff,
-            expected_fact_count=0,
-            published_fact_count=0,
-            problems=(f"Pipeline refused at this cutoff ({issue.stage.value}: {issue.code}).",),
-        )
-
-    published = tuple(
+    return tuple(
         repository.get_facts(
             FundamentalsQuery(
                 cik=cik,
@@ -167,6 +156,51 @@ def _verify_cutoff(
                 ),
             )
         )
+    )
+
+
+def _expected_run(*, cik: str, knowledge_cutoff: datetime, ingestion_batch_id: str, downloader):
+    return run_sec_ingestion_dry_run(
+        downloader=downloader,
+        cik=cik,
+        calendar_policy=SEC_FISCAL_CALENDAR_CATALOG_V1.policy_for(cik),
+        concept_map=concept_map_for_issuer(cik),
+        ingestion_batch_id=ingestion_batch_id,
+        knowledge_cutoff=knowledge_cutoff,
+        required_concepts=VALUATION_TTM_CONCEPTS,
+        filing_instance_fetcher=getattr(downloader, "fetch_filing_instance", None),
+    )
+
+
+def _verify_cutoff(
+    *,
+    cik: str,
+    knowledge_cutoff: datetime,
+    data_vintage_cutoff: datetime,
+    ingestion_batch_id: str,
+    downloader,
+    repository,
+) -> CutoffVerification:
+    expected_run = _expected_run(
+        cik=cik,
+        knowledge_cutoff=knowledge_cutoff,
+        ingestion_batch_id=ingestion_batch_id,
+        downloader=downloader,
+    )
+    if not expected_run.is_complete:
+        issue = expected_run.issues[0]
+        return CutoffVerification(
+            knowledge_cutoff=knowledge_cutoff,
+            expected_fact_count=0,
+            published_fact_count=0,
+            problems=(f"Pipeline refused at this cutoff ({issue.stage.value}: {issue.code}).",),
+        )
+
+    published = _read_published(
+        cik=cik,
+        knowledge_cutoff=knowledge_cutoff,
+        data_vintage_cutoff=data_vintage_cutoff,
+        repository=repository,
     )
 
     problems = []
@@ -272,6 +306,204 @@ def verify_published_backfill(
     )
 
 
+@dataclass(frozen=True)
+class RefreshCutoffVerification:
+    knowledge_cutoff: datetime
+    historical: bool
+    expected_fact_count: int
+    published_fact_count: int
+    # Facts visible at this cutoff that this refresh inserted into its own
+    # batches, versus facts that remain in earlier batches.
+    this_refresh_fact_count: int
+    earlier_batch_fact_count: int
+    problems: Tuple[str, ...]
+
+    @property
+    def is_verified(self) -> bool:
+        return not self.problems
+
+
+@dataclass(frozen=True)
+class RefreshVerificationResult:
+    cik: str
+    ingestion_batch_id: str
+    ingestion_batch_ids: Tuple[str, ...]
+    concept_map_version: str
+    fiscal_calendar_version: str
+    data_vintage_cutoff: datetime
+    publication_problems: Tuple[str, ...]
+    cutoffs: Tuple[RefreshCutoffVerification, ...]
+
+    @property
+    def is_verified(self) -> bool:
+        return (
+            not self.publication_problems
+            and bool(self.cutoffs)
+            and all(item.is_verified for item in self.cutoffs)
+        )
+
+    @property
+    def is_no_op(self) -> bool:
+        """True when this refresh inserted no facts: every published fact is in an earlier batch."""
+
+        publish = [item for item in self.cutoffs if not item.historical]
+        return bool(publish) and publish[-1].this_refresh_fact_count == 0
+
+
+def _verify_refresh_cutoff(
+    *,
+    cik: str,
+    knowledge_cutoff: datetime,
+    historical: bool,
+    data_vintage_cutoff: datetime,
+    ingestion_batch_id: str,
+    downloader,
+    repository,
+    batch_reader,
+) -> RefreshCutoffVerification:
+    expected_run = _expected_run(
+        cik=cik,
+        knowledge_cutoff=knowledge_cutoff,
+        ingestion_batch_id=ingestion_batch_id,
+        downloader=downloader,
+    )
+    if not expected_run.is_complete:
+        issue = expected_run.issues[0]
+        return RefreshCutoffVerification(
+            knowledge_cutoff=knowledge_cutoff,
+            historical=historical,
+            expected_fact_count=0,
+            published_fact_count=0,
+            this_refresh_fact_count=0,
+            earlier_batch_fact_count=0,
+            problems=(f"Pipeline refused at this cutoff ({issue.stage.value}: {issue.code}).",),
+        )
+    published = _read_published(
+        cik=cik,
+        knowledge_cutoff=knowledge_cutoff,
+        data_vintage_cutoff=data_vintage_cutoff,
+        repository=repository,
+    )
+
+    problems = []
+    expected_keys = frozenset(_source_key(fact) for fact in expected_run.classified_facts)
+    published_keys = frozenset(_source_key(fact) for fact in published)
+    missing = len(expected_keys - published_keys)
+    unexpected = len(published_keys - expected_keys)
+    if missing or unexpected:
+        problems.append(
+            f"Published facts differ from the pipeline: {missing} missing, {unexpected} unexpected."
+        )
+    late = sum(1 for fact in published if fact.provenance.eligible_at > knowledge_cutoff)
+    if late:
+        problems.append(f"{late} published facts became public after the cutoff.")
+    problems.extend(batch_lineage_problems(published, batch_reader(batch_ids_to_read(published))))
+    this_refresh = frozenset(_expected_batch_ids(cik, ingestion_batch_id))
+    in_this_refresh = sum(1 for fact in published if fact.lineage.ingestion_batch_id in this_refresh)
+    if historical and in_this_refresh:
+        problems.append(
+            f"{in_this_refresh} facts in this refresh's batches are visible at this historical cutoff."
+        )
+    if published and not problems:
+        try:
+            published_history = select_point_in_time(published, knowledge_cutoff, cik=cik)
+        except ValueError:
+            problems.append("Point-in-time selection refused the published facts.")
+        else:
+            if _selected_keys(published_history) != _selected_keys(expected_run.history):
+                problems.append("Point-in-time selection differs from the pipeline's selection.")
+
+    return RefreshCutoffVerification(
+        knowledge_cutoff=knowledge_cutoff,
+        historical=historical,
+        expected_fact_count=len(expected_keys),
+        published_fact_count=len(published_keys),
+        this_refresh_fact_count=in_this_refresh,
+        earlier_batch_fact_count=len(published) - in_this_refresh,
+        problems=tuple(problems),
+    )
+
+
+def verify_refresh_publication(
+    *,
+    cik: str,
+    ingestion_batch_id: str,
+    publish_cutoff: datetime,
+    historical_cutoffs: Iterable[datetime],
+    data_vintage_cutoff: datetime,
+    downloader,
+    repository,
+    batch_reader: Callable[[Sequence[str]], Mapping[str, tuple]],
+) -> RefreshVerificationResult:
+    """Verify one committed refresh by lineage; read-only and after the fact."""
+
+    normalized_cik = normalize_cik(cik)
+    historical = tuple(historical_cutoffs)
+    for value in historical + (publish_cutoff,):
+        if not isinstance(value, datetime) or not is_aware(value):
+            raise ValueError("cutoffs must be timezone-aware datetimes.")
+    if any(value >= publish_cutoff for value in historical):
+        raise ValueError("historical cutoffs must precede the publish cutoff.")
+    if not isinstance(data_vintage_cutoff, datetime) or not is_aware(data_vintage_cutoff):
+        raise ValueError("data_vintage_cutoff must be timezone-aware.")
+    if not isinstance(ingestion_batch_id, str) or not ingestion_batch_id.strip():
+        raise ValueError("ingestion_batch_id must be non-empty text.")
+    batch_ids = _expected_batch_ids(normalized_cik, ingestion_batch_id)
+    shared_downloader = _SinglePayloadDownloader(downloader)
+    checks = [(cutoff, True) for cutoff in sorted(historical)] + [(publish_cutoff, False)]
+    return RefreshVerificationResult(
+        cik=normalized_cik,
+        ingestion_batch_id=ingestion_batch_id,
+        ingestion_batch_ids=batch_ids,
+        concept_map_version=concept_map_for_issuer(normalized_cik).version,
+        fiscal_calendar_version=SEC_FISCAL_CALENDAR_CATALOG_V1.policy_for(normalized_cik).version,
+        data_vintage_cutoff=data_vintage_cutoff,
+        publication_problems=publication_batch_problems(
+            batch_ids, batch_reader(sorted(set(batch_ids) | {ingestion_batch_id}))
+        ),
+        cutoffs=tuple(
+            _verify_refresh_cutoff(
+                cik=normalized_cik,
+                knowledge_cutoff=cutoff,
+                historical=is_historical,
+                data_vintage_cutoff=data_vintage_cutoff,
+                ingestion_batch_id=ingestion_batch_id,
+                downloader=shared_downloader,
+                repository=repository,
+                batch_reader=batch_reader,
+            )
+            for cutoff, is_historical in checks
+        ),
+    )
+
+
+def _refresh_summary(result: RefreshVerificationResult) -> dict:
+    return {
+        "mode": "refresh",
+        "status": "verified" if result.is_verified else "failed",
+        "cik": result.cik,
+        "batch_id": result.ingestion_batch_id,
+        "batch_ids": list(result.ingestion_batch_ids),
+        "concept_map_version": result.concept_map_version,
+        "calendar_version": result.fiscal_calendar_version,
+        "data_vintage_cutoff": result.data_vintage_cutoff.isoformat(),
+        "no_op": result.is_no_op,
+        "publication_problems": list(result.publication_problems),
+        "cutoffs": [
+            {
+                "knowledge_cutoff": item.knowledge_cutoff.isoformat(),
+                "role": "historical" if item.historical else "publish",
+                "expected_fact_count": item.expected_fact_count,
+                "published_fact_count": item.published_fact_count,
+                "facts_inserted_by_this_refresh": item.this_refresh_fact_count,
+                "facts_in_earlier_batches": item.earlier_batch_fact_count,
+                "problems": list(item.problems),
+            }
+            for item in result.cutoffs
+        ],
+    }
+
+
 def _summary(result: BackfillVerificationResult) -> dict:
     return {
         "status": "verified" if result.is_verified else "failed",
@@ -304,7 +536,21 @@ def _parser() -> argparse.ArgumentParser:
         required=True,
         action="append",
         type=_parse_aware_datetime,
-        help="knowledge cutoff to verify, including timezone; repeat for each cutoff",
+        help=(
+            "knowledge cutoff to verify, including timezone; repeat for each cutoff. "
+            "In refresh mode these are historical cutoffs the refresh may not change."
+        ),
+    )
+    parser.add_argument(
+        "--mode",
+        choices=("backfill", "refresh"),
+        default="backfill",
+        help="backfill: every fact is in the supplied batch; refresh: batches are checked by lineage",
+    )
+    parser.add_argument(
+        "--publish-cutoff",
+        type=_parse_aware_datetime,
+        help="refresh mode only: the refresh's own knowledge cutoff",
     )
     return parser
 
@@ -321,19 +567,37 @@ def main(
         database_url = os.getenv("DATABASE_URL")
         if not database_url:
             raise ValueError("DATABASE_URL must be set in the process environment.")
-        result = verify_published_backfill(
-            cik=args.cik,
-            ingestion_batch_id=args.batch_id,
-            knowledge_cutoffs=args.cutoff,
-            data_vintage_cutoff=now(),
-            downloader=SecDownloader(SecDownloaderConfig.from_environment()),
-            repository=PostgresFundamentalsRepository(database_url=database_url),
-        )
+        if (args.mode == "refresh") != (args.publish_cutoff is not None):
+            raise ValueError("--publish-cutoff is required in refresh mode and only there.")
+        downloader = SecDownloader(SecDownloaderConfig.from_environment())
+        repository = PostgresFundamentalsRepository(database_url=database_url)
+        if args.mode == "refresh":
+            result = verify_refresh_publication(
+                cik=args.cik,
+                ingestion_batch_id=args.batch_id,
+                publish_cutoff=args.publish_cutoff,
+                historical_cutoffs=args.cutoff,
+                data_vintage_cutoff=now(),
+                downloader=downloader,
+                repository=repository,
+                batch_reader=lambda ids: read_batch_rows(ids, database_url=database_url),
+            )
+            summary = _refresh_summary(result)
+        else:
+            result = verify_published_backfill(
+                cik=args.cik,
+                ingestion_batch_id=args.batch_id,
+                knowledge_cutoffs=args.cutoff,
+                data_vintage_cutoff=now(),
+                downloader=downloader,
+                repository=repository,
+            )
+            summary = _summary(result)
     except (LookupError, ValueError, RuntimeError) as error:
         print(json.dumps({"status": "failed", "message": str(error)}, sort_keys=True))
         return 1
 
-    print(json.dumps(_summary(result), sort_keys=True))
+    print(json.dumps(summary, sort_keys=True))
     return 0 if result.is_verified else 1
 
 

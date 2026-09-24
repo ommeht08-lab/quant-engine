@@ -22,6 +22,7 @@ from .sec_ingestion import (
     publish_sec_ingestion_dry_run,
     run_sec_ingestion_dry_run,
 )
+from .incremental_publication import publish_incremental
 from .store import append_facts
 from .time_policy import is_aware
 from .types import normalize_cik
@@ -189,6 +190,17 @@ def _summary(result: OfflineSecIngestionResult) -> dict:
         }
     if result.publish_result is not None:
         summary["inserted_fact_count"] = result.publish_result.inserted_fact_count
+        publication = result.publish_result.publication
+        if publication is not None:
+            # Inserted facts are in this run's batches; reused facts were
+            # already stored and remain in the earlier batches listed here.
+            summary["publication"] = {
+                "batch_ids": list(publication.batch_ids),
+                "inserted_fact_count_by_batch": dict(publication.inserted_by_batch),
+                "reused_fact_count": publication.reused_fact_count,
+                "reused_fact_count_by_earlier_batch": dict(publication.reused_by_batch),
+                "no_op": publication.is_no_op,
+            }
         if result.publish_result.issues:
             issue = result.publish_result.issues[0]
             summary["refusal"] = {
@@ -216,7 +228,14 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 raise ValueError(
                     "DATABASE_URL must be set in the process environment for --publish."
                 )
-            publisher = lambda facts: append_facts(facts, database_url=database_url)
+            # Each publication republishes the issuer's complete history; facts
+            # already stored stay in their earlier batches, and the increment
+            # is proven inside the publish transaction before it commits.
+            publisher = lambda facts: publish_incremental(
+                facts,
+                knowledge_cutoff=request.knowledge_cutoff,
+                database_url=database_url,
+            )
         result = run_offline_sec_ingestion(
             request,
             downloader=downloader,
