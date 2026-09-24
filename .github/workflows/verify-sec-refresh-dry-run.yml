@@ -1,0 +1,146 @@
+name: Verify SEC refresh (read-only rehearsal)
+
+# Manual-only rehearsal for PR #52's refresh-mode verifier
+# (sec_backfill_verification --mode refresh) against an already-published
+# production batch. This workflow has no --publish path anywhere in it: the
+# only pipeline command it can invoke is sec_backfill_verification, whose
+# argument parser does not accept --publish at all.
+#
+# DATABASE_URL below is the same production credential the publish workflow
+# uses; it is a full read/write connection string, not a role scoped to
+# read-only access at the database level. The read-only guarantee here comes
+# entirely from what this code path does with that credential: every session
+# it opens is set read-only in Postgres itself, since run_read_transaction()
+# calls connection.set_session(readonly=True) before the first query, so
+# Postgres rejects a write attempted in that session regardless of what the
+# credential itself would otherwise permit. That guarantee holds only as long
+# as this file's only python entrypoint stays sec_backfill_verification; it is
+# a property of this workflow's code path, not of the secret.
+#
+# This workflow does not insert, update, or delete anything, and it does not
+# touch the recurring refresh schedule, CAT's readiness, or any other
+# production state.
+#
+# One issuer per dispatch, on purpose: batch_id and publish_cutoff should be
+# the exact values recorded for that issuer's already-published batch (see PR
+# #52 for how these are read back from the refresh workflow's own job
+# output). This workflow does not check that against the production run log:
+# the input-checking step below only validates batch_id's shape against the
+# selected issuer's expected prefix and that publish_cutoff is a validly
+# formatted UTC timestamp. A well-formed but wrong or unpublished value is not
+# caught here; it surfaces as a mismatch report (or a download-side lookup
+# failure) from sec_backfill_verification itself.
+"on":
+  workflow_dispatch:
+    inputs:
+      cik:
+        description: "Issuer to verify (320193 AAPL, 789019 MSFT, 104169 WMT)"
+        required: true
+        type: choice
+        options:
+          - "320193"
+          - "789019"
+          - "104169"
+      batch_id:
+        description: "That issuer's already-published refresh batch ID, e.g. apple-sec-35976009577-1"
+        required: true
+        type: string
+      publish_cutoff:
+        description: "That batch's own knowledge cutoff, e.g. 2026-09-24T08:34:57Z"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  # Same compile/lint/test gate the other SEC workflows run before touching
+  # production. This checks the Python verifier (compileall, pyflakes,
+  # pytest), not this workflow file itself, so a bad edit to the verifier's
+  # code fails here instead of against the live database.
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements-dev.txt
+
+      - name: Compile SEC fundamentals modules and tests
+        run: python -m compileall -q src/fundamentals tests/fundamentals tests/test_ci_config.py
+
+      - name: Pyflakes SEC fundamentals modules and tests
+        run: pyflakes src/fundamentals tests/fundamentals tests/test_ci_config.py
+
+      - name: Run isolation-safe SEC fundamentals tests
+        run: python -m pytest -q tests/fundamentals tests/test_ci_config.py
+
+  verify:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      # Same import graph as the other SEC workflows: only the HTTP client and
+      # Postgres driver, never the full trading/valuation dependency set.
+      - name: Install pinned SEC verification dependencies
+        run: >
+          python -m pip install --disable-pip-version-check
+          "requests==2.32.5" "psycopg2-binary==2.9.12"
+
+      - name: Check batch-ID shape and cutoff timestamp format
+        env:
+          ISSUER_CIK: ${{ inputs.cik }}
+          BATCH_ID: ${{ inputs.batch_id }}
+          PUBLISH_CUTOFF: ${{ inputs.publish_cutoff }}
+        run: |
+          case "${ISSUER_CIK}" in
+            320193) prefix="apple-sec-" ;;
+            789019) prefix="msft-sec-" ;;
+            104169) prefix="wmt-sec-" ;;
+            *) echo "Unsupported issuer." >&2; exit 1 ;;
+          esac
+          if ! [[ "${BATCH_ID}" =~ ^${prefix}[0-9]+-[0-9]+$ ]]; then
+            echo "Batch ID does not match the selected issuer's expected batch-ID shape (${prefix}<run>-<attempt>)." >&2
+            exit 1
+          fi
+          if ! [[ "${PUBLISH_CUTOFF}" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]]; then
+            echo "Publish cutoff must be a UTC timestamp like 2026-09-24T08:34:57Z." >&2
+            exit 1
+          fi
+
+      # sec_backfill_verification never writes: it re-downloads SEC data, reads
+      # the published facts and batch rows back over a session it puts into
+      # Postgres read-only mode itself, and reports differences; it cannot
+      # roll back or modify anything it finds, and this command has no
+      # --publish flag. DATABASE_URL here is the full production credential
+      # (see the file header) — the read-only behavior comes from this code
+      # path, not from any restriction on the credential itself.
+      - name: Verify the published refresh by batch lineage (read-only session)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
+          ISSUER_CIK: ${{ inputs.cik }}
+          BATCH_ID: ${{ inputs.batch_id }}
+          PUBLISH_CUTOFF: ${{ inputs.publish_cutoff }}
+        run: |
+          python -m src.fundamentals.sec_backfill_verification \
+            --mode refresh \
+            --cik "${ISSUER_CIK}" \
+            --batch-id "${BATCH_ID}" \
+            --cutoff "2024-09-03T16:00:00-04:00" \
+            --publish-cutoff "${PUBLISH_CUTOFF}"
