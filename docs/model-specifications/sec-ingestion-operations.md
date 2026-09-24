@@ -62,21 +62,26 @@ new batch (and, for issuers with filing-XBRL compositions, its
   concept-map change or a late SEC addition to an old filing must therefore
   go through a reviewed backfill.
 
-Publications for one issuer take a transaction-scoped advisory lock, so
-overlapping runs serialize instead of refusing each other. The lock wait is
-bounded at five minutes, separately from the 15-second publish statement
-timeout; the backfill and refresh workflows also share one concurrency group.
+Publications take one transaction-scoped advisory lock before any schema
+statement, so overlapping runs serialize instead of blocking in schema DDL or
+refusing each other. The lock wait is bounded at five minutes, separately from
+the 15-second publish statement timeout; the backfill and refresh workflows
+also share one concurrency group.
 
 Any mismatch rolls back every batch row and fact from that transaction. The
 command's JSON report gives `inserted_fact_count` (facts in this run's batches)
 separately from `publication.reused_fact_count_by_earlier_batch` (facts that
 were already stored and remain in earlier batches). A retry under the same batch
 ID reports its own previously stored facts as `replayed_fact_count`, never as
-earlier-batch reuse. A run that inserts nothing reports `"no_op": true` and
-`"batch_written": false`: it is rolled back and writes nothing, not even batch
-rows. The batch table has no issuer column, so a batch row without facts could
-never be tied to an issuer; every committed batch therefore holds at least one
-fact, and each fact carries its issuer.
+earlier-batch reuse.
+
+The batch table has no issuer column, so a batch row can be tied to an issuer
+only through its facts, which carry the issuer. The transaction therefore reads
+the issuer's stored facts first and writes a batch row only for a source that
+inserts at least one fact, plus the primary row a written filing-XBRL batch
+must pair with (`written_batch_ids`). A run that inserts nothing reports
+`"no_op": true` and writes nothing at all. Every committed batch holds a fact
+of its issuer, or is the primary of a paired filing-XBRL batch that does.
 
 Because the store is append-only, a stored fact that SEC later stops reporting
 (or re-tags) makes every later publication for that issuer and concept-map
@@ -105,13 +110,18 @@ After each publish, a read-only step runs
 checks the committed result against the pipeline at the 2024-09-03 cutoff and
 the refresh's own cutoff, accepting earlier batches by lineage rather than by
 name. It also requires that the refresh contributes no facts visible at
-2024-09-03. A written refresh is bound to its issuer only through its facts:
-its batches must hold at least one fact, every one for the requested issuer.
-Another issuer's batch, or a legacy zero-fact batch from before no-ops were
-rolled back, fails with that reason. When no rows exist under the batch ID (a
-no-op), the report says `"batch_written": false` and only the issuer's stored
-result is verified; the absence of rows alone cannot prove the publish step
-ran, which the workflow's step ordering asserts instead. This check runs after commit, so it can only report a problem; the
+2024-09-03. Each batch row present under the refresh's ID is bound to the
+issuer through facts, checked per batch across all issuers: it must hold a fact
+of the requested issuer (a primary may instead pair with a filing-XBRL batch
+that does), and no batch may hold another issuer's fact. Another issuer's
+batch, or an empty batch committed by the older publisher, fails with that
+reason. When no rows exist under the batch ID (a no-op), the report says
+`"batch_rows_present": false` and only the issuer's stored result is verified;
+the absence of rows alone cannot prove the publish step ran, which the
+workflow's step ordering asserts instead. Verification re-downloads SEC data,
+so a Company Facts update between the publish and verify steps can report a
+fact missing although the publication was exact; rerun verification before
+treating that as a publication fault. This check runs after commit, so it can only report a problem; the
 pre-commit proof above is what prevents one.
 
 The publication job cannot start unless its credential-free fundamentals tests

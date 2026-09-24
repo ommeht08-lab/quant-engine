@@ -225,8 +225,9 @@ def _summary(result: OfflineSecIngestionResult) -> dict:
                 "reused_fact_count_by_earlier_batch": dict(publication.reused_by_batch),
                 "replayed_fact_count": publication.replayed_fact_count,
                 "no_op": publication.is_no_op,
-                # A no-op is rolled back: its batch IDs are reported, never written.
-                "batch_written": publication.batch_written,
+                # Batch rows this run wrote: only sources with new facts, plus the
+                # primary a written supplement pairs with. A no-op writes none.
+                "written_batch_ids": list(publication.written_batch_ids),
             }
         if result.publish_result.issues:
             issue = result.publish_result.issues[0]

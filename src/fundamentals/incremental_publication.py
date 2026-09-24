@@ -30,15 +30,18 @@ commit, requires:
    before it. A concept-map change or a late SEC addition to an old filing
    therefore needs a reviewed backfill instead of slipping into a refresh.
 
-A publication that would insert no facts is a no-op and is rolled back, so it
-writes nothing, not even batch rows. The batch table has no issuer column, so
-a batch row without facts could never be tied to an issuer by stored
-provenance; every batch this module commits holds at least one fact, and each
-fact carries its issuer.
+The batch table has no issuer column, so a batch row can be tied to an issuer
+only through facts, and each fact carries its issuer. The transaction therefore
+decides what to write from the pre-insert state before writing anything: it
+writes a batch row only for a source that inserts at least one fact, plus the
+primary row a written supplemental batch must pair with. A no-op writes
+nothing at all. Every committed batch holds a fact of this issuer, or is the
+primary of a paired supplemental batch that does.
 
-Publications for one issuer are serialized with a transaction-scoped
-advisory lock, so a concurrent publish cannot make an identity look neither
-inserted nor pre-existing.
+Publications are serialized by one transaction-scoped advisory lock taken
+before any schema statement, so overlapping publishes wait for each other
+instead of blocking in schema DDL or making an identity look neither inserted
+nor pre-existing.
 
 Any failure rolls the whole transaction back, so no batch row or fact from
 that transaction survives. Post-publication verification (see
@@ -47,7 +50,6 @@ that transaction survives. Post-publication verification (see
 
 from __future__ import annotations
 
-import logging
 from collections import Counter
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
@@ -55,34 +57,24 @@ from typing import Callable, Dict, Iterable, Mapping, Optional, Sequence, Tuple
 
 from .selection import select_point_in_time
 from .store import (
-    READ_APPLICATION_NAME,
-    READ_CONNECT_TIMEOUT_SECONDS,
-    READ_STATEMENT_TIMEOUT_MS,
-    PUBLISH_PAGE_SIZE,
     PUBLISH_STATEMENT_TIMEOUT_MS,
     SUPPLEMENTAL_SOURCES_BY_PRIMARY,
     FundamentalsPublishError,
-    FundamentalsRepositoryUnavailable,
     _INSERT_COLUMNS,
     _SUPPLEMENTAL_SOURCES,
-    _close_quietly,
-    _connect,
     _fact_to_row,
-    _get_database_url,
     _publication_batch_keys,
-    _rollback_quietly,
     _row_to_fact,
     _same_source_fact,
     _source_identity_key,
     insert_publication_batches,
-    lookup_existing_facts,
     run_publish_transaction,
+    run_read_transaction,
+    _execute_values,
     source_qualified_batch_id,
 )
 from .time_policy import is_aware
 from .types import FinancialFact, FundamentalHistory
-
-logger = logging.getLogger(__name__)
 
 _NEUTRAL_INGESTED_AT = datetime(1970, 1, 1, tzinfo=timezone.utc)
 
@@ -104,8 +96,10 @@ WHERE cik = %s
 """
 
 # The lock wait gets its own bound; the publish statement timeout resumes after it.
-ISSUER_LOCK_WAIT_MS = 300_000
-LOCK_ISSUER_SQL = "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0));"
+PUBLISH_LOCK_WAIT_MS = 300_000
+LOCK_PUBLICATIONS_SQL = (
+    "SELECT pg_advisory_xact_lock(hashtextextended('valuation-engine:fundamentals-publish', 0));"
+)
 SET_LOCAL_STATEMENT_TIMEOUT_SQL = "SELECT set_config('statement_timeout', %s, true);"
 
 SELECT_BATCH_FACT_CIKS_SQL = """
@@ -142,6 +136,7 @@ class IncrementalPublicationReceipt:
     """
 
     batch_ids: Tuple[str, ...]
+    written_batch_ids: Tuple[str, ...]
     inserted_by_batch: Tuple[Tuple[str, int], ...]
     reused_by_batch: Tuple[Tuple[str, int], ...]
     replayed_fact_count: int = 0
@@ -160,9 +155,9 @@ class IncrementalPublicationReceipt:
 
     @property
     def batch_written(self) -> bool:
-        """A no-op is rolled back, so its batch rows are never committed."""
+        """Whether this transaction wrote batch rows; a no-op writes none."""
 
-        return not self.is_no_op
+        return bool(self.written_batch_ids)
 
 
 def source_key(fact: FinancialFact) -> FinancialFact:
@@ -187,6 +182,18 @@ def selected_source_keys(history: FundamentalHistory) -> frozenset:
     ]
     facts.extend(history.cover_facts)
     return frozenset(source_key(fact) for fact in facts)
+
+
+def point_in_time_selection(facts: Iterable[FinancialFact], knowledge_cutoff: datetime, cik: str) -> frozenset:
+    """Selected facts, independent of input order.
+
+    Selection keeps one representative of agreeing duplicates by raw tag, a
+    stable sort, so the input is put in one canonical order first; stored rows
+    come back from Postgres in no particular order.
+    """
+
+    ordered = sorted(facts, key=lambda fact: repr(source_key(fact)))
+    return selected_source_keys(select_point_in_time(ordered, knowledge_cutoff, cik=cik))
 
 
 def _batch_key(fact: FinancialFact) -> tuple:
@@ -284,6 +291,7 @@ def prove_incremental_publication(
     stored: Sequence[FinancialFact],
     batch_rows: Mapping[str, tuple],
     batch_keys: Sequence[tuple],
+    written_batch_keys: Sequence[tuple],
     knowledge_cutoff: datetime,
     cik: str,
     history_frozen_through: Optional[datetime] = None,
@@ -355,12 +363,21 @@ def prove_incremental_publication(
         )
 
     problems.extend(batch_lineage_problems(stored, batch_rows))
-    problems.extend(publication_batch_problems([key[0] for key in batch_keys], batch_rows))
+    written_ids = [key[0] for key in written_batch_keys]
+    problems.extend(publication_batch_problems(written_ids, batch_rows))
+    inserted_ciks: Dict[str, Counter] = {}
+    for fact in returned:
+        inserted_ciks.setdefault(fact.lineage.ingestion_batch_id, Counter())[fact.identity.context.entity_cik] += 1
+    problems.extend(
+        publication_issuer_problems(
+            cik, {batch_id: batch_rows[batch_id] for batch_id in written_ids if batch_id in batch_rows}, inserted_ciks
+        )
+    )
 
     if not problems:
         try:
-            stored_selection = selected_source_keys(select_point_in_time(stored, knowledge_cutoff, cik=cik))
-            incoming_selection = selected_source_keys(select_point_in_time(incoming, knowledge_cutoff, cik=cik))
+            stored_selection = point_in_time_selection(stored, knowledge_cutoff, cik)
+            incoming_selection = point_in_time_selection(incoming, knowledge_cutoff, cik)
         except ValueError:
             problems.append("Point-in-time selection refused the stored facts.")
         else:
@@ -379,7 +396,8 @@ def prove_incremental_publication(
     )
     return IncrementalPublicationReceipt(
         batch_ids=tuple(key[0] for key in batch_keys),
-        inserted_by_batch=tuple((key[0], inserted_counts.get(key[0], 0)) for key in batch_keys),
+        written_batch_ids=tuple(written_ids),
+        inserted_by_batch=tuple((batch_id, inserted_counts.get(batch_id, 0)) for batch_id in written_ids),
         reused_by_batch=tuple(sorted(reused_counts.items())),
         replayed_fact_count=sum(
             1 for fact in pre_insert.values() if fact.lineage.ingestion_batch_id in own_batches
@@ -388,15 +406,24 @@ def prove_incremental_publication(
 
 
 def _insert_returning(cursor, rows) -> list:
-    from psycopg2.extras import execute_values
+    return _execute_values(cursor, rows, sql=INSERT_FACTS_RETURNING_SQL)
 
-    return execute_values(
-        cursor,
-        INSERT_FACTS_RETURNING_SQL,
-        rows,
-        page_size=PUBLISH_PAGE_SIZE,
-        fetch=True,
+
+def _read_issuer_facts(cursor, cik, batch_keys, knowledge_cutoff) -> list:
+    cursor.execute(
+        SELECT_ISSUER_FACTS_SQL,
+        (cik, sorted(key[1] for key in batch_keys), batch_keys[0][2], batch_keys[0][3], knowledge_cutoff),
     )
+    return [_row_to_fact(tuple(row)) for row in cursor.fetchall()]
+
+
+def _written_batch_keys(batch_keys: Sequence[tuple], to_insert: Sequence[FinancialFact]) -> Tuple[tuple, ...]:
+    """Batch rows to write: each source with new facts, plus the primary a written supplement pairs with."""
+
+    sources = {fact.lineage.source_adapter for fact in to_insert}
+    if sources & _SUPPLEMENTAL_SOURCES:
+        sources.add(batch_keys[0][1])  # _publication_batch_keys puts the primary first
+    return tuple(key for key in batch_keys if key[1] in sources)
 
 
 def _read_batch_rows(cursor, batch_ids: Sequence[str]) -> Dict[str, tuple]:
@@ -428,21 +455,28 @@ def publish_incremental(
         raise FundamentalsPublishError("an incremental publication must cover exactly one issuer.")
     (cik,) = ciks
     batch_keys = _publication_batch_keys(facts)
-    concept_map_version, fiscal_calendar_version = batch_keys[0][2], batch_keys[0][3]
+
+    def serialize(cursor) -> None:
+        # Before ensure_schema's DDL, and with its own wait bound.
+        cursor.execute(SET_LOCAL_STATEMENT_TIMEOUT_SQL, (str(PUBLISH_LOCK_WAIT_MS),))
+        cursor.execute(LOCK_PUBLICATIONS_SQL)
+        cursor.execute(SET_LOCAL_STATEMENT_TIMEOUT_SQL, (str(PUBLISH_STATEMENT_TIMEOUT_MS),))
 
     def work(cursor) -> IncrementalPublicationReceipt:
-        cursor.execute(SET_LOCAL_STATEMENT_TIMEOUT_SQL, (str(ISSUER_LOCK_WAIT_MS),))
-        cursor.execute(LOCK_ISSUER_SQL, (cik,))
-        cursor.execute(SET_LOCAL_STATEMENT_TIMEOUT_SQL, (str(PUBLISH_STATEMENT_TIMEOUT_MS),))
-        insert_publication_batches(cursor, batch_keys)
-        # The pre-insert state, read inside the same transaction.
-        pre_insert = lookup_existing_facts(cursor, facts, batch_keys)
-        returned = [_row_to_fact(tuple(row)) for row in _insert_returning(cursor, [_fact_to_row(fact) for fact in facts])]
-        cursor.execute(
-            SELECT_ISSUER_FACTS_SQL,
-            (cik, sorted(key[1] for key in batch_keys), concept_map_version, fiscal_calendar_version, knowledge_cutoff),
-        )
-        stored = [_row_to_fact(tuple(row)) for row in cursor.fetchall()]
+        # The pre-insert state decides what to write before anything is written.
+        incoming_ids = {_source_identity_key(fact) for fact in facts}
+        pre_insert = {
+            _source_identity_key(fact): fact
+            for fact in _read_issuer_facts(cursor, cik, batch_keys, knowledge_cutoff)
+            if _source_identity_key(fact) in incoming_ids
+        }
+        to_insert = [fact for fact in facts if _source_identity_key(fact) not in pre_insert]
+        written_batch_keys = _written_batch_keys(batch_keys, to_insert)
+        returned = []
+        if written_batch_keys:
+            insert_publication_batches(cursor, written_batch_keys)
+            returned = [_row_to_fact(tuple(row)) for row in _insert_returning(cursor, [_fact_to_row(fact) for fact in to_insert])]
+        stored = _read_issuer_facts(cursor, cik, batch_keys, knowledge_cutoff)
         batch_rows = _read_batch_rows(cursor, sorted(set(batch_ids_to_read(stored)) | {key[0] for key in batch_keys}))
         return prove(
             incoming=facts,
@@ -451,75 +485,54 @@ def publish_incremental(
             stored=stored,
             batch_rows=batch_rows,
             batch_keys=batch_keys,
+            written_batch_keys=written_batch_keys,
             knowledge_cutoff=knowledge_cutoff,
             cik=cik,
             history_frozen_through=history_frozen_through,
         )
 
-    return run_publish_transaction(
-        work,
-        database_url=database_url,
-        conn=conn,
-        commit_when=lambda receipt: receipt.batch_written,
-    )
+    return run_publish_transaction(work, database_url=database_url, conn=conn, before_schema=serialize)
 
 
 def publication_issuer_problems(
-    cik: str, batch_ids: Sequence[str], fact_ciks: Mapping[str, Mapping[str, int]]
+    cik: str, batch_rows: Mapping[str, tuple], fact_ciks: Mapping[str, Mapping[str, int]]
 ) -> Tuple[str, ...]:
-    """Bind written batches to one issuer through their facts, the only stored issuer provenance.
+    """Bind each present batch to one issuer through facts, the only stored issuer provenance.
 
-    ``fact_ciks`` maps each batch ID to the issuers of every fact it holds,
-    across all issuers. The batch table has no issuer column, so a publication
-    whose batches hold no facts cannot be tied to any issuer and is refused.
+    ``batch_rows`` are one publication's batch rows that exist; ``fact_ciks``
+    maps each batch ID to the issuers of every fact it holds, across all
+    issuers. Each batch must hold a fact of ``cik``, except a primary batch
+    whose paired supplemental batch does. Any other issuer's fact refuses.
     """
 
     problems = []
-    counts = Counter()
-    for batch_id in batch_ids:
-        counts.update(fact_ciks.get(batch_id, {}))
-    foreign = sorted(other for other in counts if other != cik)
+    foreign = sorted({other for batch_id in batch_rows for other in fact_ciks.get(batch_id, {}) if other != cik})
     if foreign:
         problems.append(f"The publication's batches hold facts for other issuers: {', '.join(foreign)}.")
-    if not counts:
+    holds_facts = {batch_id for batch_id in batch_rows if fact_ciks.get(batch_id)}
+    unbound = []
+    for batch_id, row in sorted(batch_rows.items()):
+        if batch_id in holds_facts:
+            continue
+        paired = row[1] not in _SUPPLEMENTAL_SOURCES and any(
+            paired_primary_batch_id(other, other_row[1]) == batch_id and other in holds_facts
+            for other, other_row in batch_rows.items()
+            if other_row[1] in _SUPPLEMENTAL_SOURCES
+        )
+        if not paired:
+            unbound.append(batch_id)
+    if unbound:
         problems.append(
-            "The publication's batches hold no facts, so stored provenance cannot establish their "
-            "issuer; a zero-fact batch cannot be verified."
+            f"Batches {', '.join(unbound)} hold no facts and no paired batch does, so stored provenance "
+            "cannot establish their issuer; a zero-fact batch cannot be verified."
         )
     return tuple(problems)
-
-
-def _read_only(read, *, database_url: Optional[str]):
-    resolved_url = database_url or _get_database_url()
-    if not resolved_url:
-        raise FundamentalsRepositoryUnavailable("point-in-time fundamentals store is not configured.")
-    connection = None
-    try:
-        connection = _connect(
-            resolved_url,
-            application_name=READ_APPLICATION_NAME,
-            connect_timeout_seconds=READ_CONNECT_TIMEOUT_SECONDS,
-            statement_timeout_ms=READ_STATEMENT_TIMEOUT_MS,
-        )
-        connection.set_session(readonly=True, autocommit=False)
-        with connection.cursor() as cursor:
-            result = read(cursor)
-        connection.rollback()
-        return result
-    except Exception as error:
-        logger.error("ingestion batch read failed (%s)", type(error).__name__)
-        if connection is not None:
-            _rollback_quietly(connection)
-        raise FundamentalsRepositoryUnavailable("point-in-time fundamentals store is unavailable.") from None
-    finally:
-        if connection is not None:
-            _close_quietly(connection)
 
 
 def read_batch_rows(batch_ids: Sequence[str], *, database_url: Optional[str] = None) -> Dict[str, tuple]:
     """Read-only lookup of ingestion batch rows, for post-publication verification."""
 
-    return _read_only(lambda cursor: _read_batch_rows(cursor, batch_ids), database_url=database_url)
+    return run_read_transaction(lambda cursor: _read_batch_rows(cursor, batch_ids), database_url=database_url)
 
 
 def read_batch_fact_ciks(
@@ -534,4 +547,4 @@ def read_batch_fact_ciks(
             result.setdefault(batch_id, {})[cik] = int(count)
         return result
 
-    return _read_only(read, database_url=database_url)
+    return run_read_transaction(read, database_url=database_url)

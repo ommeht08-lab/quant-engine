@@ -16,7 +16,13 @@ from src.fundamentals.incremental_publication import (
     read_batch_fact_ciks,
     read_batch_rows,
 )
-from src.fundamentals.store import INSERT_BATCH_SQL, PostgresFundamentalsRepository, _execute_values, _fact_to_row
+from src.fundamentals.store import (
+    INSERT_BATCH_SQL,
+    PostgresFundamentalsRepository,
+    _execute_values,
+    _fact_to_row,
+    _source_identity_key as _identity,
+)
 from tests.fundamentals.test_incremental_publication import XBRL, _publication, _rebatch
 from tests.fundamentals.test_sec_filing_xbrl_ingestion import _utc
 from tests.fundamentals import test_sec_filing_xbrl_publication as _xbrl_publication
@@ -158,7 +164,7 @@ def test_refresh_verification_reads_postgres_by_lineage(composing_issuer, empty_
     assert ten_k.is_verified, (ten_k.publication_problems, [item.problems for item in ten_k.cutoffs])
     assert (ten_k.cutoffs[-1].this_refresh_fact_count, ten_k.cutoffs[-1].earlier_batch_fact_count) == (2, 6)
     assert ten_k.cutoffs[0].this_refresh_fact_count == 0
-    assert no_op.is_verified and no_op.is_no_op and not no_op.batch_written
+    assert no_op.is_verified and no_op.is_no_op and not no_op.batch_rows_present
 
 
 def test_a_refresh_that_would_rewrite_frozen_history_rolls_back(empty_store):
@@ -287,3 +293,63 @@ def test_a_legacy_zero_fact_batch_of_this_issuer_is_not_claimed_verified(composi
 
     assert not result.is_verified
     assert any("cannot establish their issuer" in problem for problem in result.publication_problems)
+
+
+def _batch_rows_in_postgres():
+    return {batch_id for batch_id, _ in _store_contents()[0]}
+
+
+def test_a_refresh_with_only_new_company_facts_writes_no_supplemental_row(composing_issuer, empty_store):
+    full = _publication(*NEW_FILING)
+    new_primary = next(f for f in full if f.lineage.source_adapter != XBRL and f.period.period_end.month == 7)
+    publish_incremental(
+        tuple(f for f in _publication(NEW_FILING[0], "backfill-1", NEW_FILING[2]) if _identity(f) != _identity(new_primary)),
+        knowledge_cutoff=NEW_FILING[0],
+        database_url=DATABASE_URL,
+    )
+
+    receipt = _publish((NEW_FILING[0], "refresh-2", _utc(2023, 9, 3)))
+
+    assert receipt.written_batch_ids == ("refresh-2",)
+    assert "refresh-2+sec_filing_xbrl" not in _batch_rows_in_postgres()
+    assert _verify_refresh_in_postgres("refresh-2", NEW_FILING[0]).is_verified
+
+
+def test_a_refresh_with_only_a_new_composed_fact_binds_its_primary_through_the_supplement(composing_issuer, empty_store):
+    full = _publication(*NEW_FILING)
+    new_composed = next(f for f in full if f.lineage.source_adapter == XBRL and f.period.period_end.month == 7)
+    publish_incremental(
+        tuple(f for f in _publication(NEW_FILING[0], "backfill-1", NEW_FILING[2]) if _identity(f) != _identity(new_composed)),
+        knowledge_cutoff=NEW_FILING[0],
+        database_url=DATABASE_URL,
+    )
+
+    receipt = _publish((NEW_FILING[0], "refresh-2", _utc(2023, 9, 3)))
+
+    assert receipt.written_batch_ids == ("refresh-2", "refresh-2+sec_filing_xbrl")
+    assert dict(receipt.inserted_by_batch) == {"refresh-2": 0, "refresh-2+sec_filing_xbrl": 1}
+    result = _verify_refresh_in_postgres("refresh-2", NEW_FILING[0])
+    assert result.is_verified, (result.publication_problems, [item.problems for item in result.cutoffs])
+
+
+def test_a_committed_empty_supplement_beside_a_fact_bearing_primary_does_not_verify(composing_issuer, empty_store):
+    # Rows an older publisher could have committed: the primary holds facts,
+    # the supplement holds none. Summing across the pair would hide it.
+    for step in (BACKFILL, NEW_FILING):
+        _publish(step)
+    from dataclasses import replace
+
+    primary_fact = next(f for f in _publication(*TEN_K) if f.lineage.source_adapter != XBRL and f.period.period_end.year == 2023 and f.period.period_end.month == 9)
+    lineage = replace(primary_fact.lineage, ingestion_batch_id="legacy-5")
+    _raw_insert(
+        [
+            ("legacy-5", lineage.source_adapter, lineage.concept_map_version, lineage.fiscal_calendar_version, lineage.ingested_at),
+            ("legacy-5+sec_filing_xbrl", XBRL, lineage.concept_map_version, lineage.fiscal_calendar_version, lineage.ingested_at),
+        ],
+        (replace(primary_fact, lineage=lineage),),
+    )
+
+    result = _verify_refresh_in_postgres("legacy-5", _utc(2024, 1, 1))
+
+    assert not result.is_verified
+    assert any("legacy-5+sec_filing_xbrl hold no facts" in problem for problem in result.publication_problems)

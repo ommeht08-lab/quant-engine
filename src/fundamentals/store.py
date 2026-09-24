@@ -430,12 +430,12 @@ def _row_to_fact(row: tuple) -> FinancialFact:
     )
 
 
-def _execute_values(cursor, rows):
+def _execute_values(cursor, rows, sql=INSERT_FACTS_SQL):
     from psycopg2.extras import execute_values
 
     return execute_values(
         cursor,
-        INSERT_FACTS_SQL,
+        sql,
         rows,
         page_size=PUBLISH_PAGE_SIZE,
         fetch=True,
@@ -584,12 +584,12 @@ def run_publish_transaction(
     *,
     database_url: Optional[str] = None,
     conn=None,
-    commit_when: Optional[Callable] = None,
+    before_schema: Optional[Callable] = None,
 ):
     """Run ``work(cursor)`` in one write transaction; commit on return, roll back on any error.
 
-    With ``commit_when``, a successful result it rejects is rolled back instead
-    of committed and still returned, so the transaction leaves no trace.
+    ``before_schema(cursor)`` runs first in the same transaction, before
+    ``ensure_schema`` takes its table locks; publishers use it to serialize.
 
     Shared by every publisher so connection setup, schema creation, error
     sanitizing, rollback, and close behave identically.
@@ -610,13 +610,13 @@ def run_publish_transaction(
             )
 
         connection.set_session(readonly=False, autocommit=False)
+        if before_schema is not None:
+            with connection.cursor() as cursor:
+                before_schema(cursor)
         ensure_schema(connection)
         with connection.cursor() as cursor:
             result = work(cursor)
-        if commit_when is None or commit_when(result):
-            connection.commit()
-        else:
-            connection.rollback()
+        connection.commit()
         return result
     except FundamentalsPublishError:
         if connection is not None:
@@ -629,6 +629,47 @@ def run_publish_transaction(
         raise FundamentalsPublishError("point-in-time fundamentals publish failed.") from None
     finally:
         if owns_connection and connection is not None:
+            _close_quietly(connection)
+
+
+def run_read_transaction(read: Callable, *, database_url: Optional[str] = None):
+    """Run ``read(cursor)`` in one read-only transaction and always roll it back.
+
+    Shared by every reader so connection settings and error sanitizing match.
+    """
+
+    database_url = database_url or _get_database_url()
+    if not database_url:
+        raise FundamentalsRepositoryUnavailable(
+            "point-in-time fundamentals store is not configured."
+        )
+
+    connection = None
+    try:
+        connection = _connect(
+            database_url,
+            application_name=READ_APPLICATION_NAME,
+            connect_timeout_seconds=READ_CONNECT_TIMEOUT_SECONDS,
+            statement_timeout_ms=READ_STATEMENT_TIMEOUT_MS,
+        )
+        # Must precede cursor creation and the first SQL statement so the
+        # database enforces read-only behavior for this transaction.
+        connection.set_session(readonly=True, autocommit=False)
+        with connection.cursor() as cursor:
+            result = read(cursor)
+        connection.rollback()
+        return result
+    except FundamentalsRepositoryUnavailable:
+        raise
+    except Exception as error:
+        logger.error("point-in-time fundamentals read failed (%s)", type(error).__name__)
+        if connection is not None:
+            _rollback_quietly(connection)
+        raise FundamentalsRepositoryUnavailable(
+            "point-in-time fundamentals store is unavailable."
+        ) from None
+    finally:
+        if connection is not None:
             _close_quietly(connection)
 
 
@@ -694,49 +735,21 @@ class PostgresFundamentalsRepository:
         self._database_url = database_url
 
     def get_facts(self, query: FundamentalsQuery) -> Tuple[FinancialFact, ...]:
-        database_url = self._database_url or _get_database_url()
-        if not database_url:
-            raise FundamentalsRepositoryUnavailable(
-                "point-in-time fundamentals store is not configured."
+        def read(cursor):
+            cursor.execute(
+                SELECT_FACTS_SQL,
+                (
+                    query.cik,
+                    list(query.concepts),
+                    list(query.source_adapters),
+                    query.concept_map_version,
+                    query.fiscal_calendar_version,
+                    query.knowledge_cutoff,
+                    query.data_vintage_cutoff,
+                    query.max_periods_per_statement,
+                ),
             )
+            return cursor.fetchall()
 
-        connection = None
-        try:
-            connection = _connect(
-                database_url,
-                application_name=READ_APPLICATION_NAME,
-                connect_timeout_seconds=READ_CONNECT_TIMEOUT_SECONDS,
-                statement_timeout_ms=READ_STATEMENT_TIMEOUT_MS,
-            )
-            # Must precede cursor creation and the first SQL statement so the
-            # database enforces read-only behavior for this transaction.
-            connection.set_session(readonly=True, autocommit=False)
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    SELECT_FACTS_SQL,
-                    (
-                        query.cik,
-                        list(query.concepts),
-                        list(query.source_adapters),
-                        query.concept_map_version,
-                        query.fiscal_calendar_version,
-                        query.knowledge_cutoff,
-                        query.data_vintage_cutoff,
-                        query.max_periods_per_statement,
-                    ),
-                )
-                rows = cursor.fetchall()
-            connection.rollback()
-            return tuple(_row_to_fact(tuple(row)) for row in rows)
-        except FundamentalsRepositoryUnavailable:
-            raise
-        except Exception as error:
-            logger.error("point-in-time fundamentals read failed (%s)", type(error).__name__)
-            if connection is not None:
-                _rollback_quietly(connection)
-            raise FundamentalsRepositoryUnavailable(
-                "point-in-time fundamentals store is unavailable."
-            ) from None
-        finally:
-            if connection is not None:
-                _close_quietly(connection)
+        rows = run_read_transaction(read, database_url=self._database_url)
+        return tuple(_row_to_fact(tuple(row)) for row in rows)

@@ -22,12 +22,18 @@ remain in earlier batches, and at each historical cutoff this refresh may
 contribute no facts at all. This runs after commit, so it detects problems;
 the pre-commit proof in ``incremental_publication`` is what prevents them.
 
-The batch table has no issuer column, so a written refresh is tied to the
-issuer only through its facts: its batches must hold at least one fact, every
-one for the requested issuer. A no-op refresh is rolled back and writes no
-batch rows; the verifier then reports ``batch_written: false`` and verifies the
-issuer's stored result directly. It does not verify any batch, and the absence
-of rows alone cannot show that the publish step ran.
+The batch table has no issuer column, so a refresh's batch rows are tied to
+the issuer only through facts: each present batch must hold a fact of the
+requested issuer (a primary may instead pair with a supplemental batch that
+does), and no batch may hold another issuer's fact. A no-op refresh writes no
+batch rows; the verifier then reports ``batch_rows_present: false`` and
+verifies only the issuer's stored result, not any batch. The absence of rows
+alone cannot show that the publish step ran; the workflow's step order does.
+
+Verification re-downloads SEC data. If Company Facts gains a fact accepted
+before the publish cutoff between the publish and verify steps, verification
+reports it missing although the publication was exact; rerun verification
+before treating that as a publication fault.
 
 Like ``sec_pipeline_command`` this module needs only ``requests`` and
 ``psycopg2``; it never writes to the database.
@@ -51,6 +57,7 @@ from .incremental_publication import (
     batch_ids_to_read,
     batch_lineage_problems,
     publication_batch_problems,
+    point_in_time_selection,
     publication_issuer_problems,
     read_batch_fact_ciks,
     read_batch_rows,
@@ -117,11 +124,6 @@ class _SinglePayloadDownloader:
         if key not in self._instances:
             self._instances[key] = self._downloader.fetch_filing_instance(cik, accession_number)
         return self._instances[key]
-
-
-# One definition of "the same fact" for the pre-commit proof and this verifier.
-_source_key = source_key
-_selected_keys = selected_source_keys
 
 
 def _read_published(*, cik: str, knowledge_cutoff: datetime, data_vintage_cutoff: datetime, repository):
@@ -191,8 +193,8 @@ def _verify_cutoff(
     )
 
     problems = []
-    expected_keys = frozenset(_source_key(fact) for fact in expected_run.classified_facts)
-    published_keys = frozenset(_source_key(fact) for fact in published)
+    expected_keys = frozenset(source_key(fact) for fact in expected_run.classified_facts)
+    published_keys = frozenset(source_key(fact) for fact in published)
     missing = len(expected_keys - published_keys)
     unexpected = len(published_keys - expected_keys)
     if missing or unexpected:
@@ -228,7 +230,7 @@ def _verify_cutoff(
         except ValueError:
             problems.append("Point-in-time selection refused the published facts.")
         else:
-            if _selected_keys(published_history) != _selected_keys(expected_run.history):
+            if selected_source_keys(published_history) != selected_source_keys(expected_run.history):
                 problems.append("Point-in-time selection differs from the pipeline's selection.")
 
     return CutoffVerification(
@@ -318,7 +320,7 @@ class RefreshVerificationResult:
     concept_map_version: str
     fiscal_calendar_version: str
     data_vintage_cutoff: datetime
-    batch_written: bool
+    batch_rows_present: bool
     publication_problems: Tuple[str, ...]
     cutoffs: Tuple[RefreshCutoffVerification, ...]
 
@@ -332,9 +334,9 @@ class RefreshVerificationResult:
 
     @property
     def is_no_op(self) -> bool:
-        """No rows exist under this batch ID: a no-op refresh is rolled back and writes nothing."""
+        """No rows exist under this batch ID: a no-op refresh writes nothing."""
 
-        return not self.batch_written
+        return not self.batch_rows_present
 
 
 class _CachingBatchReader:
@@ -389,8 +391,8 @@ def _verify_refresh_cutoff(
     )
 
     problems = []
-    expected_keys = frozenset(_source_key(fact) for fact in expected_run.classified_facts)
-    published_keys = frozenset(_source_key(fact) for fact in published)
+    expected_keys = frozenset(source_key(fact) for fact in expected_run.classified_facts)
+    published_keys = frozenset(source_key(fact) for fact in published)
     missing = len(expected_keys - published_keys)
     unexpected = len(published_keys - expected_keys)
     if missing or unexpected:
@@ -409,11 +411,12 @@ def _verify_refresh_cutoff(
         )
     if published and not problems:
         try:
-            published_history = select_point_in_time(published, knowledge_cutoff, cik=cik)
+            published_selection = point_in_time_selection(published, knowledge_cutoff, cik)
+            expected_selection = point_in_time_selection(expected_run.classified_facts, knowledge_cutoff, cik)
         except ValueError:
             problems.append("Point-in-time selection refused the published facts.")
         else:
-            if _selected_keys(published_history) != _selected_keys(expected_run.history):
+            if published_selection != expected_selection:
                 problems.append("Point-in-time selection differs from the pipeline's selection.")
 
     return RefreshCutoffVerification(
@@ -456,11 +459,11 @@ def verify_refresh_publication(
     shared_downloader = _SinglePayloadDownloader(downloader)
     batch_reader = _CachingBatchReader(batch_reader)
     rows = batch_reader(batch_ids)
-    batch_written = any(batch_id in rows for batch_id in batch_ids)
+    present = [batch_id for batch_id in batch_ids if batch_id in rows]
     publication_problems: Tuple[str, ...] = ()
-    if batch_written:
-        publication_problems = publication_batch_problems(batch_ids, rows) + publication_issuer_problems(
-            normalized_cik, batch_ids, batch_fact_reader(batch_ids)
+    if present:
+        publication_problems = publication_batch_problems(present, rows) + publication_issuer_problems(
+            normalized_cik, {batch_id: rows[batch_id] for batch_id in present}, batch_fact_reader(present)
         )
     checks = [(cutoff, True) for cutoff in sorted(historical)] + [(publish_cutoff, False)]
     return RefreshVerificationResult(
@@ -470,7 +473,7 @@ def verify_refresh_publication(
         concept_map_version=concept_map_for_issuer(normalized_cik).version,
         fiscal_calendar_version=SEC_FISCAL_CALENDAR_CATALOG_V1.policy_for(normalized_cik).version,
         data_vintage_cutoff=data_vintage_cutoff,
-        batch_written=batch_written,
+        batch_rows_present=bool(present),
         publication_problems=publication_problems,
         cutoffs=tuple(
             _verify_refresh_cutoff(
@@ -501,7 +504,7 @@ def _refresh_summary(result: RefreshVerificationResult) -> dict:
         "no_op": result.is_no_op,
         # False means no rows exist under this ID: only the issuer's stored
         # result was verified, not a batch.
-        "batch_written": result.batch_written,
+        "batch_rows_present": result.batch_rows_present,
         "publication_problems": list(result.publication_problems),
         "cutoffs": [
             {
