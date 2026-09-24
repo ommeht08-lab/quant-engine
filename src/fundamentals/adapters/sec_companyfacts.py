@@ -512,7 +512,11 @@ def _extract_entry(
 
 
 def _derived_flow_entries(fact_namespaces, flows, period_end_floor):
-    """[(flow, role, unit, entry)] for every raw component or cross-check entry."""
+    """[(flow, role, tag, unit, entry)] for every raw component or cross-check entry.
+
+    Supported-form entries inside the window are validated as strictly as
+    mapped tags: malformed entries, missing starts, and non-USD units refuse.
+    """
 
     collected = []
     for flow in flows:
@@ -526,20 +530,43 @@ def _derived_flow_entries(fact_namespaces, flows, period_end_floor):
             if not isinstance(units, Mapping):
                 continue
             for unit, entries in units.items():
-                if unit != "USD" or not isinstance(entries, Sequence):
-                    continue
+                if not isinstance(entries, Sequence) or isinstance(entries, (str, bytes)):
+                    _fail(SecIngestionIssueCode.INVALID_PAYLOAD, f"Entries for {tag}/{unit} must be an array.")
                 for entry in entries:
-                    if not isinstance(entry, Mapping) or entry.get("form") not in _SUPPORTED_FORMS:
+                    if not isinstance(entry, Mapping):
+                        _fail(SecIngestionIssueCode.INVALID_PAYLOAD, f"Each {tag}/{unit} entry must be an object.")
+                    if entry.get("form") not in _SUPPORTED_FORMS:
                         continue
+                    period_end = _parse_date(entry.get("end"), "end")
+                    if period_end_floor is not None and period_end < period_end_floor:
+                        continue
+                    if unit != "USD":
+                        _fail(
+                            SecIngestionIssueCode.UNSUPPORTED_UNIT,
+                            f"Derived-flow component {tag} in {entry.get('accn')} is reported in {unit!r}, not USD.",
+                            accession_number=entry.get("accn"),
+                            raw_tags=(tag,),
+                        )
                     if "start" not in entry:
-                        continue
-                    try:
-                        if period_end_floor is not None and date.fromisoformat(entry.get("end")) < period_end_floor:
-                            continue
-                    except (TypeError, ValueError):
-                        continue
-                    collected.append((flow, role, unit, entry))
+                        _fail(
+                            SecIngestionIssueCode.MALFORMED_FACT,
+                            f"Derived-flow component {tag} in {entry.get('accn')} has no period start.",
+                            accession_number=entry.get("accn"),
+                            raw_tags=(tag,),
+                        )
+                    collected.append((flow, role, tag, unit, entry))
     return collected
+
+
+def _derived_rule(flow, raw_tag: str) -> ConceptRule:
+    return ConceptRule(
+        taxonomy="us-gaap",
+        raw_tag=raw_tag,
+        canonical_concept=flow.canonical_concept,
+        statement_kind=StatementKind.INCOME_STATEMENT,
+        period_type=FactPeriodType.DURATION,
+        allowed_units=("USD",),
+    )
 
 
 def _derive_flows(derived_entries, flows, *, excluded_accessions, extract):
@@ -548,25 +575,25 @@ def _derive_flows(derived_entries, flows, *, excluded_accessions, extract):
     derived = []
     for flow in flows:
         groups = {}
-        for item_flow, role, unit, entry in derived_entries:
+        for item_flow, role, tag, unit, entry in derived_entries:
             if item_flow is not flow or entry.get("accn") in excluded_accessions:
                 continue
             key = (entry.get("accn"), entry.get("start"), entry.get("end"), unit)
-            groups.setdefault(key, {}).setdefault(role, []).append(entry)
-        rule = ConceptRule(
-            taxonomy="us-gaap",
-            raw_tag=flow.raw_tag,
-            canonical_concept=flow.canonical_concept,
-            statement_kind=StatementKind.INCOME_STATEMENT,
-            period_type=FactPeriodType.DURATION,
-            allowed_units=("USD",),
-        )
+            groups.setdefault(key, {}).setdefault(role, []).append((tag, entry))
+        rule = _derived_rule(flow, flow.raw_tag)
         for (accession, start, end, unit), roles in sorted(groups.items()):
+            # Every contributing entry passes the same filing-metadata,
+            # dimension, unit, and geometry checks as a directly mapped tag.
+            for items in roles.values():
+                for tag, entry in items:
+                    extract(_derived_rule(flow, tag), unit, entry)
             if "minuend" not in roles and "subtrahend" not in roles:
                 continue  # a cross-check reported alone (e.g. a 10-K quarterly note)
             values = {}
             for role in ("minuend", "subtrahend"):
-                reported = {_parse_decimal(entry.get("val"), accession, flow.raw_tag) for entry in roles.get(role, [])}
+                reported = {
+                    _parse_decimal(entry.get("val"), accession, flow.raw_tag) for _, entry in roles.get(role, [])
+                }
                 if len(reported) != 1:
                     _fail(
                         SecIngestionIssueCode.DERIVED_COMPONENT_MISSING,
@@ -576,7 +603,7 @@ def _derive_flows(derived_entries, flows, *, excluded_accessions, extract):
                     )
                 values[role] = reported.pop()
             value = values["minuend"] - values["subtrahend"]
-            for entry in roles.get("cross_check", []):
+            for _, entry in roles.get("cross_check", []):
                 if _parse_decimal(entry.get("val"), accession, flow.raw_tag) != value:
                     _fail(
                         SecIngestionIssueCode.DERIVED_CROSS_CHECK_MISMATCH,
@@ -585,11 +612,17 @@ def _derive_flows(derived_entries, flows, *, excluded_accessions, extract):
                         accession_number=accession,
                         raw_tags=(flow.raw_tag,),
                     )
-            template = dict(roles["minuend"][0])
-            template["val"] = str(value)
-            fact = extract(rule, unit, template)
-            if fact is not None:
-                derived.append(fact)
+            # One derived fact per distinct fiscal labelling of the minuend,
+            # as a directly tagged fact would give one fact per entry.
+            labellings = {}
+            for _, entry in roles["minuend"]:
+                labellings.setdefault((entry.get("fy"), entry.get("fp"), entry.get("frame")), entry)
+            for labelling in sorted(labellings, key=repr):
+                template = dict(labellings[labelling])
+                template["val"] = str(value)
+                fact = extract(rule, unit, template)
+                if fact is not None:
+                    derived.append(fact)
     return derived
 
 
@@ -720,7 +753,7 @@ def extract_sec_company_facts(
         )
         relevant_accessions = frozenset(
             entry.get("accn")
-            for _rule, _unit, entry in mapped_entries + [item[1:] for item in derived_entries]
+            for _rule, _unit, entry in mapped_entries + [item[2:] for item in derived_entries]
             if isinstance(entry.get("form"), str)
             and entry.get("form") in _SUPPORTED_FORMS
             and isinstance(entry.get("accn"), str)

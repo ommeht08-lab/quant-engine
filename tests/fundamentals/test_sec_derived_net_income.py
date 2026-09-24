@@ -133,9 +133,11 @@ class TestRefusals:
 
     def test_components_from_different_filings_are_never_combined(self):
         fixture = _official()
+        fy_2020 = next(e for e in _entries(fixture, "ProfitLoss") if e["accn"] == FY_2020)
         for entry in _entries(fixture, "NetIncomeLossAttributableToNoncontrollingInterest"):
             if entry["accn"] == Q2_2024 and entry["start"] == "2024-04-01":
-                entry["accn"] = FY_2020  # same period, different filing
+                # same period, moved wholesale into a different filing
+                entry.update(accn=FY_2020, form=fy_2020["form"], filed=fy_2020["filed"])
 
         result = _extract(fixture)
         assert result.issues[0].code is SecIngestionIssueCode.DERIVED_COMPONENT_MISSING
@@ -151,6 +153,64 @@ class TestRefusals:
         assert _extract(with_reported(2_681_000_000)).is_complete
         conflict = _extract(with_reported(2_600_000_000))
         assert conflict.issues[0].code is SecIngestionIssueCode.SYNONYM_CONFLICT
+
+
+class TestComponentMetadata:
+    """Every contributing entry is held to a directly mapped tag's checks."""
+
+    @staticmethod
+    def _q2(fixture, tag):
+        return next(e for e in _entries(fixture, tag) if e["accn"] == Q2_2024 and e["start"] == "2024-04-01")
+
+    @pytest.mark.parametrize("tag", ("NetIncomeLossAttributableToNoncontrollingInterest",
+                                     "NetIncomeLossAvailableToCommonStockholdersBasic"))
+    @pytest.mark.parametrize("field, value", (("filed", "1999-01-01"), ("form", "10-K")))
+    def test_component_or_cross_check_filing_metadata_must_match_submissions(self, tag, field, value):
+        fixture = _official()
+        self._q2(fixture, tag)[field] = value
+
+        assert _extract(fixture).issues[0].code is SecIngestionIssueCode.FILING_METADATA_MISMATCH
+
+    def test_dimensional_component_refuses(self):
+        fixture = _official()
+        self._q2(fixture, "NetIncomeLossAttributableToNoncontrollingInterest")["segment"] = {"axis": "x"}
+
+        assert _extract(fixture).issues[0].code is SecIngestionIssueCode.DIMENSIONAL_CONTEXT_UNSUPPORTED
+
+    @pytest.mark.parametrize(
+        "mutate, code",
+        (
+            (lambda e: e.update(end="2024-13-45"), SecIngestionIssueCode.INVALID_PAYLOAD),
+            (lambda e: e.pop("start"), SecIngestionIssueCode.MALFORMED_FACT),
+        ),
+    )
+    def test_malformed_component_refuses_with_its_own_code(self, mutate, code):
+        fixture = _official()
+        mutate(self._q2(fixture, "NetIncomeLossAttributableToNoncontrollingInterest"))
+
+        assert _extract(fixture).issues[0].code is code
+
+    def test_non_object_component_entry_refuses(self):
+        fixture = _official()
+        _entries(fixture, "ProfitLoss").append("not-an-object")
+
+        assert _extract(fixture).issues[0].code is SecIngestionIssueCode.INVALID_PAYLOAD
+
+    def test_duplicate_entries_with_different_labels_keep_each_labelling(self):
+        fixture = _official()
+        q2 = self._q2(fixture, "ProfitLoss")
+        _entries(fixture, "ProfitLoss").append(dict(q2, frame="CY2024Q2"))
+        q2.pop("frame", None)
+
+        result = _extract(fixture)
+
+        assert result.is_complete
+        frames = sorted(
+            str(f.frame) for f in result.facts
+            if f.canonical_concept == "net_income" and f.provenance_accession_number == Q2_2024
+            and str(f.period_start) == "2024-04-01"
+        )
+        assert frames == ["CY2024Q2", "None"]
 
 
 class TestPolicyScope:
