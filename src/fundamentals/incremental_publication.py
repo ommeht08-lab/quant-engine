@@ -16,8 +16,10 @@ commit, requires:
 2. every inserted row is in this publication's batch for its source and
    matches its incoming fact, and every pre-existing fact matches its
    incoming fact (an idempotent replay);
-3. the issuer's stored facts visible at the knowledge cutoff equal the
-   incoming facts exactly: nothing missing, nothing unexpected;
+3. the issuer's stored facts visible at the knowledge cutoff, read across the
+   primary source and every supplement it declares (even one absent from
+   this publication), equal the incoming facts exactly: nothing missing,
+   nothing unexpected;
 4. every batch holding those facts is lineage-valid. The foreign key ties a
    fact to a batch row, but it does not pair a supplemental batch with its
    primary, so each supplemental batch ``X+source`` must have a primary batch
@@ -409,10 +411,21 @@ def _insert_returning(cursor, rows) -> list:
     return _execute_values(cursor, rows, sql=INSERT_FACTS_RETURNING_SQL)
 
 
+def _issuer_sources(batch_keys: Sequence[tuple]) -> list:
+    """The primary source and every supplement it declares, published this time or not.
+
+    A supplemental source absent from this publication may still hold stored
+    facts; reading it keeps those facts in the stale-fact check.
+    """
+
+    primary_source = batch_keys[0][1]  # _publication_batch_keys puts the primary first
+    return sorted(SUPPLEMENTAL_SOURCES_BY_PRIMARY.get(primary_source, frozenset()) | {key[1] for key in batch_keys})
+
+
 def _read_issuer_facts(cursor, cik, batch_keys, knowledge_cutoff) -> list:
     cursor.execute(
         SELECT_ISSUER_FACTS_SQL,
-        (cik, sorted(key[1] for key in batch_keys), batch_keys[0][2], batch_keys[0][3], knowledge_cutoff),
+        (cik, _issuer_sources(batch_keys), batch_keys[0][2], batch_keys[0][3], knowledge_cutoff),
     )
     return [_row_to_fact(tuple(row)) for row in cursor.fetchall()]
 

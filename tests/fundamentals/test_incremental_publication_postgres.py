@@ -353,3 +353,44 @@ def test_a_committed_empty_supplement_beside_a_fact_bearing_primary_does_not_ver
 
     assert not result.is_verified
     assert any("legacy-5+sec_filing_xbrl hold no facts" in problem for problem in result.publication_problems)
+
+
+def _company_facts_only(step):
+    cutoff, batch_id, ingested_at = step
+    return tuple(f for f in _publication(cutoff, batch_id, ingested_at) if f.lineage.source_adapter != XBRL)
+
+
+def test_a_publication_whose_stored_supplemental_source_disappeared_rolls_back(empty_store):
+    # The backfill stored Company Facts and filing-XBRL facts. A later
+    # publication without any filing-XBRL facts leaves those stored facts
+    # unrepresented, so it must refuse before commit, not only fail later.
+    _publish(BACKFILL)
+    before = _store_contents()
+
+    with pytest.raises(IncrementalPublicationError, match="2 unexpected"):
+        publish_incremental(_company_facts_only(NEW_FILING), knowledge_cutoff=NEW_FILING[0], database_url=DATABASE_URL)
+
+    assert _store_contents() == before
+
+
+def test_a_no_op_whose_stored_supplemental_source_disappeared_is_refused(empty_store):
+    _publish(NEW_FILING)
+    before = _store_contents()
+
+    with pytest.raises(IncrementalPublicationError, match="3 unexpected"):
+        publish_incremental(_company_facts_only(NO_OP), knowledge_cutoff=NO_OP[0], database_url=DATABASE_URL)
+
+    assert _store_contents() == before
+
+
+def test_a_single_source_history_publishes_as_before(empty_store):
+    # AAPL, MSFT, and WMT publish Company Facts only; nothing of theirs is
+    # stored under filing XBRL, so reading that source changes nothing.
+    receipts = [
+        publish_incremental(_company_facts_only(step), knowledge_cutoff=step[0], database_url=DATABASE_URL)
+        for step in (BACKFILL, NEW_FILING, NO_OP, TEN_K)
+    ]
+
+    assert [(r.inserted_fact_count, r.reused_fact_count) for r in receipts] == [(2, 0), (1, 2), (0, 3), (1, 3)]
+    assert [r.written_batch_ids for r in receipts] == [("backfill-1",), ("refresh-2",), (), ("refresh-4",)]
+    assert set(_facts_by_batch()) == {"backfill-1", "refresh-2", "refresh-4"}

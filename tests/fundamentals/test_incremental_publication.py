@@ -397,6 +397,22 @@ def test_the_transaction_reads_the_pre_insert_state_before_inserting_and_commits
     assert ("rollback",) not in connection.events
 
 
+def test_the_stored_fact_reads_cover_a_supplemental_source_absent_from_the_publication(monkeypatch, history):
+    # The history holds filing-XBRL facts; this publication has none. The
+    # issuer reads must still include that source so its stored facts count.
+    incoming = tuple(
+        f for f in _publication(_utc(2024, 1, 1), "refresh-4", _utc(2024, 1, 2)) if f.lineage.source_adapter != XBRL
+    )
+    connection = _transaction(monkeypatch, history, incoming, _utc(2024, 1, 1))
+
+    with pytest.raises(IncrementalPublicationError, match="unexpected"):
+        publish_incremental(incoming, knowledge_cutoff=_utc(2024, 1, 1), conn=connection)
+
+    issuer_reads = [event[2] for event in connection.events if event[0] == "execute" and event[1] == SELECT_ISSUER_FACTS_SQL]
+    assert issuer_reads and all(params[1] == ["sec_companyfacts", XBRL] for params in issuer_reads)
+    assert ("rollback",) in connection.events and ("commit",) not in connection.events
+
+
 def test_a_failed_proof_rolls_the_transaction_back(monkeypatch, history):
     incoming = _publication(_utc(2024, 1, 1), "refresh-4", _utc(2024, 1, 2))
     connection = _transaction(monkeypatch, history, incoming, _utc(2024, 1, 1), returned=[])
