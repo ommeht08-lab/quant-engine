@@ -53,6 +53,7 @@ from .store import (
     READ_CONNECT_TIMEOUT_SECONDS,
     READ_STATEMENT_TIMEOUT_MS,
     PUBLISH_PAGE_SIZE,
+    PUBLISH_STATEMENT_TIMEOUT_MS,
     SUPPLEMENTAL_SOURCES_BY_PRIMARY,
     FundamentalsPublishError,
     FundamentalsRepositoryUnavailable,
@@ -96,7 +97,10 @@ WHERE cik = %s
   AND eligible_at <= %s;
 """
 
+# The lock wait gets its own bound; the publish statement timeout resumes after it.
+ISSUER_LOCK_WAIT_MS = 300_000
 LOCK_ISSUER_SQL = "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0));"
+SET_LOCAL_STATEMENT_TIMEOUT_SQL = "SELECT set_config('statement_timeout', %s, true);"
 
 SELECT_BATCH_ROWS_SQL = """
 SELECT ingestion_batch_id, source_adapter, concept_map_version, fiscal_calendar_version, ingested_at
@@ -408,7 +412,9 @@ def publish_incremental(
     concept_map_version, fiscal_calendar_version = batch_keys[0][2], batch_keys[0][3]
 
     def work(cursor) -> IncrementalPublicationReceipt:
+        cursor.execute(SET_LOCAL_STATEMENT_TIMEOUT_SQL, (str(ISSUER_LOCK_WAIT_MS),))
         cursor.execute(LOCK_ISSUER_SQL, (cik,))
+        cursor.execute(SET_LOCAL_STATEMENT_TIMEOUT_SQL, (str(PUBLISH_STATEMENT_TIMEOUT_MS),))
         insert_publication_batches(cursor, batch_keys)
         # The pre-insert state, read inside the same transaction.
         pre_insert = lookup_existing_facts(cursor, facts, batch_keys)

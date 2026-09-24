@@ -337,7 +337,12 @@ def test_the_offline_run_publishes_incrementally_by_default(monkeypatch):
 
 
 def test_the_transaction_takes_the_issuer_lock_first(monkeypatch, history):
-    from src.fundamentals.incremental_publication import LOCK_ISSUER_SQL
+    from src.fundamentals.incremental_publication import (
+        ISSUER_LOCK_WAIT_MS,
+        LOCK_ISSUER_SQL,
+        SET_LOCAL_STATEMENT_TIMEOUT_SQL,
+    )
+    from src.fundamentals.store import PUBLISH_STATEMENT_TIMEOUT_MS
 
     incoming = _publication(_utc(2024, 1, 1), "refresh-4", _utc(2024, 1, 2))
     connection = _transaction(monkeypatch, history, incoming, _utc(2024, 1, 1))
@@ -345,7 +350,12 @@ def test_the_transaction_takes_the_issuer_lock_first(monkeypatch, history):
     publish_incremental(incoming, knowledge_cutoff=_utc(2024, 1, 1), conn=connection)
 
     executed = [event for event in connection.events if event[0] == "execute" and "CREATE" not in event[1]]
-    assert executed[0][1:] == (LOCK_ISSUER_SQL, (CIK,))
+    # The lock wait runs under its own timeout, then the publish timeout resumes.
+    assert [event[1:] for event in executed[:3]] == [
+        (SET_LOCAL_STATEMENT_TIMEOUT_SQL, (str(ISSUER_LOCK_WAIT_MS),)),
+        (LOCK_ISSUER_SQL, (CIK,)),
+        (SET_LOCAL_STATEMENT_TIMEOUT_SQL, (str(PUBLISH_STATEMENT_TIMEOUT_MS),)),
+    ]
 
 
 def test_the_transaction_reads_the_pre_insert_state_before_inserting_and_commits_once(monkeypatch, history):

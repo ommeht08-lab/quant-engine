@@ -63,7 +63,9 @@ new batch (and, for issuers with filing-XBRL compositions, its
   go through a reviewed backfill.
 
 Publications for one issuer take a transaction-scoped advisory lock, so
-overlapping runs serialize instead of refusing each other.
+overlapping runs serialize instead of refusing each other. The lock wait is
+bounded at five minutes, separately from the 15-second publish statement
+timeout; the backfill and refresh workflows also share one concurrency group.
 
 Any mismatch rolls back every batch row and fact from that transaction. The
 command's JSON report gives `inserted_fact_count` (facts in this run's batches)
