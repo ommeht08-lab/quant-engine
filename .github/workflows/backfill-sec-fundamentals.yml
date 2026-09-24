@@ -1,7 +1,10 @@
 name: Backfill SEC fundamentals
 
-# Manual, one-issuer-per-run backfill for pilot issuers that are not yet on the
-# recurring SEC schedule. Each run publishes one immutable ingestion batch, then
+# Manual, one-issuer-per-run backfill for the four pilot issuers: those not yet
+# on the recurring SEC schedule, and scheduled ones (AAPL, MSFT, WMT) whose
+# history must be republished under a reviewed new concept-map or fiscal-
+# calendar version. Adding an issuer here does not add it to the schedule or
+# approve live SEC use. Each run publishes one immutable ingestion batch, then
 # a separate read-only job verifies the published facts at the September 3,
 # 2024 backtest cutoff and at the backfill's own knowledge cutoff. Facts keep
 # each filing's original SEC acceptance time, so the historical query selects
@@ -13,10 +16,11 @@ name: Backfill SEC fundamentals
   workflow_dispatch:
     inputs:
       cik:
-        description: "Issuer to backfill (789019 MSFT, 104169 WMT, 18230 CAT)"
+        description: "Issuer to backfill (320193 AAPL, 789019 MSFT, 104169 WMT, 18230 CAT)"
         required: true
         type: choice
         options:
+          - "320193"
           - "789019"
           - "104169"
           - "18230"
@@ -94,7 +98,7 @@ jobs:
           ISSUER_CIK: ${{ inputs.cik }}
         run: |
           case "${ISSUER_CIK}" in
-            789019|104169|18230) ;;
+            320193|789019|104169|18230) ;;
             *) echo "Unsupported backfill issuer." >&2; exit 1 ;;
           esac
           knowledge_cutoff="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
