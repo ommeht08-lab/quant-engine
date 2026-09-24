@@ -21,11 +21,15 @@ name: Verify SEC refresh (read-only rehearsal)
 # touch the recurring refresh schedule, CAT's readiness, or any other
 # production state.
 #
-# One issuer per dispatch, on purpose: batch_id and publish_cutoff must be the
-# exact values recorded for that issuer's already-published batch (see PR #52
-# for how these are read back from the refresh workflow's own job output),
-# not chosen freely. The batch_id is cross-checked against the selected cik so
-# a mismatched pair fails before any query runs.
+# One issuer per dispatch, on purpose: batch_id and publish_cutoff should be
+# the exact values recorded for that issuer's already-published batch (see PR
+# #52 for how these are read back from the refresh workflow's own job
+# output). This workflow does not check that against the production run log:
+# the input-checking step below only validates batch_id's shape against the
+# selected issuer's expected prefix and that publish_cutoff is a validly
+# formatted UTC timestamp. A well-formed but wrong or unpublished value is not
+# caught here; it surfaces as a mismatch report (or a download-side lookup
+# failure) from sec_backfill_verification itself.
 "on":
   workflow_dispatch:
     inputs:
@@ -51,8 +55,9 @@ permissions:
 
 jobs:
   # Same compile/lint/test gate the other SEC workflows run before touching
-  # production, so a bad edit to this file or to the verifier fails here
-  # instead of against the live database.
+  # production. This checks the Python verifier (compileall, pyflakes,
+  # pytest), not this workflow file itself, so a bad edit to the verifier's
+  # code fails here instead of against the live database.
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -97,7 +102,7 @@ jobs:
           python -m pip install --disable-pip-version-check
           "requests==2.32.5" "psycopg2-binary==2.9.12"
 
-      - name: Check the batch ID belongs to the selected issuer
+      - name: Check batch-ID shape and cutoff timestamp format
         env:
           ISSUER_CIK: ${{ inputs.cik }}
           BATCH_ID: ${{ inputs.batch_id }}
