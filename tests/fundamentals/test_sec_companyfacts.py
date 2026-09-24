@@ -772,8 +772,8 @@ class TestIssuerScopedMappingPolicy:
         assert concept_map_for_issuer("320193") is SEC_CONCEPT_MAP_V2
         for cik in ("789019", "104169"):
             assert concept_map_for_issuer(cik) is SEC_CONCEPT_MAP_V3
-        # Caterpillar moved to v4 for its filing-XBRL term-debt composition.
-        assert concept_map_for_issuer("18230").version == "sec-companyfacts-v4"
+        # Caterpillar: v4 term-debt composition, v5 derived net income.
+        assert concept_map_for_issuer("18230").version == "sec-companyfacts-v5"
 
     def test_unassigned_issuer_has_no_mapping_policy(self):
         with pytest.raises(ConceptMapUnavailable, match="0000000001"):

@@ -107,14 +107,16 @@ SEC_ISSUER_MANIFEST_V1: Tuple[IssuerValuationPolicy, ...] = (
         fiscal_calendar_version=_calendar_version("0000018230"),
         concept_map_version=_concept_map_version("0000018230"),
         supplemental_source_adapters=_supplemental_source_adapters("0000018230"),
-        # Batch backfill-18230-35778836391-1 (v3) lacks term debt, so SEC
-        # valuation refused; v4 composes it from filing XBRL and needs its own
-        # verified backfill before this issuer is SEC-history ready again.
+        # Batch backfill-18230-35778836391-1 (v3) lacks term debt and net
+        # income; v5 composes term debt from filing XBRL and derives net income
+        # by the ASC 810 identity, and needs its own verified backfill before
+        # this issuer is SEC-history ready again.
         sec_history_ready=False,
         sec_live_approved=False,
         readiness_reason=(
-            "Concept map sec-companyfacts-v4 composes consolidated term debt from filing "
-            "XBRL; SEC history is not ready until a v4 backfill is published and verified."
+            "Concept map sec-companyfacts-v5 composes consolidated term debt from filing "
+            "XBRL and derives net income attributable to the parent; SEC history is not "
+            "ready until a v5 backfill is published and verified."
         ),
     ),
 )

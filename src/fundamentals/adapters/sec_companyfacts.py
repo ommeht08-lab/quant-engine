@@ -47,6 +47,8 @@ class SecIngestionIssueCode(str, Enum):
     SYNONYM_CONFLICT = "synonym_conflict"
     NO_MAPPED_FACTS = "no_mapped_facts"
     NO_ELIGIBLE_FACTS = "no_eligible_facts"
+    DERIVED_COMPONENT_MISSING = "derived_component_missing"
+    DERIVED_CROSS_CHECK_MISMATCH = "derived_cross_check_mismatch"
 
 
 @dataclass(frozen=True)
@@ -509,6 +511,121 @@ def _extract_entry(
     )
 
 
+def _derived_flow_entries(fact_namespaces, flows, period_end_floor):
+    """[(flow, role, tag, unit, entry)] for every raw component or cross-check entry.
+
+    Only payload shape is enforced here. Each entry of a filing that is public
+    at the cutoff and inside the window is later validated as strictly as a
+    mapped tag (metadata, dimensions, unit, geometry).
+    """
+
+    collected = []
+    for flow in flows:
+        for role, (taxonomy, tag) in (
+            [("minuend", flow.minuend), ("subtrahend", flow.subtrahend)]
+            + [("cross_check", tag) for tag in flow.cross_checks]
+        ):
+            namespace = fact_namespaces.get(taxonomy)
+            tag_payload = namespace.get(tag) if isinstance(namespace, Mapping) else None
+            units = tag_payload.get("units") if isinstance(tag_payload, Mapping) else None
+            if not isinstance(units, Mapping):
+                continue
+            for unit, entries in units.items():
+                if not isinstance(entries, Sequence) or isinstance(entries, (str, bytes)):
+                    _fail(SecIngestionIssueCode.INVALID_PAYLOAD, f"Entries for {tag}/{unit} must be an array.")
+                for entry in entries:
+                    if not isinstance(entry, Mapping):
+                        _fail(SecIngestionIssueCode.INVALID_PAYLOAD, f"Each {tag}/{unit} entry must be an object.")
+                    if entry.get("form") not in _SUPPORTED_FORMS:
+                        continue
+                    # As on the mapped path, only the period floor is applied
+                    # here; unit, start, and date validity are checked in
+                    # _derive_flows after future and out-of-window filings are
+                    # excluded, so later filings never affect an as-of run.
+                    raw_end = entry.get("end")
+                    if period_end_floor is not None and isinstance(raw_end, str):
+                        try:
+                            if date.fromisoformat(raw_end) < period_end_floor:
+                                continue
+                        except ValueError:
+                            pass
+                    collected.append((flow, role, tag, unit, entry))
+    return collected
+
+
+def _derived_rule(flow, raw_tag: str) -> ConceptRule:
+    return ConceptRule(
+        taxonomy="us-gaap",
+        raw_tag=raw_tag,
+        canonical_concept=flow.canonical_concept,
+        statement_kind=StatementKind.INCOME_STATEMENT,
+        period_type=FactPeriodType.DURATION,
+        allowed_units=("USD",),
+    )
+
+
+def _derive_flows(derived_entries, flows, *, excluded_accessions, extract):
+    """Apply each derived-flow identity within one filing, period, and unit."""
+
+    derived = []
+    for flow in flows:
+        groups = {}
+        for item_flow, role, tag, unit, entry in derived_entries:
+            if item_flow is not flow or entry.get("accn") in excluded_accessions:
+                continue
+            key = (entry.get("accn"), entry.get("start"), entry.get("end"), unit)
+            groups.setdefault(key, {}).setdefault(role, []).append((tag, entry))
+        rule = _derived_rule(flow, flow.raw_tag)
+        ordered = sorted(groups.items(), key=lambda item: tuple(repr(part) for part in item[0]))
+        # Every contributing entry passes the same filing-metadata, dimension,
+        # unit, and geometry checks as a directly mapped tag -- all of them,
+        # before any value is derived, so a malformed entry refuses with its
+        # own code rather than surfacing as a missing component.
+        for (_, _, _, unit), roles in ordered:
+            for items in roles.values():
+                for tag, entry in items:
+                    extract(_derived_rule(flow, tag), unit, entry)
+        for (accession, start, end, unit), roles in ordered:
+            if "minuend" not in roles and "subtrahend" not in roles:
+                continue  # a cross-check reported alone (e.g. a 10-K quarterly note)
+            values = {}
+            for role in ("minuend", "subtrahend"):
+                reported = {
+                    _parse_decimal(entry.get("val"), accession, flow.raw_tag) for _, entry in roles.get(role, [])
+                }
+                if len(reported) != 1:
+                    _fail(
+                        SecIngestionIssueCode.DERIVED_COMPONENT_MISSING,
+                        f"{flow.raw_tag} needs exactly one {role} value in {accession} for {start}..{end}.",
+                        accession_number=accession,
+                        raw_tags=(flow.raw_tag,),
+                    )
+                values[role] = reported.pop()
+            value = values["minuend"] - values["subtrahend"]
+            for _, entry in roles.get("cross_check", []):
+                if _parse_decimal(entry.get("val"), accession, flow.raw_tag) != value:
+                    _fail(
+                        SecIngestionIssueCode.DERIVED_CROSS_CHECK_MISMATCH,
+                        f"{flow.raw_tag} ({value}) disagrees with a reported cross-check in "
+                        f"{accession} for {start}..{end}.",
+                        accession_number=accession,
+                        raw_tags=(flow.raw_tag,),
+                    )
+            # One derived fact per distinct fiscal labelling of the minuend,
+            # as a directly tagged fact would give one fact per entry. Labels
+            # come from the minuend only; the other entries supply values.
+            labellings = {}
+            for _, entry in roles["minuend"]:
+                labellings.setdefault((entry.get("fy"), entry.get("fp"), entry.get("frame")), entry)
+            for labelling in sorted(labellings, key=repr):
+                template = dict(labellings[labelling])
+                template["val"] = str(value)
+                fact = extract(rule, unit, template)
+                if fact is not None:
+                    derived.append(fact)
+    return derived
+
+
 def _reject_synonym_conflicts(facts: Iterable[SecExtractedFact]) -> None:
     groups: Dict[Tuple[Any, ...], list[SecExtractedFact]] = {}
     for fact in facts:
@@ -631,9 +748,12 @@ def extract_sec_company_facts(
                             continue
                     mapped_entries.append((rule, unit, entry))
 
+        derived_entries = _derived_flow_entries(
+            fact_namespaces, concept_map.derived_flows_for(normalized_cik), period_end_floor
+        )
         relevant_accessions = frozenset(
             entry.get("accn")
-            for _rule, _unit, entry in mapped_entries
+            for _rule, _unit, entry in mapped_entries + [item[2:] for item in derived_entries]
             if isinstance(entry.get("form"), str)
             and entry.get("form") in _SUPPORTED_FORMS
             and isinstance(entry.get("accn"), str)
@@ -667,6 +787,24 @@ def extract_sec_company_facts(
             )
             if fact is not None:
                 extracted.append(fact)
+        extracted.extend(
+            _derive_flows(
+                derived_entries,
+                concept_map.derived_flows_for(normalized_cik),
+                excluded_accessions=future_accessions | outside_window_accessions,
+                extract=lambda rule, unit, entry: _extract_entry(
+                    entry=entry,
+                    rule=rule,
+                    unit=unit,
+                    cik=normalized_cik,
+                    entity_name=entity_name,
+                    metadata_by_accession=metadata,
+                    concept_map=concept_map,
+                    ingestion_batch_id=ingestion_batch_id,
+                    ingested_at=ingested_at,
+                ),
+            )
+        )
         if not extracted:
             if excluded_future_count:
                 _fail(

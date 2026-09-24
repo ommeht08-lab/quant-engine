@@ -94,12 +94,13 @@ def test_manifest_contains_the_exact_pilot_universe_without_implying_cutover():
         assert policy.supplemental_source_adapters == ()
         assert policy.sec_history_ready is True
         assert VERIFIED_BACKFILL_BATCHES[ticker] in policy.readiness_reason
-    # Caterpillar's v4 term-debt composition needs its own verified backfill.
+    # Caterpillar's v5 policy (filing-XBRL term debt, derived net income)
+    # needs its own verified backfill.
     cat = issuer_policy_for("CAT")
-    assert cat.concept_map_version == "sec-companyfacts-v4"
+    assert cat.concept_map_version == "sec-companyfacts-v5"
     assert cat.supplemental_source_adapters == ("sec_filing_xbrl",)
     assert cat.sec_history_ready is False
-    assert "v4 backfill" in cat.readiness_reason
+    assert "v5 backfill" in cat.readiness_reason
 
 
 def test_auto_reports_yahoo_and_the_reason_sec_was_not_used():
