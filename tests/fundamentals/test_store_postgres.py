@@ -16,6 +16,11 @@ import pytest
 
 from src.fundamentals.adapters.fixture import make_fact, make_lineage, make_period, make_provenance
 from src.fundamentals.repository import FundamentalsQuery
+from src.fundamentals.segment_gross_margin import (
+    CAT_MET_SUPPLEMENTAL_RULE,
+    SegmentGrossMarginRefusal,
+    load_segment_gross_margin_pair,
+)
 from src.fundamentals.store import (
     FundamentalsPublishError,
     PostgresFundamentalsRepository,
@@ -23,6 +28,7 @@ from src.fundamentals.store import (
     ensure_schema,
 )
 from src.fundamentals.types import StatementKind
+from tests.fundamentals.segment_margin_fixtures import CAT_CALENDAR, INGESTED_AT, PILOT_CUTOFF, pilot_facts
 
 DATABASE_URL = os.getenv("FUNDAMENTALS_TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(
@@ -411,3 +417,24 @@ def test_swapped_or_shared_batch_ids_write_nothing(empty_store, ids):
         append_facts(facts, database_url=DATABASE_URL)
 
     assert _store_contents() == ([], [])
+
+
+def test_segment_document_facts_round_trip_and_reproduce_the_cat_margin(empty_store):
+    facts = pilot_facts()
+    append_facts(facts, database_url=DATABASE_URL)
+    repository = PostgresFundamentalsRepository(database_url=DATABASE_URL)
+
+    def pair(vintage):
+        return load_segment_gross_margin_pair(
+            repository, rule=CAT_MET_SUPPLEMENTAL_RULE, fiscal_calendar_version=CAT_CALENDAR.version,
+            knowledge_cutoff=PILOT_CUTOFF, data_vintage_cutoff=vintage,
+            latest_end=dt.date(2024, 6, 30), prior_end=dt.date(2023, 6, 30),
+        )
+
+    result = pair(INGESTED_AT)
+    assert result.current == Decimal(21605) / Decimal(63025)
+    assert result.prior == Decimal(18803) / Decimal(61793)
+    stored = {(item.accession_number, item.raw_tag) for item in result.components}
+    assert stored <= {(fact.provenance.accession_number, fact.raw_tag) for fact in facts}
+    with pytest.raises(SegmentGrossMarginRefusal, match="missing"):
+        pair(INGESTED_AT - dt.timedelta(microseconds=1))
