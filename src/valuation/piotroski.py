@@ -36,7 +36,7 @@ hitting Yahoo Finance again.
 """
 
 import logging
-from typing import Optional
+from typing import Optional, Tuple
 
 import pandas as pd
 
@@ -166,10 +166,17 @@ def calculate_f_score_from_statements(
     income_stmt: Optional[pd.DataFrame],
     balance_sheet: Optional[pd.DataFrame],
     cash_flow: Optional[pd.DataFrame],
+    *,
+    gross_margin_override: Optional[Tuple[float, float]] = None,
 ) -> int:
     """The F-Score from already-fetched statements whose two most recent
     columns are the current (t) and prior (t-1) periods. Pure: shared by
-    the live screen and point-in-time backtests."""
+    the live screen and point-in-time backtests.
+
+    ``gross_margin_override`` supplies (current, prior) margins for factor 8
+    only, for an issuer whose gross margin must use an approved segment basis.
+    Every other factor, including asset turnover, still reads the statements.
+    """
     income_t, income_t1 = _two_most_recent_columns(income_stmt)
     balance_t, balance_t1 = _two_most_recent_columns(balance_sheet)
     cash_t, _ = _two_most_recent_columns(cash_flow)
@@ -184,8 +191,11 @@ def calculate_f_score_from_statements(
     current_ratio_t1 = _current_ratio(balance_sheet, balance_t1)
     shares_t = _shares_issued(balance_sheet, balance_t)
     shares_t1 = _shares_issued(balance_sheet, balance_t1)
-    gross_margin_t = _gross_margin(income_stmt, income_t)
-    gross_margin_t1 = _gross_margin(income_stmt, income_t1)
+    if gross_margin_override is not None:
+        gross_margin_t, gross_margin_t1 = gross_margin_override
+    else:
+        gross_margin_t = _gross_margin(income_stmt, income_t)
+        gross_margin_t1 = _gross_margin(income_stmt, income_t1)
     asset_turnover_t = _asset_turnover(income_stmt, balance_sheet, income_t, balance_t)
     asset_turnover_t1 = _asset_turnover(income_stmt, balance_sheet, income_t1, balance_t1)
 

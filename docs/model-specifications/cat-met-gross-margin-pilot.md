@@ -1,10 +1,13 @@
-# CAT ME&T gross-margin policy, pilot evidence
+# CAT ME&T gross-margin policy
 
-Status: approved measurement policy; **not wired into the backtest or live model**.
+Status: approved measurement policy. The audited source and the pilot
+integration are implemented but **no segment facts are published**, so
+until a reviewed backfill publishes them the pilot refuses CAT (see "Before
+a pilot run"). The live valuation route is unchanged.
 
 The Piotroski gross-margin factor compares two trailing-year margins. For CAT,
-use Machinery, Energy & Transportation (ME&T) sales and ME&T cost of goods sold
-on **both** sides of the ratio:
+use Machinery, Energy & Transportation (ME&T) sales and ME&T cost of goods
+sold on **both** sides of the ratio:
 
 `ME&T gross margin = (ME&T sales - ME&T cost of goods sold) / ME&T sales`.
 
@@ -15,43 +18,89 @@ Do not combine an isolated CAT `GrossProfit` tag with consolidated revenue or
 cost of revenue. This policy is issuer-specific; draft PR #50's broad fallback
 is not its implementation.
 
-## Frozen evidence for the September 3, 2024 pilot
+## Source
 
-Values are USD millions, manually transcribed from the cited SEC filings.
-The accession is the **filing that reported the selected value**, not
-necessarily the original filing for that comparative period. All three
-filings were accepted before the pilot's September 3, 2024 knowledge cutoff.
+CAT prints the ME&T columns in the "Supplemental Data for Results of
+Operations" tables of every 10-K and 10-Q, but tags none of them in XBRL
+(the FY2023 10-K tags ME&T sales only as consolidated `Revenues`; ME&T cost
+of goods sold of 42,776 is untagged). Company Facts and filing XBRL
+therefore cannot supply it. `src/fundamentals/adapters/sec_filing_document.py`
+reads the tables from each filing's primary HTML document under
+`CAT_MET_SUPPLEMENTAL_RULE` (`src/fundamentals/segment_gross_margin.py`,
+version `cat-met-supplemental-results-v1`) and refuses a changed layout,
+an unreadable cell, a missing or duplicated row, a table whose columns do
+not add up to its Consolidated column, or two disagreeing copies of one
+period in a document.
 
-| Period | ME&T sales | ME&T COGS | Source filing, acceptance (UTC) |
-| --- | ---: | ---: | --- |
-| FY2022 | 56,574 | 41,356 | [FY2023 10-K](https://www.sec.gov/Archives/edgar/data/18230/000001823024000009/cat-20231231.htm), `0000018230-24-000009`, 2024-02-16 15:05:13 |
-| FY2023 | 63,869 | 42,776 | [FY2023 10-K](https://www.sec.gov/Archives/edgar/data/18230/000001823024000009/cat-20231231.htm), `0000018230-24-000009`, 2024-02-16 15:05:13 |
-| H1 2022 | 26,425 | 19,538 | [Q2 2023 8-K exhibit](https://www.sec.gov/Archives/edgar/data/18230/000001823023000044/ex991toformcat2q2023earnin.htm), `0000018230-23-000044`, 2023-08-01 10:31:57 |
-| H1 2023 | 31,644 | 21,172 | [Q2 2024 8-K exhibit](https://www.sec.gov/Archives/edgar/data/18230/000001823024000042/ex991toformcat2q2024earnin.htm), `0000018230-24-000042`, 2024-08-06 10:32:05 |
-| H1 2024 | 30,800 | 19,816 | [Q2 2024 8-K exhibit](https://www.sec.gov/Archives/edgar/data/18230/000001823024000042/ex991toformcat2q2024earnin.htm), `0000018230-24-000042`, 2024-08-06 10:32:05 |
+Facts are ordinary `FinancialFact`s with source adapter `sec_filing_document`,
+dimension `srt:ProductOrServiceAxis = cat:MachineryEnergyTransportationMember`
+(CAT's own XBRL member), filing provenance (accession, form, acceptance time
+from SEC submissions metadata), and lineage (document URL, document SHA-256
+in `raw_tag`, rule version, ingestion batch, ingestion time). They publish
+through the existing append-only store in a `+sec_filing_document` batch.
 
-`TTM Jun 2024 = FY2023 + H1 2024 - H1 2023`: sales 63,025; COGS
-41,420; margin 34.2800476002%. `TTM Jun 2023 = FY2022 + H1 2023 - H1
-2022`: sales 61,793; COGS 42,990; margin 30.4290129950%. The gross-margin
-factor alone would be 1 at this date. This says nothing about CAT's other
-gates or any investment return.
+Only 10-K/10-Q documents (and amendments) are read, never earnings 8-Ks:
+they are the filings the CAT fiscal calendar classifies. The source is
+therefore at most a few days later than a press release (the Q2 2024 10-Q
+followed the 8-K by one day); every 8-K figure compared below is identical.
 
-## Fail-closed integration criteria
+Point-in-time rules (`load_segment_gross_margin_pair`):
 
-The frozen calculation in `src/backtesting/cat_met_margin.py` deliberately
-supports only this pair of trailing-year periods. It refuses a missing or
-duplicated observation, a filing not public by the knowledge cutoff, an
-evidence capture after the data-vintage cutoff, or an unsupported period.
+* only facts accepted by the knowledge cutoff and ingested by the
+  data-vintage cutoff are read; a repository returning anything else refuses;
+* a later-accepted filing supersedes an earlier value for the same period
+  from its acceptance onward; superseded and corroborating filings are
+  recorded per component;
+* values that cannot be ordered (one filing reporting two, or two filings
+  accepted at the same instant) refuse, as does any missing component.
 
-Before it can affect a backtest, a separate reviewed change must:
+## Independent verification (September 3, 2024 pilot)
 
-1. Place segment evidence behind an audited source seam, without treating
-   manually transcribed values as ordinary Company Facts. Record the exhibit
-   URL, accession, acceptance time, capture time, and policy version in the
-   result; verify the five values independently from the cited filings.
-2. Pass the ME&T margin pair only to Piotroski's **gross-margin factor**.
-   Keep consolidated revenue for asset turnover and all other factors. Never
-   mix ME&T numerator with consolidated denominator.
-3. Refuse CAT if either margin cannot be reproduced at both cutoffs. Leave
-   the live valuation and all other issuers unchanged, and label any new
-   pilot run as pipeline validation rather than performance evidence.
+USD millions, ME&T column. Each value was read from the SEC filing and
+matches PR #56's manual transcription. Acceptance times are SEC submissions
+metadata in UTC (EDGAR index pages show the same instants in Eastern time).
+
+| Period | ME&T sales | ME&T COGS | Filing the source uses (accepted, UTC) | Also reported, identical |
+| --- | ---: | ---: | --- | --- |
+| FY2022 | 56,574 | 41,356 | FY2023 10-K `0000018230-24-000009` (2024-02-16 15:05:13) | FY2022 10-K `0000018230-23-000011` |
+| FY2023 | 63,869 | 42,776 | FY2023 10-K `0000018230-24-000009` (2024-02-16 15:05:13) | none compared (the Q4 2023 earnings 8-K `0000018230-24-000005`, accepted 2024-02-05, was earlier; not checked) |
+| H1 2022 | 26,425 | 19,538 | Q2 2023 10-Q `0000018230-23-000047` (2023-08-02 14:16:35) | Q2 2023 8-K `0000018230-23-000044` (PR #56's citation) |
+| H1 2023 | 31,644 | 21,172 | Q2 2024 10-Q `0000018230-24-000045` (2024-08-07 14:40:25) | Q2 2023 10-Q; Q2 2023 and Q2 2024 8-Ks |
+| H1 2024 | 30,800 | 19,816 | Q2 2024 10-Q `0000018230-24-000045` (2024-08-07 14:40:25) | Q2 2024 8-K `0000018230-24-000042` (PR #56's citation) |
+
+PR #56's cited accessions and acceptance times (10-K 2024-02-16 15:05:13;
+8-Ks 2023-08-01 10:31:57 and 2024-08-06 10:32:05 UTC) are also correct. No
+period was restated between filings.
+
+`TTM Jun 2024 = FY2023 + H1 2024 - H1 2023`: sales 63,025; COGS 41,420;
+margin 34.2800476002%. `TTM Jun 2023 = FY2022 + H1 2023 - H1 2022`: sales
+61,793; COGS 42,990; margin 30.4290129950%. The gross-margin factor alone
+would be 1 at this date. This says nothing about CAT's other gates or any
+investment return.
+
+## Pilot integration
+
+`src/backtesting/sec_pilot.py` (policy `sec-backtest-pilot-v2`):
+
+1. For an issuer with a segment rule (CAT only), the quality statements omit
+   consolidated gross profit and cost of revenue, which nothing else reads.
+2. The ME&T pair for the same two trailing-year ends as the consolidated
+   statements is passed to Piotroski as `gross_margin_override`, which
+   replaces factor 8 only. Asset turnover and every other factor, and every
+   other issuer, keep consolidated figures.
+3. If the pair cannot be reproduced, CAT is refused before valuation, so it
+   never enters the sector medians. The record carries the pair's full
+   provenance under `segment_gross_margin`.
+
+The manually transcribed constants are no longer in `src/`; they remain in
+`tests/fundamentals/test_segment_gross_margin.py` only as an independent
+oracle the source must match.
+
+## Before a pilot run
+
+Each step needs separate approval: a dry run of `run_segment_document_dry_run`
+for CAT against live SEC data (every periodic filing in the calendar, not
+only the three used here), review of its document hashes, publication of the
+resulting batch, verification at the 2024-09-03 and publish cutoffs, and only
+then a pilot run labeled pipeline validation rather than performance
+evidence.

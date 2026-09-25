@@ -68,6 +68,11 @@ from src.dcf_model.dcf import extract_valuation_inputs, run_dcf_valuation
 from src.fundamentals.issuer_manifest import IssuerValuationPolicy
 from src.fundamentals.quarterly import assemble_quarterly_fundamentals
 from src.fundamentals.repository import FundamentalsQuery
+from src.fundamentals.segment_gross_margin import (
+    SegmentGrossMarginRefusal,
+    load_segment_gross_margin_pair,
+    segment_gross_margin_rule_for,
+)
 from src.fundamentals.selection import select_point_in_time
 from src.fundamentals.time_policy import knowledge_cutoff_for_date
 from src.fundamentals.types import FundamentalHistory
@@ -94,7 +99,9 @@ from src.valuation_input import (
 
 logger = logging.getLogger(__name__)
 
-PILOT_POLICY_VERSION = "sec-backtest-pilot-v1"
+# v2: an issuer with an approved segment gross-margin rule (CAT's ME&T) uses
+# that basis for the Piotroski gross-margin factor only, or is refused.
+PILOT_POLICY_VERSION = "sec-backtest-pilot-v2"
 PILOT_RESULT_LABEL = "pipeline_validation"
 PILOT_DISCLAIMER = (
     "Pipeline validation only. Four companies and one formation date cannot "
@@ -270,6 +277,8 @@ class SecQualityStatements:
     ingestion_batch_ids: Tuple[str, ...]
     filing_accessions: Tuple[str, ...]
     approximations: Tuple[str, ...]
+    # The (t, t-1) trailing-year ends of the income-statement columns.
+    income_period_ends: Tuple[date, date]
 
 
 def _balance_value(period_facts, concept: str) -> Optional[float]:
@@ -285,13 +294,19 @@ def _year_ago(items, key_end, latest_end: date):
     return min(candidates, key=lambda item: abs((key_end(item) - target).days)) if candidates else None
 
 
-def build_sec_quality_statements(history: FundamentalHistory) -> Optional[SecQualityStatements]:
-    """Two comparable periods, one year apart, from point-in-time SEC facts."""
+def build_sec_quality_statements(
+    history: FundamentalHistory, *, optional_concepts: Tuple[str, ...] = _QUALITY_FLOW_OPTIONAL
+) -> Optional[SecQualityStatements]:
+    """Two comparable periods, one year apart, from point-in-time SEC facts.
+
+    ``optional_concepts=()`` omits the consolidated gross-profit rows, for an
+    issuer whose gross-margin factor uses an approved segment basis instead.
+    """
 
     quarterly = assemble_quarterly_fundamentals(
         history,
         required_concepts=_QUALITY_FLOW_REQUIRED,
-        optional_concepts=_QUALITY_FLOW_OPTIONAL,
+        optional_concepts=optional_concepts,
     )
     if not quarterly.is_complete:
         return None
@@ -398,14 +413,17 @@ def build_sec_quality_statements(history: FundamentalHistory) -> Optional[SecQua
         ingestion_batch_ids=tuple(sorted({fact.lineage.ingestion_batch_id for fact in facts})),
         filing_accessions=tuple(sorted({fact.provenance.accession_number for fact in facts})),
         approximations=tuple(approximations),
+        income_period_ends=(latest_end, prior_end),
     )
 
 
-def describe_quality_gap(history: FundamentalHistory) -> str:
+def describe_quality_gap(
+    history: FundamentalHistory, *, optional_concepts: Tuple[str, ...] = _QUALITY_FLOW_OPTIONAL
+) -> str:
     """Name what ``build_sec_quality_statements`` could not find."""
 
     quarterly = assemble_quarterly_fundamentals(
-        history, required_concepts=_QUALITY_FLOW_REQUIRED, optional_concepts=_QUALITY_FLOW_OPTIONAL
+        history, required_concepts=_QUALITY_FLOW_REQUIRED, optional_concepts=optional_concepts
     )
     if not quarterly.is_complete:
         issue = quarterly.issues[0]
@@ -459,6 +477,8 @@ class IssuerDecision:
     target_weight: float = 0.0
     approximations: List[str] = field(default_factory=list)
     sec_provenance: Optional[dict] = None
+    # Present only for an issuer with an approved segment gross-margin rule.
+    segment_gross_margin: Optional[dict] = None
 
 
 def _provenance_dict(provenance: ValuationInputProvenance, quality: Optional[SecQualityStatements]) -> dict:
@@ -513,19 +533,43 @@ def decide_portfolio(
             record.reason = "Loader returned a non-SEC source; refusing."
             continue
         policy = manifest_lookup(issuer.ticker)
+        segment_rule = segment_gross_margin_rule_for(policy.cik)
+        # A segment-basis issuer's consolidated gross profit is never used.
+        optional_concepts = () if segment_rule is not None else _QUALITY_FLOW_OPTIONAL
         try:
             history = load_sec_quality_history(repository, policy, cutoff, data_vintage_cutoff)
-            quality = build_sec_quality_statements(history)
+            quality = build_sec_quality_statements(history, optional_concepts=optional_concepts)
         except (ValueError, RuntimeError) as error:
             quality = None
             record.reason = f"SEC quality history unavailable: {error}"
         record.sec_provenance = _provenance_dict(valuation_input.provenance, quality)
         if quality is None:
             record.reason = record.reason or (
-                "SEC quality statements are incomplete at the cutoff: " + describe_quality_gap(history)
+                "SEC quality statements are incomplete at the cutoff: "
+                + describe_quality_gap(history, optional_concepts=optional_concepts)
             )
             continue
         record.approximations.extend(quality.approximations)
+        gross_margin_override = None
+        if segment_rule is not None:
+            # Refused before valuation, so a refused issuer never enters the
+            # sector medians the other issuers are scored against.
+            try:
+                segment = load_segment_gross_margin_pair(
+                    repository,
+                    rule=segment_rule,
+                    fiscal_calendar_version=policy.fiscal_calendar_version,
+                    knowledge_cutoff=cutoff,
+                    data_vintage_cutoff=data_vintage_cutoff,
+                    latest_end=quality.income_period_ends[0],
+                    prior_end=quality.income_period_ends[1],
+                )
+            except SegmentGrossMarginRefusal as error:
+                record.reason = f"SEC segment gross margin refused: {error}"
+                continue
+            record.segment_gross_margin = segment.audit_record()
+            record.approximations.append("piotroski_gross_margin_segment_basis")
+            gross_margin_override = (segment.current, segment.prior)
 
         financial_data = dict(valuation_input.financial_data)
         assumptions = valuation_input.default_assumptions
@@ -580,7 +624,10 @@ def decide_portfolio(
         # earlier gate decides the outcome; the gates still apply in live order.
         record.trend_passes = trend_passes_at(prices, issuer.ticker, decision)
         record.piotroski_f_score = calculate_f_score_from_statements(
-            quality.income_stmt, quality.balance_sheet, quality.cash_flow
+            quality.income_stmt,
+            quality.balance_sheet,
+            quality.cash_flow,
+            gross_margin_override=gross_margin_override,
         )
         record.rsi = rsi_at(prices, issuer.ticker, decision)
 
