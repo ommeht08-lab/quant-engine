@@ -21,16 +21,25 @@ is not its implementation.
 ## Source
 
 CAT prints the ME&T columns in the "Supplemental Data for Results of
-Operations" tables of every 10-K and 10-Q, but tags none of them in XBRL
-(the FY2023 10-K tags ME&T sales only as consolidated `Revenues`; ME&T cost
-of goods sold of 42,776 is untagged). Company Facts and filing XBRL
-therefore cannot supply it. `src/fundamentals/adapters/sec_filing_document.py`
-reads the tables from each filing's primary HTML document under
+Operations" tables of every 10-K and 10-Q. ME&T sales are dimension-tagged
+in XBRL: the FY2023 10-K tags 63,869 (FY2023) and 56,574 (FY2022) as
+`us-gaap:Revenues` with `cat:MachineryEnergyTransportationMember`. ME&T cost
+of goods sold is not tagged (42,776 for FY2023 appears only as text), so
+Company Facts and filing XBRL cannot supply the cost side, and the margin
+needs both sides from one presentation. `src/fundamentals/adapters/sec_filing_document.py`
+therefore reads both rows from each filing's primary HTML document under
 `CAT_MET_SUPPLEMENTAL_RULE` (`src/fundamentals/segment_gross_margin.py`,
-version `cat-met-supplemental-results-v1`) and refuses a changed layout,
+version `cat-met-supplemental-results-v2`) and refuses a changed layout,
 an unreadable cell, a missing or duplicated row, a table whose columns do
 not add up to its Consolidated column, or two disagreeing copies of one
 period in a document.
+
+Because a value shifted into a neighbouring column can still add up, each
+row must also meet the rule's declared invariants: the ME&T value is
+positive, Financial Products (which never reports these lines) is zero, and
+the consolidating adjustment is at most 1% of Consolidated (the largest in
+the filings reviewed is 9 of 42,767). A rule cannot be built without one
+invariant per row.
 
 Facts are ordinary `FinancialFact`s with source adapter `sec_filing_document`,
 dimension `srt:ProductOrServiceAxis = cat:MachineryEnergyTransportationMember`
@@ -40,9 +49,16 @@ in `raw_tag`, rule version, ingestion batch, ingestion time). They publish
 through the existing append-only store in a `+sec_filing_document` batch.
 
 Only 10-K/10-Q documents (and amendments) are read, never earnings 8-Ks:
-they are the filings the CAT fiscal calendar classifies. The source is
-therefore at most a few days later than a press release (the Q2 2024 10-Q
-followed the 8-K by one day); every 8-K figure compared below is identical.
+they are the filings the CAT fiscal calendar classifies. The source can
+therefore lag the press release (the Q2 2024 10-Q followed the 8-K by one
+day); every 8-K figure compared below is identical.
+
+Every filing accepted by the cutoff must contain a recognized table. An
+amendment without one refuses the dry run unless its accession is listed,
+with a reviewed reason, in `REVIEWED_AMENDMENTS_WITHOUT_TABLE` (empty for
+CAT: no amendment has been reviewed). A listed amendment still refuses if it
+contains the table, or any row the rule reads under an unrecognized layout,
+so a restating amendment can never leave a superseded value in place.
 
 Point-in-time rules (`load_segment_gross_margin_pair`):
 

@@ -41,7 +41,9 @@ from .adapters.sec_filing_document import (
     SOURCE_ADAPTER,
     FilingDocumentError,
     FilingDocumentReference,
+    RowInvariant,
     SupplementalTableRule,
+    contains_rule_rows,
     extract_supplemental_facts,
 )
 from .fiscal_calendar import IssuerFiscalCalendarPolicy
@@ -58,7 +60,7 @@ _YEAR_TO_DATE = frozenset(("Q1", "Q2YTD", "Q3YTD"))
 
 CAT_MET_SUPPLEMENTAL_RULE = SupplementalTableRule(
     cik="0000018230",
-    version="cat-met-supplemental-results-v1",
+    version="cat-met-supplemental-results-v2",
     title="Supplemental Data for Results of Operations",
     column_groups=(
         "Consolidated",
@@ -76,6 +78,14 @@ CAT_MET_SUPPLEMENTAL_RULE = SupplementalTableRule(
     dimension=("srt:ProductOrServiceAxis", "cat:MachineryEnergyTransportationMember"),
     scale_label="(Millions of dollars)",
     scale=Decimal(1_000_000),
+    # Financial Products never sells ME&T products or books cost of goods
+    # sold (a dash in every filing reviewed); consolidating adjustments are
+    # small eliminations (at most 9 of 42,767 in FY2023). A value shifted
+    # between columns breaks one of these, so the table refuses.
+    invariants=(
+        RowInvariant(SEGMENT_SALES, ("Financial Products",), True, Decimal("0.01")),
+        RowInvariant(SEGMENT_COST_OF_GOODS_SOLD, ("Financial Products",), True, Decimal("0.01")),
+    ),
 )
 
 # Issuers whose Piotroski gross-margin factor uses a segment basis. Every
@@ -87,6 +97,16 @@ _SEGMENT_GROSS_MARGIN_RULES: Dict[str, SupplementalTableRule] = {
 
 def segment_gross_margin_rule_for(cik: str) -> Optional[SupplementalTableRule]:
     return _SEGMENT_GROSS_MARGIN_RULES.get(normalize_cik(cik))
+
+
+# Amendments reviewed and confirmed to carry no supplemental table (for
+# example a Part III-only 10-K/A), keyed by CIK then accession, each with the
+# reviewer's reason. Any other amendment without a recognized table refuses,
+# because a restating amendment in an unfamiliar layout must never leave the
+# superseded value in place. No CAT amendment has been reviewed yet.
+REVIEWED_AMENDMENTS_WITHOUT_TABLE: Dict[str, Mapping[str, str]] = {
+    CAT_MET_SUPPLEMENTAL_RULE.cik: {},
+}
 
 
 class SegmentGrossMarginRefusal(ValueError):
@@ -166,7 +186,8 @@ class SegmentDocumentDryRun:
     facts: Tuple[FinancialFact, ...] = ()
     # (accession, document URL, document SHA-256) for every document read.
     documents: Tuple[Tuple[str, str, str], ...] = ()
-    amendments_without_table: Tuple[str, ...] = ()
+    # (accession, reviewed reason) for each excepted amendment without a table.
+    amendments_without_table: Tuple[Tuple[str, str], ...] = ()
     issues: Tuple[str, ...] = ()
 
     @property
@@ -204,12 +225,17 @@ def run_segment_document_dry_run(
     calendar_policy: IssuerFiscalCalendarPolicy,
     ingestion_batch_id: str,
     knowledge_cutoff: datetime,
+    reviewed_amendments_without_table: Optional[Mapping[str, str]] = None,
 ) -> SegmentDocumentDryRun:
     """Read every periodic filing accepted by the cutoff; publish nothing.
 
-    An original 10-K or 10-Q without the rule's table refuses the whole run
-    (a layout change must be reviewed, not skipped). An amendment without it
-    (for example a Part III-only 10-K/A) contributes nothing and is listed.
+    Any filing without the rule's table refuses the whole run (a layout
+    change must be reviewed, not skipped). The one exception is an amendment
+    whose accession appears in ``reviewed_amendments_without_table`` (default:
+    ``REVIEWED_AMENDMENTS_WITHOUT_TABLE`` for the rule's issuer); it
+    contributes nothing and is listed with its reason. An excepted amendment
+    that contains the table, or any row the rule reads under an unrecognized
+    layout, also refuses: the review cannot be trusted.
     """
 
     cik = rule.cik
@@ -238,10 +264,12 @@ def run_segment_document_dry_run(
     if not filings:
         return refuse("No periodic filing was accepted by the cutoff.", payload.downloaded_at)
 
+    if reviewed_amendments_without_table is None:
+        reviewed_amendments_without_table = REVIEWED_AMENDMENTS_WITHOUT_TABLE.get(cik, {})
     batch_id = source_qualified_batch_id(ingestion_batch_id, SOURCE_ADAPTER)
     facts: List[FinancialFact] = []
     documents: List[Tuple[str, str, str]] = []
-    skipped: List[str] = []
+    skipped: List[Tuple[str, str]] = []
     for filing in filings:
         try:
             url, document = downloader.fetch_filing_document(cik, filing.accession_number, filing.document_name)
@@ -261,12 +289,27 @@ def run_segment_document_dry_run(
             )
         except FilingDocumentError as error:
             return refuse(f"{filing.accession_number}: {error.code.value}: {error}", payload.downloaded_at, documents)
+        excepted = filing.form_type.endswith("/A") and filing.accession_number in reviewed_amendments_without_table
         if not extracted:
-            if filing.form_type.endswith("/A"):
-                skipped.append(filing.accession_number)
+            if excepted and contains_rule_rows(document, rule):
+                return refuse(
+                    f"{filing.accession_number} is excepted as having no {rule.title!r} table, but it has rows "
+                    "the rule reads under an unrecognized layout.",
+                    payload.downloaded_at,
+                    documents,
+                )
+            if excepted:
+                skipped.append((filing.accession_number, reviewed_amendments_without_table[filing.accession_number]))
                 continue
             return refuse(
-                f"{filing.accession_number} ({filing.form_type}) has no {rule.title!r} table.",
+                f"{filing.accession_number} ({filing.form_type}) has no recognized {rule.title!r} table"
+                + (" and no reviewed exception." if filing.form_type.endswith("/A") else "."),
+                payload.downloaded_at,
+                documents,
+            )
+        if excepted:
+            return refuse(
+                f"{filing.accession_number} is excepted as having no {rule.title!r} table, but one was found.",
                 payload.downloaded_at,
                 documents,
             )

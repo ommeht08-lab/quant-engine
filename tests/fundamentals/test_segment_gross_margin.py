@@ -10,6 +10,7 @@ from src.fundamentals.adapters.sec_downloader import SecIssuerPayload
 from src.fundamentals.repository import InMemoryFundamentalsRepository
 from src.fundamentals.segment_gross_margin import (
     CAT_MET_SUPPLEMENTAL_RULE,
+    REVIEWED_AMENDMENTS_WITHOUT_TABLE,
     SEGMENT_COST_OF_GOODS_SOLD,
     SEGMENT_SALES,
     SegmentGrossMarginRefusal,
@@ -241,9 +242,12 @@ def _submissions(*rows):
 
 
 def _row(filing):
+    # SEC's own format ("...T14:40:25.000Z") unless a test needs microseconds.
+    accepted = filing.accepted_at.isoformat().replace("+00:00", "Z")
+    if not filing.accepted_at.microsecond:
+        accepted = accepted.replace("Z", ".000Z")
     return (
-        filing.accession_number, filing.filed_date.isoformat(),
-        filing.accepted_at.isoformat().replace("+00:00", ".000Z"), filing.report_date.isoformat(),
+        filing.accession_number, filing.filed_date.isoformat(), accepted, filing.report_date.isoformat(),
         filing.form_type, filing.document_name,
     )
 
@@ -272,11 +276,26 @@ def _documents():
     return {accession: (FIXTURES / name).read_bytes() for accession, name in FIXTURE_FILE.items()}
 
 
-def _dry_run(downloader, cutoff=PILOT_CUTOFF):
+def _dry_run(downloader, cutoff=PILOT_CUTOFF, **kwargs):
     return run_segment_document_dry_run(
         downloader=downloader, rule=CAT_MET_SUPPLEMENTAL_RULE, calendar_policy=CAT_CALENDAR,
-        ingestion_batch_id="segment-dry-run-1", knowledge_cutoff=cutoff,
+        ingestion_batch_id="segment-dry-run-1", knowledge_cutoff=cutoff, **kwargs,
     )
+
+
+PILOT_ROWS = (FY2023_10K, Q2_2023_10Q, Q2_2024_10Q)
+PART_III_ONLY = b"<html><body><p>Part III</p></body></html>"
+
+
+def _amendment(accepted_at, accession="0000018230-24-000060"):
+    return reference(accession, "10-Q/A", accepted_at.date(), accepted_at, date(2024, 6, 30), "cat-20240630a.htm")
+
+
+def _with_amendment(amendment, document):
+    documents = _documents()
+    documents[amendment.accession_number] = document
+    downloader = _FakeDownloader([_row(filing) for filing in PILOT_ROWS] + [_row(amendment)], documents)
+    return downloader
 
 
 def test_dry_run_reads_each_periodic_filing_and_its_output_reproduces_the_pair():
@@ -286,18 +305,18 @@ def test_dry_run_reads_each_periodic_filing_and_its_output_reproduces_the_pair()
                        datetime(2024, 11, 1, 12, tzinfo=timezone.utc), date(2024, 9, 30), "cat-20240930.htm")
     earnings = ("0000018230-24-000042", "2024-08-06", "2024-08-06T10:32:05.000Z", "2024-08-06", "8-K", "cat-20240806.htm")
     documents = _documents()
-    documents[part_iii.accession_number] = b"<html><body><p>Part III</p></body></html>"
+    documents[part_iii.accession_number] = PART_III_ONLY
     downloader = _FakeDownloader(
         [_row(FY2023_10K), _row(Q2_2023_10Q), _row(Q2_2024_10Q), _row(part_iii), _row(future), earnings], documents
     )
 
-    result = _dry_run(downloader)
+    result = _dry_run(downloader, reviewed_amendments_without_table={part_iii.accession_number: "Part III only"})
 
     assert result.is_complete, result.issues
     assert sorted(downloader.fetched) == sorted(
         [FY2023_10K.accession_number, Q2_2023_10Q.accession_number, Q2_2024_10Q.accession_number, part_iii.accession_number]
     )
-    assert result.amendments_without_table == (part_iii.accession_number,)
+    assert result.amendments_without_table == ((part_iii.accession_number, "Part III only"),)
     assert {fact.lineage.ingestion_batch_id for fact in result.facts} == {"segment-dry-run-1+sec_filing_document"}
     assert all(len(sha) == 64 for _accession, _url, sha in result.documents)
     assert _pair(result.facts).current == Decimal(21605) / Decimal(63025)
@@ -319,3 +338,85 @@ def test_dry_run_refuses_simultaneous_disagreeing_filings():
     result = _dry_run(_FakeDownloader([_row(FY2023_10K), _row(Q2_2023_10Q), _row(Q2_2024_10Q), _row(clone)], documents))
     assert not result.is_complete
     assert "simultaneous" in result.issues[0]
+
+
+# --------------------------------------------------------------------------
+# Amendments: no silent skip, exact cutoff boundary
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "accepted_at",
+    [PILOT_CUTOFF - timedelta(microseconds=1), PILOT_CUTOFF],
+    ids=["one-microsecond-before-cutoff", "at-cutoff"],
+)
+def test_an_unreviewed_amendment_without_the_table_accepted_by_the_cutoff_refuses(accepted_at):
+    amendment = _amendment(accepted_at)
+    downloader = _with_amendment(amendment, PART_III_ONLY)
+
+    result = _dry_run(downloader)
+
+    assert amendment.accession_number in downloader.fetched
+    assert not result.is_complete and not result.facts
+    assert "no reviewed exception" in result.issues[0]
+    assert amendment.accession_number in result.issues[0]
+
+
+def test_an_amendment_accepted_after_the_cutoff_is_never_read():
+    amendment = _amendment(PILOT_CUTOFF + timedelta(microseconds=1))
+    downloader = _with_amendment(amendment, PART_III_ONLY)
+
+    result = _dry_run(downloader)
+
+    assert result.is_complete, result.issues
+    assert amendment.accession_number not in downloader.fetched
+    assert result.amendments_without_table == ()
+    # Once the cutoff passes its acceptance, the same amendment refuses.
+    later = _dry_run(_with_amendment(amendment, PART_III_ONLY), cutoff=amendment.accepted_at)
+    assert not later.is_complete and "no reviewed exception" in later.issues[0]
+
+
+def test_an_amendment_in_an_unrecognized_layout_refuses_even_with_an_exception():
+    amendment = _amendment(PILOT_CUTOFF - timedelta(microseconds=1))
+    original = _documents()[Q2_2024_10Q.accession_number]
+    # Same numbers under an unfamiliar column header: the title is
+    # recognized, so the parser refuses the layout outright.
+    relabelled = original.replace(b"Consolidated", b"Total Company")
+    # Title no longer recognized: nothing qualifies, yet the rows are there.
+    renamed = original.replace(b"Results of Operations", b"Results of Segments")
+
+    for name, document in (("relabelled", relabelled), ("renamed", renamed)):
+        for reviewed in ({}, {amendment.accession_number: "reviewed as Part III only"}):
+            result = _dry_run(_with_amendment(amendment, document), reviewed_amendments_without_table=reviewed)
+            assert not result.is_complete and not result.facts, (name, reviewed)
+            assert amendment.accession_number in result.issues[0]
+
+
+def test_an_excepted_amendment_that_contains_the_table_refuses_as_a_stale_review():
+    amendment = _amendment(PILOT_CUTOFF - timedelta(microseconds=1))
+    document = _documents()[Q2_2024_10Q.accession_number]
+
+    result = _dry_run(
+        _with_amendment(amendment, document),
+        reviewed_amendments_without_table={amendment.accession_number: "reviewed as Part III only"},
+    )
+
+    assert not result.is_complete
+    assert "but one was found" in result.issues[0]
+
+
+def test_a_recognized_amendment_is_read_and_supersedes_only_after_acceptance():
+    amendment = _amendment(PILOT_CUTOFF - timedelta(microseconds=1))
+    document = _documents()[Q2_2024_10Q.accession_number].replace(b"19,816", b"19,817").replace(b"19,812", b"19,813")
+
+    result = _dry_run(_with_amendment(amendment, document))
+
+    assert result.is_complete, result.issues
+    assert _pair(result.facts).current == Decimal(63025 - 41421) / Decimal(63025)
+    assert _pair(result.facts, cutoff=amendment.accepted_at - timedelta(microseconds=1)).current == (
+        Decimal(21605) / Decimal(63025)
+    )
+
+
+def test_no_cat_amendment_has_a_reviewed_exception_yet():
+    assert REVIEWED_AMENDMENTS_WITHOUT_TABLE == {CAT_MET_SUPPLEMENTAL_RULE.cik: {}}

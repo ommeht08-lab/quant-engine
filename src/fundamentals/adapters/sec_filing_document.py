@@ -1,12 +1,13 @@
 """Segment line items read from the text of an SEC periodic filing.
 
 Some required amounts are printed in a filing but never tagged in XBRL. For
-example, Caterpillar's 10-K and 10-Q "Supplemental Data for Results of
-Operations" tables report Machinery, Energy & Transportation (ME&T) cost of
-goods sold, but the ME&T column carries no XBRL facts, so neither Company
-Facts nor the filing's XBRL instance can supply it. This adapter reads such a
-table from the filing's primary HTML document under an explicit,
-issuer-scoped ``SupplementalTableRule`` and refuses anything ambiguous:
+example, Caterpillar tags Machinery, Energy & Transportation (ME&T) sales in
+XBRL (``us-gaap:Revenues`` with ``cat:MachineryEnergyTransportationMember``),
+but the ME&T cost of goods sold in its 10-K and 10-Q "Supplemental Data for
+Results of Operations" tables is untagged, so neither Company Facts nor the
+filing's XBRL instance can supply it. This adapter reads such a table from
+the filing's primary HTML document under an explicit, issuer-scoped
+``SupplementalTableRule`` and refuses anything ambiguous:
 
 * a table qualifies only if its own title (inside the table, or in the text
   between it and the previous table) names the rule's title;
@@ -18,8 +19,11 @@ issuer-scoped ``SupplementalTableRule`` and refuses anything ambiguous:
 * every required row must appear exactly once per qualifying table, and
   every value cell must parse ("(9)" is -9, a dash is zero); footnote
   markers are recognized by their smaller font or superscript styling;
-* in every column the total group must equal the sum of the other groups,
-  so a misaligned cell cannot silently shift a value between columns;
+* in every column the total group must equal the sum of the other groups;
+* every row must satisfy the rule's declared ``RowInvariant`` (for example,
+  the segment value is positive and a group that never reports this line is
+  zero), because the sum alone cannot tell which column a value sits in: a
+  segment value shifted into a neighbouring group still adds up;
 * the same row and period reported twice in one document must agree.
 
 Each fact keeps its filing provenance: accession, form, amendment flag,
@@ -76,6 +80,7 @@ class FilingDocumentIssueCode(str, Enum):
     MISSING_ROW = "missing_row"
     DUPLICATE_ROW = "duplicate_row"
     INCONSISTENT_TOTAL = "inconsistent_total"
+    UNEXPECTED_VALUE = "unexpected_value"
     CONFLICTING_OBSERVATION = "conflicting_observation"
     CLASSIFICATION = "classification"
 
@@ -93,6 +98,29 @@ def _normalized(text: str) -> str:
 
 
 @dataclass(frozen=True)
+class RowInvariant:
+    """What one row must look like in every period of a qualifying table.
+
+    ``zero_groups`` never report this line (they print a dash); a value there
+    means the layout has shifted. ``segment_positive`` requires a strictly
+    positive segment value. ``max_adjustment_share`` bounds every group
+    other than the total and segment, in absolute value, as a share of the
+    total, so an ordinary adjustment cannot be mistaken for the segment.
+    """
+
+    concept: str
+    zero_groups: Tuple[str, ...]
+    segment_positive: bool
+    max_adjustment_share: Decimal
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.max_adjustment_share, Decimal) or not (
+            Decimal(0) <= self.max_adjustment_share < Decimal(1)
+        ):
+            raise ValueError("max_adjustment_share must be a Decimal in [0, 1).")
+
+
+@dataclass(frozen=True)
 class SupplementalTableRule:
     """Which printed table, columns, and rows one issuer's source reads."""
 
@@ -106,6 +134,8 @@ class SupplementalTableRule:
     dimension: Tuple[str, str]  # (axis, member) recorded on every fact
     scale_label: str
     scale: Decimal
+    # One invariant per row; a rule without them cannot be constructed.
+    invariants: Tuple[RowInvariant, ...]
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "cik", normalize_cik(self.cik))
@@ -125,6 +155,16 @@ class SupplementalTableRule:
         for name in ("version", "title", "scale_label"):
             if not isinstance(getattr(self, name), str) or not getattr(self, name).strip():
                 raise ValueError(f"{name} must be non-empty text.")
+        if sorted(item.concept for item in self.invariants) != sorted(concepts):
+            raise ValueError("invariants must declare exactly one RowInvariant per row.")
+        fixed = {_normalized(self.total_group), _normalized(self.segment_group)}
+        for item in self.invariants:
+            zero = [_normalized(group) for group in item.zero_groups]
+            if any(group not in groups or group in fixed for group in zero):
+                raise ValueError("zero_groups must be declared groups other than the total and segment.")
+
+    def invariant_for(self, concept: str) -> RowInvariant:
+        return next(item for item in self.invariants if item.concept == concept)
 
     @property
     def concepts(self) -> Tuple[str, ...]:
@@ -358,6 +398,65 @@ def _table_periods(
     return periods
 
 
+def _check_invariant(
+    invariant: RowInvariant,
+    by_group: List[Decimal],
+    zero_indexes: set,
+    total_index: int,
+    segment_index: int,
+    where: str,
+) -> None:
+    """Refuse a row whose values sit in columns the rule says they cannot."""
+
+    total, segment = by_group[total_index], by_group[segment_index]
+    problems = []
+    if any(by_group[index] != 0 for index in zero_indexes):
+        problems.append("a group that never reports this line is non-zero")
+    if invariant.segment_positive and segment <= 0:
+        problems.append("the segment value is not positive")
+    if total <= 0:
+        problems.append("the total is not positive")
+    else:
+        limit = invariant.max_adjustment_share * total
+        others = [
+            value for index, value in enumerate(by_group)
+            if index not in (total_index, segment_index) and index not in zero_indexes
+        ]
+        if any(abs(value) > limit for value in others):
+            problems.append("an adjustment exceeds the rule's share of the total")
+    if problems:
+        raise FilingDocumentError(
+            FilingDocumentIssueCode.UNEXPECTED_VALUE, f"{where}: {'; '.join(problems)}."
+        )
+
+
+def _document_tables(document: bytes) -> List[_Table]:
+    parser = _DocumentParser()
+    try:
+        parser.feed(document.decode("utf-8"))
+        parser.close()
+    except UnicodeDecodeError:
+        raise FilingDocumentError(FilingDocumentIssueCode.UNSUPPORTED_LAYOUT, "Document is not UTF-8.") from None
+    return parser.tables
+
+
+def contains_rule_rows(document: bytes, rule: SupplementalTableRule) -> bool:
+    """Whether any table row is labelled like a row the rule reads.
+
+    A tripwire for documents reviewed as having no qualifying table: if such
+    a row appears anyway (for example under a renamed title), the review
+    cannot be trusted.
+    """
+
+    wanted = {_normalized(label) for label, _concept in rule.rows}
+    for table in _document_tables(document):
+        for row in table.rows:
+            labels = [cell.text for cell in row if cell.text]
+            if labels and _normalized(labels[0]) in wanted:
+                return True
+    return False
+
+
 def parse_supplemental_tables(document: bytes, rule: SupplementalTableRule) -> Tuple[SupplementalObservation, ...]:
     """Every rule row, in the segment column, from every qualifying table.
 
@@ -365,13 +464,7 @@ def parse_supplemental_tables(document: bytes, rule: SupplementalTableRule) -> T
     a document with no qualifying table returns an empty tuple.
     """
 
-    parser = _DocumentParser()
-    try:
-        parser.feed(document.decode("utf-8"))
-        parser.close()
-    except UnicodeDecodeError:
-        raise FilingDocumentError(FilingDocumentIssueCode.UNSUPPORTED_LAYOUT, "Document is not UTF-8.") from None
-
+    tables = _document_tables(document)
     title = _normalized(rule.title)
     groups = [_normalized(group) for group in rule.column_groups]
     total_index = groups.index(_normalized(rule.total_group))
@@ -379,7 +472,7 @@ def parse_supplemental_tables(document: bytes, rule: SupplementalTableRule) -> T
     wanted = {_normalized(label): (label, concept) for label, concept in rule.rows}
     observed: Dict[Tuple[str, date, date], SupplementalObservation] = {}
 
-    for table_index, table in enumerate(parser.tables):
+    for table_index, table in enumerate(tables):
         group_rows = [
             position
             for position, row in enumerate(table.rows)
@@ -437,6 +530,8 @@ def parse_supplemental_tables(document: bytes, rule: SupplementalTableRule) -> T
 
         for printed, concept in rule.rows:
             values = found[concept]
+            invariant = rule.invariant_for(concept)
+            zero_indexes = {groups.index(_normalized(group)) for group in invariant.zero_groups}
             for period_index, (start, end) in enumerate(periods):
                 by_group = [values[group * len(periods) + period_index] for group in range(len(groups))]
                 parts = sum(value for index, value in enumerate(by_group) if index != total_index)
@@ -445,6 +540,10 @@ def parse_supplemental_tables(document: bytes, rule: SupplementalTableRule) -> T
                         FilingDocumentIssueCode.INCONSISTENT_TOTAL,
                         f"{where}: {printed!r} for {start}..{end} does not add up to {rule.total_group!r}.",
                     )
+                _check_invariant(
+                    invariant, by_group, zero_indexes, total_index, segment_index,
+                    f"{where}: {printed!r} for {start}..{end}",
+                )
                 observation = SupplementalObservation(
                     concept=concept,
                     row_label=printed,

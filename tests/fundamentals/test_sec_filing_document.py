@@ -9,6 +9,7 @@ from src.fundamentals.adapters.sec_filing_document import (
     SOURCE_ADAPTER,
     FilingDocumentError,
     FilingDocumentIssueCode,
+    contains_rule_rows,
     parse_supplemental_tables,
 )
 from src.fundamentals.segment_gross_margin import (
@@ -118,9 +119,9 @@ def _table(*rows, title="For the Six Months Ended June 30, 2024", scale="(Millio
     return head + "<table>" + GROUPS + "".join(rows) + "</table>"
 
 
-SALES = _row("Sales of Machinery, Energy &amp; Transportation", "$", "100", "$", "100", "$", "—", "$", "—")
+SALES = _row("Sales of Machinery, Energy &amp; Transportation", "$", "10,000", "$", "10,000", "$", "—", "$", "—")
 COST = _row(
-    "Cost of goods sold", "61", "62", "—", "(1)",
+    "Cost of goods sold", "6,100", "6,101", "—", "(1)",
     '<span style="font-size:6pt">2</span>',  # footnote marker, not a value
 )
 
@@ -132,20 +133,20 @@ def _doc(*tables):
 def test_synthetic_table_reads_segment_column_and_skips_footnote_markers():
     values = _values(parse_supplemental_tables(_doc(_table(SALES, COST)), RULE))
     assert values == {
-        (SEGMENT_SALES, date(2024, 1, 1), date(2024, 6, 30)): 100,
-        (SEGMENT_COST_OF_GOODS_SOLD, date(2024, 1, 1), date(2024, 6, 30)): 62,
+        (SEGMENT_SALES, date(2024, 1, 1), date(2024, 6, 30)): 10000,
+        (SEGMENT_COST_OF_GOODS_SOLD, date(2024, 1, 1), date(2024, 6, 30)): 6101,
     }
 
 
 @pytest.mark.parametrize(
     "document_bytes, code",
     [
-        # Consolidated 61 != 63 + 0 - 1: a shifted cell cannot pass.
-        (_doc(_table(SALES, _row("Cost of goods sold", "61", "63", "—", "(1)"))), FilingDocumentIssueCode.INCONSISTENT_TOTAL),
+        # Consolidated 6,100 != 6,102 + 0 - 1.
+        (_doc(_table(SALES, _row("Cost of goods sold", "6,100", "6,102", "—", "(1)"))), FilingDocumentIssueCode.INCONSISTENT_TOTAL),
         (_doc(_table(SALES)), FilingDocumentIssueCode.MISSING_ROW),
         (_doc(_table(SALES, COST, COST)), FilingDocumentIssueCode.DUPLICATE_ROW),
-        (_doc(_table(SALES, _row("Cost of goods sold", "61", "62", "n/a", "(1)"))), FilingDocumentIssueCode.MALFORMED_VALUE),
-        (_doc(_table(SALES, _row("Cost of goods sold", "61", "62", "(1)"))), FilingDocumentIssueCode.UNSUPPORTED_LAYOUT),
+        (_doc(_table(SALES, _row("Cost of goods sold", "6,100", "6,101", "n/a", "(1)"))), FilingDocumentIssueCode.MALFORMED_VALUE),
+        (_doc(_table(SALES, _row("Cost of goods sold", "6,100", "6,101", "(1)"))), FilingDocumentIssueCode.UNSUPPORTED_LAYOUT),
         (_doc(_table(SALES, COST, scale="(Thousands of dollars)")), FilingDocumentIssueCode.UNSUPPORTED_LAYOUT),
         (_doc(_table(SALES, COST, title="For the Period")), FilingDocumentIssueCode.UNSUPPORTED_LAYOUT),
         (
@@ -171,7 +172,7 @@ def test_changed_column_groups_refuse_instead_of_guessing_the_segment_column():
 
 
 def test_one_period_reported_twice_in_a_document_must_agree():
-    changed = _row("Cost of goods sold", "60", "61", "—", "(1)")
+    changed = _row("Cost of goods sold", "6,099", "6,100", "—", "(1)")
     with pytest.raises(FilingDocumentError) as error:
         parse_supplemental_tables(_doc(_table(SALES, COST), _table(SALES, changed)), RULE)
     assert error.value.code is FilingDocumentIssueCode.CONFLICTING_OBSERVATION
@@ -181,8 +182,62 @@ def test_one_period_reported_twice_in_a_document_must_agree():
 def test_an_untitled_table_never_borrows_a_neighbours_title():
     untitled = _table(SALES, _row("Cost of goods sold", "1", "1", "—", "—"), heading=False)
     values = _values(parse_supplemental_tables(_doc(_table(SALES, COST), untitled), RULE))
-    assert values[(SEGMENT_COST_OF_GOODS_SOLD, date(2024, 1, 1), date(2024, 6, 30))] == 62
+    assert values[(SEGMENT_COST_OF_GOODS_SOLD, date(2024, 1, 1), date(2024, 6, 30))] == 6101
 
 
 def test_a_document_without_the_table_yields_nothing():
     assert parse_supplemental_tables(b"<html><body><p>Part III only</p></body></html>", RULE) == ()
+
+
+# --------------------------------------------------------------------------
+# Row invariants: a value in the wrong column refuses even when it adds up
+# --------------------------------------------------------------------------
+
+
+def test_met_cost_shifted_into_financial_products_refuses_instead_of_reading_zero():
+    # The review's case: the ME&T value sits in the Financial Products column,
+    # 6,100 = 0 + 6,101 + (1) still adds up, and the old parser read ME&T
+    # cost of goods sold as 0.
+    shifted = _row("Cost of goods sold", "6,100", "—", "6,101", "(1)")
+    with pytest.raises(FilingDocumentError) as error:
+        parse_supplemental_tables(_doc(_table(SALES, shifted)), RULE)
+    assert error.value.code is FilingDocumentIssueCode.UNEXPECTED_VALUE
+    assert "never reports this line is non-zero" in str(error.value)
+
+
+@pytest.mark.parametrize(
+    "row, message",
+    [
+        # ME&T value shifted into the adjustments column.
+        (_row("Cost of goods sold", "6,100", "—", "—", "6,100"), "segment value is not positive"),
+        # ME&T sales shifted into Financial Products.
+        (_row("Sales of Machinery, Energy &amp; Transportation", "10,000", "—", "10,000", "—"), "never reports"),
+        # An adjustment far larger than any real elimination (1% of total).
+        (_row("Cost of goods sold", "6,100", "6,200", "—", "(100)"), "adjustment exceeds"),
+        (_row("Cost of goods sold", "—", "—", "—", "—"), "not positive"),
+    ],
+)
+def test_other_values_in_implausible_columns_refuse(row, message):
+    rows = (row, COST) if "Sales" in row else (SALES, row)
+    with pytest.raises(FilingDocumentError) as error:
+        parse_supplemental_tables(_doc(_table(*rows)), RULE)
+    assert error.value.code is FilingDocumentIssueCode.UNEXPECTED_VALUE
+    assert message in str(error.value)
+
+
+def test_a_rule_must_declare_one_invariant_per_row():
+    from dataclasses import replace
+
+    with pytest.raises(ValueError, match="one RowInvariant per row"):
+        replace(RULE, invariants=RULE.invariants[:1])
+    with pytest.raises(ValueError, match="zero_groups"):
+        replace(RULE, invariants=(
+            replace(RULE.invariants[0], zero_groups=("Consolidated",)), RULE.invariants[1],
+        ))
+
+
+def test_row_label_tripwire_sees_rows_under_an_unrecognized_title():
+    renamed = document(Q2_2024_10Q).replace(b"Results of Operations", b"Results of Segments")
+    assert parse_supplemental_tables(renamed, RULE) == ()
+    assert contains_rule_rows(renamed, RULE)
+    assert not contains_rule_rows(b"<html><body><table><tr><td>Part III</td></tr></table></body></html>", RULE)
