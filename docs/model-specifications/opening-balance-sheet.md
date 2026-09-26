@@ -19,7 +19,9 @@ publishes. `src/fundamentals/opening_balance_sheet.py`, policy
 Each output line records concept, value, unit, currency, raw tag, accession,
 form, amendment flag, filed date, SEC acceptance time, eligibility time,
 source adapter and document, concept-map and calendar versions, ingestion
-batch, and ingestion time. The snapshot records the policy version.
+batch, and ingestion time. The snapshot records the policy version, the
+itemization gaps and unreported line items (below), and any superseded
+conflicts.
 
 ## Rules
 
@@ -34,14 +36,57 @@ batch, and ingestion time. The snapshot records the policy version.
   for one line, refuses. A line reported only at another date is missing,
   never carried forward.
 * Point-in-time selection (latest accepted filing wins per line) through the
-  shared repository; a later amendment applies from its acceptance onward. A
-  contradiction within one filing refuses, and so does a repository that
-  returns a fact outside either cutoff or the source policy.
+  shared repository; a later amendment applies from its acceptance onward,
+  and only once it is ingested by the data-vintage cutoff. A repository that
+  returns a fact outside either cutoff or the source policy refuses.
+* Contradictory values within one filing (two tags for one line that
+  disagree), at the balance-sheet date:
+  * **Unresolved** when that filing is the latest visible filing for the
+    line. The shared selector then has no value for it, and the snapshot
+    refuses (`conflicting_value`, naming the lines and accessions). An older
+    clean value is never substituted for a newer conflicted filing.
+  * **Superseded** when a strictly later filing (by acceptance time, then
+    accession) reported the line cleanly and the selector chose it. The
+    snapshot builds on the later value and lists the older conflict in
+    `superseded_conflicts` (line, accession, tags, values, superseding
+    accession). Before the correction's acceptance, or before its ingestion
+    at the data-vintage cutoff, the conflict is still unresolved and refuses.
 * Orderings that must hold on any nonfinancial balance sheet (for example
   current assets within total assets, PP&E within noncurrent assets); these
   are checks, not plugs.
-* `forecast_itemization_gaps` names each section (current/noncurrent assets
-  and liabilities) whose reported line items do not sum exactly to it.
+* Sign checks apply only to these asset and liability lines, which must be
+  nonnegative when reported: cash and cash equivalents, cash and restricted
+  cash, accounts receivable, inventory, net PP&E, accounts payable, current
+  debt, and long-term debt. Current assets and current liabilities must lie
+  between zero and their totals. Equity (total or parent shareholders') and
+  retained earnings may be negative; no sign is required of them (Apple's
+  June 2024 retained earnings, for example, are negative).
+* Cash, cash equivalents, and restricted cash (`cash_and_restricted_cash`)
+  is optional. When reported, it must be nonnegative, at least cash and cash
+  equivalents, and, together with receivables, inventory, and net PP&E, at
+  most total assets. Restricted cash may be current or noncurrent, so it is
+  not bounded by current assets.
+* Itemization. A section (current/noncurrent assets and liabilities) is
+  itemized only when **every** line item defined for it was reported at the
+  instant and they sum exactly to the section (noncurrent sections are
+  reported total less reported current):
+
+  | Section | Defined line items |
+  | --- | --- |
+  | current assets | cash and cash equivalents, accounts receivable, inventory |
+  | noncurrent assets | net PP&E |
+  | current liabilities | accounts payable, current debt |
+  | noncurrent liabilities | long-term debt |
+
+  An explicitly reported zero counts; an unreported line is missing
+  evidence and is never treated as zero. There is no reviewed absence policy,
+  so no defined line may be skipped. `forecast_itemization_gaps` names each
+  section that fails, and `unreported_itemization_lines` names the defined
+  lines that were not reported. Nothing is filled in to close a gap.
+* `is_fully_itemized` (no gaps) guarantees only that: every defined line was
+  reported and each section sums exactly. It does not guarantee that the
+  concept maps choose the right lines, and the lines may come from different
+  filings (each the latest accepted for its line).
 
 ## What the SEC data supports (checked 2026-09-25)
 
