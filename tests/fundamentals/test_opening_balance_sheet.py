@@ -260,3 +260,143 @@ def test_request_from_the_issuer_manifest_uses_its_source_policy():
         "0000018230", policy.concept_map_version, policy.fiscal_calendar_version,
     )
     assert request.supplemental_source_adapters == policy.supplemental_source_adapters
+
+
+# --------------------------------------------------------------------------
+# Itemization: a missing line is missing evidence, never a zero
+# --------------------------------------------------------------------------
+
+# Cash plus the required totals; every other section is zero. Absent lines
+# summed as zero would make each section "itemized" without evidence.
+CASH_ONLY = {
+    "cash_and_cash_equivalents": 60, "current_assets": 60, "total_assets": 60,
+    "current_liabilities": 0, "total_liabilities": 0, "total_equity": 60,
+}
+EXPLICIT_ZEROS = {
+    "accounts_receivable": 0, "inventory": 0, "property_plant_and_equipment_net": 0,
+    "accounts_payable": 0, "current_debt": 0, "long_term_debt": 0,
+}
+
+
+def test_absent_components_are_itemization_gaps_not_zeros():
+    snapshot = _build(_facts(CASH_ONLY)).snapshot
+
+    assert not snapshot.is_fully_itemized
+    assert snapshot.forecast_itemization_gaps == (
+        "current_assets", "noncurrent_assets", "current_liabilities", "noncurrent_liabilities",
+    )
+    assert snapshot.unreported_itemization_lines == (
+        "accounts_receivable", "inventory", "property_plant_and_equipment_net",
+        "accounts_payable", "current_debt", "long_term_debt",
+    )
+
+
+def test_explicitly_reported_zeros_itemize_a_section():
+    snapshot = _build(_facts(CASH_ONLY | EXPLICIT_ZEROS)).snapshot
+    assert snapshot.is_fully_itemized and snapshot.unreported_itemization_lines == ()
+
+
+def test_one_absent_component_is_a_gap_even_when_the_rest_sum_to_the_section():
+    # Current debt is unreported and payables alone equal current liabilities.
+    values = {k: v for k, v in BALANCED.items() if k != "current_debt"} | {
+        "current_liabilities": 15, "total_liabilities": 45, "total_equity": 55,
+    }
+    snapshot = _build(_facts(values)).snapshot
+    assert snapshot.forecast_itemization_gaps == ("current_liabilities",)
+    assert snapshot.unreported_itemization_lines == ("current_debt",)
+
+
+# --------------------------------------------------------------------------
+# Cash, cash equivalents, and restricted cash
+# --------------------------------------------------------------------------
+
+# Current assets hold no room for restricted cash (10 + 20 + 30 = 60); the
+# noncurrent section has 10 beyond PP&E (100 - 60 - 30).
+ROOM_FOR_NONCURRENT_RESTRICTED_CASH = {**BALANCED, "property_plant_and_equipment_net": 30}
+ZERO_CASH = {**BALANCED, "cash_and_cash_equivalents": 0, "accounts_receivable": 30}
+
+
+@pytest.mark.parametrize(
+    "values, combined",
+    [
+        (BALANCED, 10),  # equals cash; cash + receivables + inventory + PP&E = total assets
+        (ROOM_FOR_NONCURRENT_RESTRICTED_CASH, 20),  # restricted cash that can only be noncurrent
+        (ZERO_CASH, 0),
+    ],
+)
+def test_a_consistent_combined_cash_balance_is_kept(values, combined):
+    snapshot = _build(_facts({**values, "cash_and_restricted_cash": combined})).snapshot
+    assert snapshot.value("cash_and_restricted_cash") == combined
+
+
+@pytest.mark.parametrize(
+    "values, combined, reason",
+    [
+        (BALANCED, -5, "negative"),  # the reported review case
+        (ZERO_CASH, -1, "negative"),
+        (BALANCED, 9, "below cash and cash equivalents"),
+        (BALANCED, 11, "exceed total assets"),
+        (ROOM_FOR_NONCURRENT_RESTRICTED_CASH, 21, "exceed total assets"),
+    ],
+)
+def test_an_impossible_combined_cash_balance_refuses(values, combined, reason):
+    issue = _refusal(_build(_facts({**values, "cash_and_restricted_cash": combined})))
+    assert issue.code is Code.INCONSISTENT_SUBTOTAL and reason in issue.message
+
+
+# --------------------------------------------------------------------------
+# Conflicts: superseded by a clean later filing vs unresolved
+# --------------------------------------------------------------------------
+
+CORRECTION_INGESTED = AMENDED_AT + timedelta(hours=1)
+
+
+def _conflicted_original_then_clean_correction():
+    # The original 10-Q reports total assets as both 100 and 101; the 10-Q/A
+    # reports 100 under one tag.
+    return _facts() + (_fact("total_assets", 101, raw_tag="AssetsDuplicate"),) + _amendment({"total_assets": 100})
+
+
+@pytest.mark.parametrize(
+    "knowledge_cutoff, data_vintage_cutoff, corrected",
+    [
+        (AMENDED_AT - timedelta(microseconds=1), VINTAGE, False),
+        (AMENDED_AT, VINTAGE, True),
+        (CUTOFF, CORRECTION_INGESTED - timedelta(microseconds=1), False),
+        (CUTOFF, CORRECTION_INGESTED, True),
+    ],
+)
+def test_a_conflict_blocks_only_until_a_clean_correction_is_accepted_and_ingested(
+    knowledge_cutoff, data_vintage_cutoff, corrected
+):
+    result = _build(
+        _conflicted_original_then_clean_correction(),
+        knowledge_cutoff=knowledge_cutoff,
+        data_vintage_cutoff=data_vintage_cutoff,
+    )
+
+    if not corrected:
+        issue = _refusal(result)
+        assert issue.code is Code.CONFLICTING_VALUE and issue.concepts == ("total_assets",)
+        return
+    snapshot = result.snapshot
+    assert snapshot.value("total_assets") == 100
+    assert snapshot.line("total_assets").accession_number == "0001111111-24-000020"
+    (superseded,) = snapshot.superseded_conflicts
+    assert (superseded.concept, superseded.accession_number, superseded.superseded_by) == (
+        "total_assets", "0001111111-24-000010", "0001111111-24-000020",
+    )
+    assert sorted(superseded.values) == [Decimal(100), Decimal(101)]
+
+
+def test_a_conflicted_correction_is_never_replaced_by_the_older_clean_value():
+    facts = _facts() + _amendment({"total_assets": 100}) + (
+        _fact("total_assets", 101, accession="0001111111-24-000020", accepted=AMENDED_AT, form="10-Q/A",
+              ingested=CORRECTION_INGESTED, raw_tag="AssetsDuplicate"),
+    )
+    before = _build(facts, knowledge_cutoff=AMENDED_AT - timedelta(microseconds=1)).snapshot
+    assert before.value("total_assets") == 100 and before.superseded_conflicts == ()
+
+    issue = _refusal(_build(facts, knowledge_cutoff=AMENDED_AT))
+    assert issue.code is Code.CONFLICTING_VALUE and issue.concepts == ("total_assets",)
+    assert "0001111111-24-000020" in issue.message
