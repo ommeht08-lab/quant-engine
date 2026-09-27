@@ -28,8 +28,8 @@ of goods sold is not tagged (42,776 for FY2023 appears only as text), so
 Company Facts and filing XBRL cannot supply the cost side, and the margin
 needs both sides from one presentation. `src/fundamentals/adapters/sec_filing_document.py`
 therefore reads both rows from each filing's primary HTML document under
-`CAT_MET_SUPPLEMENTAL_RULE` (`src/fundamentals/segment_gross_margin.py`,
-version `cat-met-supplemental-results-v2`) and refuses a changed layout,
+`CAT_SEGMENT_MARGIN_SOURCE` (`src/fundamentals/segment_gross_margin.py`,
+version `cat-met-supplemental-results-v3`) and refuses a changed layout,
 an unreadable cell, a missing or duplicated row, a table whose columns do
 not add up to its Consolidated column, or two disagreeing copies of one
 period in a document.
@@ -97,6 +97,67 @@ Point-in-time rules (`load_segment_gross_margin_pair`):
   year is the prior fiscal year plus the current year-to-date less the prior
   year-to-date (Q1, six-month, or nine-month; never a three-month quarter).
 
+## Renaming: ME&T became Machinery, Power & Energy (FY2025 10-K)
+
+From the FY2025 10-K (`0000018230-26-000008`, accepted 2026-02-13) CAT
+prints "Machinery, Power & Energy" (MP&E) where it printed "Machinery,
+Energy & Transportation", renames the sales row to "Sales of Machinery,
+Power & Energy", and tags `cat:MachineryPowerEnergyMember` instead of
+`cat:MachineryEnergyTransportationMember`. The Q3 2025 10-Q
+(`0000018230-25-000048`) is the last ME&T filing. For this margin the two
+are the same scope:
+
+* **Same definition, verbatim.** FY2024 10-K (`0000018230-25-000008`),
+  Item 7 "Supplemental Consolidating Data": "We define ME&T as it is
+  presented in the supplemental data as Caterpillar Inc. and its
+  subsidiaries, excluding Financial Products."; Note 1.A "Nature of
+  operations": "We define ME&T as Caterpillar Inc. and its subsidiaries,
+  excluding Financial Products." FY2025 10-K, the same two places, word for
+  word with MP&E for ME&T: Item 7 "Supplemental Consolidating Data": "We
+  define MP&E as it is presented in the supplemental data as Caterpillar
+  Inc. and its subsidiaries, excluding Financial Products."; Note 1.A: "We
+  define MP&E as Caterpillar Inc. and its subsidiaries, excluding Financial
+  Products." The FY2025 10-K states the same scope in Item 1 "Categories of
+  Business Organization" item 1 and Item 7 "Glossary of terms" item 14, and
+  the Q1 and Q2 2026 10-Qs (`0000018230-26-000021`, `0000018230-26-000046`)
+  in their supplemental-data note and glossary item 14 ("The company
+  defines MP&E as Caterpillar Inc. and its subsidiaries, excluding
+  Financial Products.").
+* **Identical comparatives, every line.** Every row of every overlapping
+  supplemental table, in all four columns (Consolidated, MP&E/ME&T,
+  Financial Products, Consolidating Adjustments), is identical in the MP&E
+  and ME&T filings: FY2023 and FY2024 (FY2025 10-K vs FY2024 10-K, 20 of 20
+  rows), Q1 2025 (Q1 2026 vs Q1 2025 10-Q, 18 of 18), Q2 2025 and H1 2025
+  (Q2 2026 vs Q2 2025 10-Q, 19 of 19 each). The only rows printed on one
+  side are zero there (a goodwill impairment line, nil after 2022; a
+  noncontrolling-interest line, nil in Q1 2025).
+* **The segment changes stay inside MP&E.** The Q1 and Q2 2026 10-Qs, Note
+  16 "Segment information", describe the changes effective July 1, 2025
+  (wear components to Resource Industries; electronics and automation R&D
+  to All Other) and January 1, 2026 (Rail from Power & Energy to Resource
+  Industries), "to reflect changes in organizational accountabilities and
+  refinements to our internal reporting", with 2025 segment information
+  retrospectively adjusted. All of these segments are inside MP&E; none
+  moves anything to or from Financial Products, the only boundary of this
+  margin. The FY2025 10-K (Item 7, outlook) announced the Rail recast.
+
+The source therefore reads each filing under one of two **reporting
+bases** with the same fact identity (version, concepts, dimension) and
+guards (title, scale, invariants), differing only in printed labels:
+
+| Basis | Report dates (inclusive) | Column / sales row |
+| --- | --- | --- |
+| ME&T | calendar start to 2025-09-30 | Machinery, Energy & Transportation |
+| MP&E | 2025-12-31 to 2026-06-30 (last reviewed) | Machinery, Power & Energy |
+
+A filing is read only under the basis covering its report date: an MP&E
+table in an ME&T-period filing, an ME&T table in an MP&E-period filing, a
+document mixing both, or an MP&E column with the old sales label refuses.
+A filing after 2026-06-30 refuses until its layout is reviewed and the
+basis extended. Facts keep CAT's original member as the one canonical
+dimension so trailing years can span the renaming; each fact's `raw_tag`
+records the printed row and column it was read from.
+
 ## Independent verification (September 3, 2024 pilot)
 
 USD millions, ME&T column. Each value was read from the SEC filing and
@@ -121,27 +182,28 @@ margin 34.2800476002%. `TTM Jun 2023 = FY2022 + H1 2023 - H1 2022`: sales
 would be 1 at this date. This says nothing about CAT's other gates or any
 investment return.
 
-## Historical parse check (offline, cached documents)
+## Historical parse check (all 26 filings, offline)
 
-Run 2026-09-27 against the SEC documents a reviewer cached on 2026-09-25
-(no fresh download: no SEC contact identity is configured here). Three of
-the cached documents' SHA-256s equal the hashes pinned in the committed
-excerpts; the others have no independent hash.
+Codex downloaded all 26 periodic filings (Q1 2020 10-Q to Q2 2026 10-Q, no
+amendments) from SEC at 2026-09-27T18:54:12Z under an authorized contact
+header and saved them with their capture times and SHA-256s. SEC appends a
+per-response script tag to each document, so whole-document hashes differ
+between captures; filing content before that tag was byte-identical to an
+earlier 2026-09-25 cache for the 18 documents in both.
 
-* **September 3, 2024 cutoff: all 18 periodic filings** (Q1 2020 10-Q
-  through Q2 2024 10-Q, no amendments) parse through
-  `run_segment_document_dry_run`: 100 facts, no refusals. 42 of 54
-  (concept, period) values are printed by more than one filing and none
-  disagree. The pair above (34.2800476% vs 30.4290130%) is reproduced.
-  Trailing-year pairs ending 2021-12-31 through 2024-06-30 compute; pairs
-  ending 2020-03-31 through 2021-09-30 refuse by design, because their
-  prior year needs FY2019, before the FY2020 calendar start.
-* **Intended backfill (FY2020 to FY2026 Q2): 26 filings, 18 verified.** The
-  8 filings accepted after the pilot cutoff (Q3 2024 10-Q
-  `0000018230-24-000053` through Q2 2026 10-Q `0000018230-26-000046`) were
-  not cached and have **not** been parsed; a dry run to the present stops
-  at the first of them. Their layout is unverified until the approved live
-  dry run.
+An offline rerun of `run_segment_document_dry_run` over the saved copies
+(each checked against its captured SHA-256; the original submissions time
+kept; document read times labeled as offline reads, not SEC captures):
+
+* **Knowledge cutoff 2026-09-27T18:54:12Z: 26 of 26 filings parse**, 23
+  under ME&T and 3 under MP&E: 152 facts, no refusals. 66 of 78
+  (concept, period) values are printed by more than one filing, including
+  across the renaming, and none disagree. Trailing-year pairs ending
+  2021-12-31 through 2026-06-30 compute; pairs ending 2020-03-31 through
+  2021-09-30 refuse by design (their prior year needs FY2019, before the
+  FY2020 calendar start).
+* **September 3, 2024 cutoff: 18 filings**, 100 facts, and the pair above
+  is unchanged (34.2800476002% vs 30.4290129950%).
 
 ## Pilot integration
 

@@ -10,6 +10,7 @@ from src.fundamentals.adapters.sec_downloader import SecIssuerPayload
 from src.fundamentals.repository import InMemoryFundamentalsRepository
 from src.fundamentals.segment_gross_margin import (
     CAT_MET_SUPPLEMENTAL_RULE,
+    CAT_SEGMENT_MARGIN_SOURCE,
     REVIEWED_AMENDMENTS_WITHOUT_TABLE,
     SEGMENT_COST_OF_GOODS_SOLD,
     SEGMENT_SALES,
@@ -25,6 +26,14 @@ from tests.fundamentals.segment_margin_fixtures import (
     FIXTURES,
     FY2022_10K,
     FY2023_10K,
+    FY2024_10K,
+    FY2025_10K,
+    MORE_FIXTURE_FILES,
+    Q1_2025_10Q,
+    Q1_2026_10Q,
+    Q2_2025_10Q,
+    Q2_2026_10Q,
+    Q3_2025_10Q,
     INGESTED_AT,
     PILOT_CUTOFF,
     Q1_2023_10Q,
@@ -57,7 +66,7 @@ PR56_TRANSCRIPTION = {
 def _pair(facts, *, cutoff=PILOT_CUTOFF, vintage=VINTAGE, latest=LATEST, prior=PRIOR, repository=None):
     return load_segment_gross_margin_pair(
         repository or InMemoryFundamentalsRepository(facts),
-        rule=CAT_MET_SUPPLEMENTAL_RULE,
+        rule=CAT_SEGMENT_MARGIN_SOURCE,
         fiscal_calendar_version=CAT_CALENDAR.version,
         knowledge_cutoff=cutoff,
         data_vintage_cutoff=vintage,
@@ -232,7 +241,7 @@ def test_invalid_trailing_sales_refuses():
 
 
 def test_only_cat_has_a_segment_gross_margin_rule():
-    assert segment_gross_margin_rule_for("18230") is CAT_MET_SUPPLEMENTAL_RULE
+    assert segment_gross_margin_rule_for("18230") is CAT_SEGMENT_MARGIN_SOURCE
     for cik in ("320193", "789019", "104169"):
         assert segment_gross_margin_rule_for(cik) is None
 
@@ -299,7 +308,7 @@ class _Clock:
 def _dry_run(downloader, cutoff=PILOT_CUTOFF, **kwargs):
     kwargs.setdefault("clock", _Clock())
     return run_segment_document_dry_run(
-        downloader=downloader, rule=CAT_MET_SUPPLEMENTAL_RULE, calendar_policy=CAT_CALENDAR,
+        downloader=downloader, rule=CAT_SEGMENT_MARGIN_SOURCE, calendar_policy=CAT_CALENDAR,
         ingestion_batch_id="segment-dry-run-1", knowledge_cutoff=cutoff, **kwargs,
     )
 
@@ -639,3 +648,159 @@ def test_two_annual_facts_for_one_year_end_refuse_instead_of_picking_one():
     # A mid-year trailing year that needs the same annual fact refuses too.
     with pytest.raises(SegmentGrossMarginRefusal, match="ambiguous"):
         _pair(pilot_facts() + (rival,))
+
+
+# --------------------------------------------------------------------------
+# Across CAT's ME&T -> Machinery, Power & Energy renaming (FY2025 10-K)
+# --------------------------------------------------------------------------
+
+MET_COLUMN, MPE_COLUMN = "column=Machinery, Energy & Transportation", "column=Machinery, Power & Energy"
+LATE_FILINGS = (
+    FY2023_10K, FY2024_10K, Q1_2025_10Q, Q2_2025_10Q, Q3_2025_10Q, FY2025_10K, Q1_2026_10Q, Q2_2026_10Q,
+)
+
+
+def _late_facts():
+    return tuple(fact for filing in LATE_FILINGS for fact in facts_for(filing))
+
+
+def _column(item):
+    return MPE_COLUMN if item.raw_tag.endswith(MPE_COLUMN) else MET_COLUMN
+
+
+def test_mpe_comparatives_equal_the_met_filings_for_every_overlapping_period():
+    by_identity = {}
+    for fact in _late_facts():
+        by_identity.setdefault(fact.identity, []).append(fact)
+    overlapping = [facts for facts in by_identity.values() if {_column(f) for f in facts} == {MET_COLUMN, MPE_COLUMN}]
+    periods = {(facts[0].identity.period_start, facts[0].identity.period_end) for facts in overlapping}
+    assert periods == {
+        (date(2023, 1, 1), date(2023, 12, 31)), (date(2024, 1, 1), date(2024, 12, 31)),
+        (date(2025, 1, 1), date(2025, 3, 31)), (date(2025, 4, 1), date(2025, 6, 30)),
+        (date(2025, 1, 1), date(2025, 6, 30)),
+    }
+    assert len(overlapping) == 10  # both concepts, five periods
+    for facts in overlapping:
+        assert len({fact.value for fact in facts}) == 1, facts[0].identity
+
+
+def test_pilot_pair_is_unchanged_with_every_later_filing_present():
+    everything = pilot_facts() + _selection_facts() + _late_facts()
+    pair = _pair(everything)
+    assert pair.current == Decimal(63025 - 41420) / Decimal(63025)
+    assert pair.prior == Decimal(61793 - 42990) / Decimal(61793)
+    assert all(_column(item) == MET_COLUMN for item in pair.components)
+    assert max(item.accepted_at for item in pair.components) <= PILOT_CUTOFF
+
+
+def _margin(sales, cost):
+    return Decimal(sales - cost) / Decimal(sales)
+
+
+# (latest end, prior end, cutoff, current sales/cost, prior sales/cost), USD
+# millions, read independently from every row of the saved SEC documents.
+LATE_PAIRS = [
+    # TTM Sep 2025 (ME&T only) = FY2024 + 9M 2025 - 9M 2024.
+    (date(2025, 9, 30), date(2024, 9, 30), Q3_2025_10Q.accepted_at,
+     (61363 + 45778 - 46031, 40206 + 31451 - 29883), (63869 + 46031 - 47632, 42776 + 29883 - 31758)),
+    # FY2025 vs FY2024 from the first MP&E filing.
+    (date(2025, 12, 31), date(2024, 12, 31), FY2025_10K.accepted_at, (63980, 44761), (61363, 40206)),
+    # TTM Mar 2026 = FY2025 + Q1 2026 - Q1 2025; prior needs Q1 2024 (ME&T only).
+    (date(2026, 3, 31), date(2025, 3, 31), Q1_2026_10Q.accepted_at,
+     (63980 + 16473 - 13378, 44761 + 11308 - 8967), (61363 + 13378 - 14960, 40206 + 8967 - 9664)),
+    # TTM Jun 2026 = FY2025 + H1 2026 - H1 2025; prior needs H1 2024 (ME&T only).
+    (date(2026, 6, 30), date(2025, 6, 30), Q2_2026_10Q.accepted_at,
+     (63980 + 36054 - 29052, 44761 + 24091 - 19776), (61363 + 29052 - 30800, 40206 + 19776 - 19816)),
+]
+
+
+@pytest.mark.parametrize("latest, prior, cutoff, current_parts, prior_parts", LATE_PAIRS, ids=lambda v: str(v))
+def test_trailing_year_pairs_after_the_renaming(latest, prior, cutoff, current_parts, prior_parts):
+    # 9M 2023 (for TTM Sep 2024) comes from the Q3 2023 10-Q.
+    pair = _pair(_selection_facts() + _late_facts(), cutoff=cutoff, latest=latest, prior=prior)
+    assert pair.current == _margin(*current_parts)
+    assert pair.prior == _margin(*prior_parts)
+    assert all(item.accepted_at <= cutoff for item in pair.components)
+
+
+def test_a_pair_spanning_the_renaming_records_which_printed_basis_each_component_used():
+    pair = _pair(_late_facts(), cutoff=Q1_2026_10Q.accepted_at, latest=date(2026, 3, 31), prior=date(2025, 3, 31))
+    columns = {(item.concept, item.period_start, item.period_end): _column(item) for item in pair.components}
+    # Q1 2024 is printed only by ME&T filings; every other component comes
+    # from the newest (MP&E) filing, with the ME&T filing corroborating.
+    assert {key for key, column in columns.items() if column == MET_COLUMN} == {
+        (concept, date(2024, 1, 1), date(2024, 3, 31)) for concept in (SEGMENT_SALES, SEGMENT_COST_OF_GOODS_SOLD)
+    }
+    q1_2025 = [item for item in pair.components if item.period_end == date(2025, 3, 31)]
+    assert all(item.accession_number == Q1_2026_10Q.accession_number for item in q1_2025)
+    assert all(item.corroborating_accessions == (Q1_2025_10Q.accession_number,) for item in q1_2025)
+
+
+def _all_documents():
+    documents = _documents()
+    documents.update({accession: (FIXTURES / name).read_bytes() for accession, name in MORE_FIXTURE_FILES.items()})
+    return documents
+
+
+def test_dry_run_reads_met_and_mpe_filings_each_under_its_own_basis():
+    downloader = _FakeDownloader([_row(filing) for filing in LATE_FILINGS], _all_documents())
+    result = _dry_run(downloader, cutoff=Q2_2026_10Q.accepted_at)
+
+    assert result.is_complete, result.issues
+    by_accession = {}
+    for fact in result.facts:
+        by_accession.setdefault(fact.provenance.accession_number, set()).add(_column(fact))
+    assert by_accession == {
+        filing.accession_number: {MPE_COLUMN if filing.report_date >= date(2025, 12, 31) else MET_COLUMN}
+        for filing in LATE_FILINGS
+    }
+    assert _pair(result.facts, cutoff=Q2_2026_10Q.accepted_at, vintage=result.ingested_at,
+                 latest=date(2026, 6, 30), prior=date(2025, 6, 30)).current == _margin(*LATE_PAIRS[-1][3])
+
+
+@pytest.mark.parametrize(
+    "filing, served",
+    [(Q3_2025_10Q, FY2025_10K), (FY2025_10K, FY2024_10K), (Q1_2026_10Q, Q1_2025_10Q)],
+    ids=["mpe-layout-in-a-met-period", "met-layout-in-an-mpe-period", "met-q1-in-an-mpe-period"],
+)
+def test_dry_run_refuses_a_layout_outside_its_reviewed_period(filing, served):
+    documents = _all_documents()
+    documents[filing.accession_number] = documents[served.accession_number]
+    result = _dry_run(_FakeDownloader([_row(f) for f in LATE_FILINGS], documents), cutoff=Q2_2026_10Q.accepted_at)
+
+    assert not result.is_complete and not result.facts
+    assert result.issues[0].startswith(f"{filing.accession_number}: unsupported_layout")
+
+
+def test_dry_run_refuses_a_filing_after_the_last_reviewed_report_date():
+    q3_2026 = reference("0000018230-26-000077", "10-Q", date(2026, 11, 4),
+                        datetime(2026, 11, 4, 15, tzinfo=timezone.utc), date(2026, 9, 30), "cat-20260930.htm")
+    documents = _all_documents()
+    documents[q3_2026.accession_number] = documents[Q2_2026_10Q.accession_number]
+    result = _dry_run(
+        _FakeDownloader([_row(f) for f in LATE_FILINGS + (q3_2026,)], documents), cutoff=q3_2026.accepted_at
+    )
+    assert not result.is_complete
+    assert "no reviewed 'Supplemental Data for Results of Operations' layout covers report date 2026-09-30" in (
+        result.issues[0]
+    )
+    # Before its acceptance the same run is complete.
+    earlier = _dry_run(_FakeDownloader([_row(f) for f in LATE_FILINGS + (q3_2026,)], documents),
+                       cutoff=q3_2026.accepted_at - timedelta(microseconds=1))
+    assert earlier.is_complete, earlier.issues
+
+
+def test_an_excepted_mpe_amendment_with_rows_under_a_renamed_title_refuses():
+    amendment = reference("0000018230-26-000060", "10-Q/A", date(2026, 9, 1),
+                          datetime(2026, 9, 1, 12, tzinfo=timezone.utc), date(2026, 6, 30), "cat-20260630a.htm")
+    documents = _all_documents()
+    documents[amendment.accession_number] = documents[Q2_2026_10Q.accession_number].replace(
+        b"Results of Operations", b"Results of Segments"
+    )
+    result = _dry_run(
+        _FakeDownloader([_row(f) for f in LATE_FILINGS + (amendment,)], documents),
+        cutoff=amendment.accepted_at,
+        reviewed_amendments_without_table={amendment.accession_number: "reviewed as Part III only"},
+    )
+    assert not result.is_complete
+    assert "rows the rule reads under an unrecognized layout" in result.issues[0]

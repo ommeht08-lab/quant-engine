@@ -15,7 +15,7 @@ from src.fundamentals.adapters.sec_filing_document import (
     extract_supplemental_facts,
 )
 from src.fundamentals.calendar_catalog import SEC_FISCAL_CALENDAR_CATALOG_V1
-from src.fundamentals.segment_gross_margin import CAT_MET_SUPPLEMENTAL_RULE
+from src.fundamentals.segment_gross_margin import CAT_SEGMENT_MARGIN_SOURCE
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "sec_filing_document"
 CAT_CALENDAR = SEC_FISCAL_CALENDAR_CATALOG_V1.policy_for("0000018230")
@@ -86,6 +86,37 @@ FIXTURE_FILE = {
     Q2_2023_10Q.accession_number: "cat-20230630-supplemental.htm",
     Q2_2024_10Q.accession_number: "cat-20240630-supplemental.htm",
 }
+# The last ME&T filings and the first MP&E filings (CAT renamed ME&T to
+# "Machinery, Power & Energy" from its FY2025 10-K), cut from the copies
+# captured from SEC at 2026-09-27T18:54Z.
+FY2024_10K = reference(
+    "0000018230-25-000008", "10-K", date(2025, 2, 14),
+    datetime(2025, 2, 14, 14, 36, 30, tzinfo=timezone.utc), date(2024, 12, 31), "cat-20241231.htm",
+)
+Q1_2025_10Q = reference(
+    "0000018230-25-000016", "10-Q", date(2025, 5, 7),
+    datetime(2025, 5, 7, 13, 31, 50, tzinfo=timezone.utc), date(2025, 3, 31), "cat-20250331.htm",
+)
+Q2_2025_10Q = reference(
+    "0000018230-25-000040", "10-Q", date(2025, 8, 6),
+    datetime(2025, 8, 6, 13, 35, 30, tzinfo=timezone.utc), date(2025, 6, 30), "cat-20250630.htm",
+)
+Q3_2025_10Q = reference(
+    "0000018230-25-000048", "10-Q", date(2025, 11, 3),
+    datetime(2025, 11, 3, 16, 6, 23, tzinfo=timezone.utc), date(2025, 9, 30), "cat-20250930.htm",
+)
+FY2025_10K = reference(
+    "0000018230-26-000008", "10-K", date(2026, 2, 13),
+    datetime(2026, 2, 13, 15, 18, 27, tzinfo=timezone.utc), date(2025, 12, 31), "cat-20251231.htm",
+)
+Q1_2026_10Q = reference(
+    "0000018230-26-000021", "10-Q", date(2026, 5, 6),
+    datetime(2026, 5, 6, 15, 8, 9, tzinfo=timezone.utc), date(2026, 3, 31), "cat-20260331.htm",
+)
+Q2_2026_10Q = reference(
+    "0000018230-26-000046", "10-Q", date(2026, 8, 5),
+    datetime(2026, 8, 5, 12, 43, 40, tzinfo=timezone.utc), date(2026, 6, 30), "cat-20260630.htm",
+)
 # Kept apart from FIXTURE_FILE, which is exactly the pilot's three filings.
 MORE_FIXTURE_FILES = {
     Q1_2020_10Q.accession_number: "cat-20200331-supplemental.htm",
@@ -95,6 +126,13 @@ MORE_FIXTURE_FILES = {
     Q1_2023_10Q.accession_number: "cat-20230331-supplemental.htm",
     Q3_2023_10Q.accession_number: "cat-20230930-supplemental.htm",
     Q1_2024_10Q.accession_number: "cat-20240331-supplemental.htm",
+    FY2024_10K.accession_number: "cat-20241231-supplemental.htm",
+    Q1_2025_10Q.accession_number: "cat-20250331-supplemental.htm",
+    Q2_2025_10Q.accession_number: "cat-20250630-supplemental.htm",
+    Q3_2025_10Q.accession_number: "cat-20250930-supplemental.htm",
+    FY2025_10K.accession_number: "cat-20251231-supplemental.htm",
+    Q1_2026_10Q.accession_number: "cat-20260331-supplemental.htm",
+    Q2_2026_10Q.accession_number: "cat-20260630-supplemental.htm",
 }
 
 
@@ -103,10 +141,16 @@ def document(filing) -> bytes:
     return (FIXTURES / name).read_bytes()
 
 
-def facts_for(filing, *, ingested_at=INGESTED_AT, batch=BATCH, source=None, document_bytes=None):
+def rule_for(filing):
+    """The reviewed layout (ME&T or MP&E) covering the filing's report date."""
+
+    return CAT_SEGMENT_MARGIN_SOURCE.basis_for(filing.report_date).rule
+
+
+def facts_for(filing, *, ingested_at=INGESTED_AT, batch=BATCH, source=None, document_bytes=None, rule=None):
     return extract_supplemental_facts(
         document_bytes if document_bytes is not None else document(source or filing),
-        CAT_MET_SUPPLEMENTAL_RULE,
+        rule or rule_for(filing),
         filing=filing,
         calendar_policy=CAT_CALENDAR,
         ingestion_batch_id=batch,

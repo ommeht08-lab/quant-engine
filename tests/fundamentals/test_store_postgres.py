@@ -18,7 +18,7 @@ from src.fundamentals.adapters.fixture import make_fact, make_lineage, make_peri
 from src.fundamentals.opening_balance_sheet import OpeningBalanceSheetRequest, build_opening_balance_sheet
 from src.fundamentals.repository import FundamentalsQuery
 from src.fundamentals.segment_gross_margin import (
-    CAT_MET_SUPPLEMENTAL_RULE,
+    CAT_SEGMENT_MARGIN_SOURCE,
     SegmentGrossMarginRefusal,
     load_segment_gross_margin_pair,
 )
@@ -427,7 +427,7 @@ def test_segment_document_facts_round_trip_and_reproduce_the_cat_margin(empty_st
 
     def pair(vintage):
         return load_segment_gross_margin_pair(
-            repository, rule=CAT_MET_SUPPLEMENTAL_RULE, fiscal_calendar_version=CAT_CALENDAR.version,
+            repository, rule=CAT_SEGMENT_MARGIN_SOURCE, fiscal_calendar_version=CAT_CALENDAR.version,
             knowledge_cutoff=PILOT_CUTOFF, data_vintage_cutoff=vintage,
             latest_end=dt.date(2024, 6, 30), prior_end=dt.date(2023, 6, 30),
         )
@@ -447,7 +447,7 @@ def test_dry_run_facts_are_invisible_in_postgres_until_their_last_document_was_c
 
     result = run_segment_document_dry_run(
         downloader=_FakeDownloader([_row(filing) for filing in PILOT_ROWS], _documents()),
-        rule=CAT_MET_SUPPLEMENTAL_RULE, calendar_policy=CAT_CALENDAR,
+        rule=CAT_SEGMENT_MARGIN_SOURCE, calendar_policy=CAT_CALENDAR,
         ingestion_batch_id="segment-postgres-vintage", knowledge_cutoff=PILOT_CUTOFF, clock=_Clock(),
     )
     assert result.is_complete, result.issues
@@ -456,7 +456,7 @@ def test_dry_run_facts_are_invisible_in_postgres_until_their_last_document_was_c
 
     def pair(vintage):
         return load_segment_gross_margin_pair(
-            repository, rule=CAT_MET_SUPPLEMENTAL_RULE, fiscal_calendar_version=CAT_CALENDAR.version,
+            repository, rule=CAT_SEGMENT_MARGIN_SOURCE, fiscal_calendar_version=CAT_CALENDAR.version,
             knowledge_cutoff=PILOT_CUTOFF, data_vintage_cutoff=vintage,
             latest_end=dt.date(2024, 6, 30), prior_end=dt.date(2023, 6, 30),
         )

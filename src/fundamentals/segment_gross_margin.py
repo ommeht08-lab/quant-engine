@@ -61,45 +61,144 @@ SEGMENT_COST_OF_GOODS_SOLD = "segment_cost_of_goods_sold"
 _PERIODIC_FORMS = frozenset(("10-K", "10-K/A", "10-Q", "10-Q/A"))
 _YEAR_TO_DATE = frozenset(("Q1", "Q2YTD", "Q3YTD"))
 
-CAT_MET_SUPPLEMENTAL_RULE = SupplementalTableRule(
-    cik="0000018230",
-    version="cat-met-supplemental-results-v2",
-    title="Supplemental Data for Results of Operations",
-    column_groups=(
-        "Consolidated",
-        "Machinery, Energy & Transportation",
-        "Financial Products",
-        "Consolidating Adjustments",
-    ),
-    total_group="Consolidated",
-    segment_group="Machinery, Energy & Transportation",
-    rows=(
-        ("Sales of Machinery, Energy & Transportation", SEGMENT_SALES),
-        ("Cost of goods sold", SEGMENT_COST_OF_GOODS_SOLD),
-    ),
-    # CAT's own XBRL member for ME&T on the axis its filings use.
-    dimension=("srt:ProductOrServiceAxis", "cat:MachineryEnergyTransportationMember"),
-    scale_label="(Millions of dollars)",
-    scale=Decimal(1_000_000),
-    # Financial Products never sells ME&T products or books cost of goods
-    # sold (a dash in every filing reviewed); consolidating adjustments are
-    # small eliminations (at most 9 of 42,767 in FY2023). A value shifted
-    # between columns breaks one of these, so the table refuses.
-    invariants=(
-        RowInvariant(SEGMENT_SALES, ("Financial Products",), True, Decimal("0.01")),
-        RowInvariant(SEGMENT_COST_OF_GOODS_SOLD, ("Financial Products",), True, Decimal("0.01")),
+@dataclass(frozen=True)
+class ReportingBasis:
+    """One printed presentation of the segment and the filing periods it
+    was reviewed for (by SEC report date, inclusive). A filing whose report
+    date no basis covers refuses until its layout is reviewed."""
+
+    name: str
+    first_report_date: Optional[date]  # None: from the issuer calendar's start
+    last_report_date: date
+    rule: SupplementalTableRule
+
+    def __post_init__(self) -> None:
+        if self.first_report_date is not None and self.first_report_date > self.last_report_date:
+            raise ValueError("A reporting basis must not end before it starts.")
+
+    def covers(self, report_date: date) -> bool:
+        return (self.first_report_date is None or report_date >= self.first_report_date) and (
+            report_date <= self.last_report_date
+        )
+
+
+@dataclass(frozen=True)
+class SegmentMarginSource:
+    """An issuer's segment margin source: one fact identity (CIK, version,
+    concepts, dimension) read under one or more reviewed presentations.
+
+    Bases may differ only in printed labels (the segment column and the rows
+    naming it); everything that defines the facts or guards the table must
+    be identical, and their report-date ranges must not overlap.
+    """
+
+    bases: Tuple[ReportingBasis, ...]
+
+    def __post_init__(self) -> None:
+        if not self.bases:
+            raise ValueError("A segment margin source needs at least one reporting basis.")
+        first = self.bases[0].rule
+        for basis in self.bases[1:]:
+            rule = basis.rule
+            same = (
+                rule.cik, rule.version, rule.title, rule.total_group, rule.dimension,
+                rule.scale_label, rule.scale, rule.invariants, rule.concepts, len(rule.column_groups),
+            ) == (
+                first.cik, first.version, first.title, first.total_group, first.dimension,
+                first.scale_label, first.scale, first.invariants, first.concepts, len(first.column_groups),
+            )
+            if not same:
+                raise ValueError("Reporting bases may differ only in printed labels.")
+        ordered = sorted(self.bases, key=lambda basis: basis.last_report_date)
+        for earlier, later in zip(ordered, ordered[1:]):
+            if later.first_report_date is None or later.first_report_date <= earlier.last_report_date:
+                raise ValueError("Reporting basis report-date ranges must not overlap.")
+
+    @property
+    def cik(self) -> str:
+        return self.bases[0].rule.cik
+
+    @property
+    def version(self) -> str:
+        return self.bases[0].rule.version
+
+    @property
+    def title(self) -> str:
+        return self.bases[0].rule.title
+
+    @property
+    def dimension(self) -> Tuple[str, str]:
+        return self.bases[0].rule.dimension
+
+    @property
+    def concepts(self) -> Tuple[str, ...]:
+        return self.bases[0].rule.concepts
+
+    def basis_for(self, report_date: date) -> Optional[ReportingBasis]:
+        return next((basis for basis in self.bases if basis.covers(report_date)), None)
+
+
+_CAT_SUPPLEMENTAL_VERSION = "cat-met-supplemental-results-v3"
+# Financial Products never sells the segment's products or books cost of
+# goods sold (a dash in every filing reviewed); consolidating adjustments are
+# small eliminations (at most 9 of 44,752 in FY2025). A value shifted
+# between columns breaks one of these, so the table refuses.
+_CAT_INVARIANTS = (
+    RowInvariant(SEGMENT_SALES, ("Financial Products",), True, Decimal("0.01")),
+    RowInvariant(SEGMENT_COST_OF_GOODS_SOLD, ("Financial Products",), True, Decimal("0.01")),
+)
+
+
+def _cat_rule(segment: str) -> SupplementalTableRule:
+    return SupplementalTableRule(
+        cik="0000018230",
+        version=_CAT_SUPPLEMENTAL_VERSION,
+        title="Supplemental Data for Results of Operations",
+        column_groups=("Consolidated", segment, "Financial Products", "Consolidating Adjustments"),
+        total_group="Consolidated",
+        segment_group=segment,
+        rows=((f"Sales of {segment}", SEGMENT_SALES), ("Cost of goods sold", SEGMENT_COST_OF_GOODS_SOLD)),
+        # One identity across CAT's renaming: its original XBRL member for
+        # "Caterpillar Inc. and its subsidiaries, excluding Financial
+        # Products". From the FY2025 10-K CAT tags the same scope
+        # cat:MachineryPowerEnergyMember; the printed column is kept in
+        # each fact's raw_tag.
+        dimension=("srt:ProductOrServiceAxis", "cat:MachineryEnergyTransportationMember"),
+        scale_label="(Millions of dollars)",
+        scale=Decimal(1_000_000),
+        invariants=_CAT_INVARIANTS,
+    )
+
+
+CAT_MET_SUPPLEMENTAL_RULE = _cat_rule("Machinery, Energy & Transportation")
+CAT_MPE_SUPPLEMENTAL_RULE = _cat_rule("Machinery, Power & Energy")
+
+# CAT renamed ME&T to Machinery, Power & Energy (MP&E) in its FY2025 10-K
+# (0000018230-26-000008) without changing its definition: both are
+# "Caterpillar Inc. and its subsidiaries, excluding Financial Products"
+# (FY2024 10-K 0000018230-25-000008 and FY2025 10-K glossaries and
+# supplemental-data notes). Every row and column of every overlapping
+# supplemental table (FY2023, FY2024, Q1 2025, Q2 2025, H1 2025) is
+# identical under both names, and the 2025-2026 segment changes move
+# businesses only among segments inside MP&E. See
+# docs/model-specifications/cat-met-gross-margin-pilot.md. Filings after the
+# last reviewed report date refuse until their layout is reviewed.
+CAT_SEGMENT_MARGIN_SOURCE = SegmentMarginSource(
+    bases=(
+        ReportingBasis("ME&T", None, date(2025, 9, 30), CAT_MET_SUPPLEMENTAL_RULE),
+        ReportingBasis("MP&E", date(2025, 12, 31), date(2026, 6, 30), CAT_MPE_SUPPLEMENTAL_RULE),
     ),
 )
 
 # Issuers whose Piotroski gross-margin factor uses a segment basis. Every
 # other issuer, and every other factor, keeps consolidated figures.
-_SEGMENT_GROSS_MARGIN_RULES: Dict[str, SupplementalTableRule] = {
-    CAT_MET_SUPPLEMENTAL_RULE.cik: CAT_MET_SUPPLEMENTAL_RULE,
+_SEGMENT_GROSS_MARGIN_SOURCES: Dict[str, SegmentMarginSource] = {
+    CAT_SEGMENT_MARGIN_SOURCE.cik: CAT_SEGMENT_MARGIN_SOURCE,
 }
 
 
-def segment_gross_margin_rule_for(cik: str) -> Optional[SupplementalTableRule]:
-    return _SEGMENT_GROSS_MARGIN_RULES.get(normalize_cik(cik))
+def segment_gross_margin_rule_for(cik: str) -> Optional[SegmentMarginSource]:
+    return _SEGMENT_GROSS_MARGIN_SOURCES.get(normalize_cik(cik))
 
 
 # Amendments reviewed and confirmed to carry no supplemental table (for
@@ -108,7 +207,7 @@ def segment_gross_margin_rule_for(cik: str) -> Optional[SupplementalTableRule]:
 # because a restating amendment in an unfamiliar layout must never leave the
 # superseded value in place. No CAT amendment has been reviewed yet.
 REVIEWED_AMENDMENTS_WITHOUT_TABLE: Dict[str, Mapping[str, str]] = {
-    CAT_MET_SUPPLEMENTAL_RULE.cik: {},
+    CAT_SEGMENT_MARGIN_SOURCE.cik: {},
 }
 
 
@@ -249,7 +348,7 @@ def _utc_now() -> datetime:
 def run_segment_document_dry_run(
     *,
     downloader,
-    rule: SupplementalTableRule,
+    rule: SegmentMarginSource,
     calendar_policy: IssuerFiscalCalendarPolicy,
     ingestion_batch_id: str,
     knowledge_cutoff: datetime,
@@ -260,7 +359,9 @@ def run_segment_document_dry_run(
 
     Every document is captured first (``clock`` is read as each one's bytes
     arrive), then all are parsed with the latest capture as the facts'
-    ingestion time.
+    ingestion time. Each filing is read under the one reporting basis that
+    covers its report date; a filing no basis covers refuses, and a table in
+    another basis's layout refuses as an unsupported layout.
 
     Any filing without the rule's table refuses the whole run (a layout
     change must be reviewed, not skipped). The one exception is an amendment
@@ -335,10 +436,16 @@ def run_segment_document_dry_run(
     facts: List[FinancialFact] = []
     skipped: List[Tuple[str, str]] = []
     for filing, document in zip(filings, contents):
+        basis = rule.basis_for(filing.report_date)
+        if basis is None:
+            return refuse(
+                f"{filing.accession_number}: no reviewed {rule.title!r} layout covers report date "
+                f"{filing.report_date}."
+            )
         try:
             extracted = extract_supplemental_facts(
                 document,
-                rule,
+                basis.rule,
                 filing=filing,
                 calendar_policy=calendar_policy,
                 ingestion_batch_id=batch_id,
@@ -348,7 +455,7 @@ def run_segment_document_dry_run(
             return refuse(f"{filing.accession_number}: {error.code.value}: {error}")
         excepted = filing.form_type.endswith("/A") and filing.accession_number in reviewed_amendments_without_table
         if not extracted:
-            if excepted and contains_rule_rows(document, rule):
+            if excepted and any(contains_rule_rows(document, other.rule) for other in rule.bases):
                 return refuse(
                     f"{filing.accession_number} is excepted as having no {rule.title!r} table, but it has rows "
                     "the rule reads under an unrecognized layout."
@@ -456,7 +563,7 @@ class SegmentGrossMarginPair:
 def load_segment_gross_margin_pair(
     repository,
     *,
-    rule: SupplementalTableRule,
+    rule: SegmentMarginSource,
     fiscal_calendar_version: str,
     knowledge_cutoff: datetime,
     data_vintage_cutoff: datetime,
