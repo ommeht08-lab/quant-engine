@@ -19,6 +19,8 @@ from src.fundamentals.segment_gross_margin import (
 )
 from tests.fundamentals.segment_margin_fixtures import (
     FY2023_10K,
+    Q1_2020_10Q,
+    Q2_2020_10Q,
     Q2_2023_10Q,
     Q2_2024_10Q,
     document,
@@ -241,3 +243,167 @@ def test_row_label_tripwire_sees_rows_under_an_unrecognized_title():
     assert parse_supplemental_tables(renamed, RULE) == ()
     assert contains_rule_rows(renamed, RULE)
     assert not contains_rule_rows(b"<html><body><table><tr><td>Part III</td></tr></table></body></html>", RULE)
+
+
+# --------------------------------------------------------------------------
+# CAT's 2020 10-Qs: footnoted column header, negatives split across cells
+# --------------------------------------------------------------------------
+
+
+def test_q1_2020_10q_reads_a_footnoted_header_and_a_split_negative():
+    # The ME&T header reads "Machinery, Energy & Transportation" plus a
+    # superscript 1; the Q1 2020 consolidating adjustment prints "(1" and ")"
+    # in adjacent cells (7,266 = 7,267 + 0 - 1).
+    assert _values(parse_supplemental_tables(document(Q1_2020_10Q), RULE)) == {
+        (SEGMENT_SALES, date(2019, 1, 1), date(2019, 3, 31)): 12724,
+        (SEGMENT_SALES, date(2020, 1, 1), date(2020, 3, 31)): 9914,
+        (SEGMENT_COST_OF_GOODS_SOLD, date(2019, 1, 1), date(2019, 3, 31)): 9003,
+        (SEGMENT_COST_OF_GOODS_SOLD, date(2020, 1, 1), date(2020, 3, 31)): 7267,
+    }
+
+
+def test_q2_2020_10q_reads_three_and_six_month_tables():
+    assert _values(parse_supplemental_tables(document(Q2_2020_10Q), RULE)) == {
+        (SEGMENT_SALES, date(2019, 4, 1), date(2019, 6, 30)): 13671,
+        (SEGMENT_SALES, date(2019, 1, 1), date(2019, 6, 30)): 26395,
+        (SEGMENT_SALES, date(2020, 4, 1), date(2020, 6, 30)): 9310,
+        (SEGMENT_SALES, date(2020, 1, 1), date(2020, 6, 30)): 19224,
+        # Split negatives (2) and (1) in the adjustments column.
+        (SEGMENT_COST_OF_GOODS_SOLD, date(2019, 4, 1), date(2019, 6, 30)): 9943,
+        (SEGMENT_COST_OF_GOODS_SOLD, date(2019, 1, 1), date(2019, 6, 30)): 18946,
+        (SEGMENT_COST_OF_GOODS_SOLD, date(2020, 4, 1), date(2020, 6, 30)): 7114,
+        (SEGMENT_COST_OF_GOODS_SOLD, date(2020, 1, 1), date(2020, 6, 30)): 14381,
+    }
+
+
+def test_2020_facts_start_at_the_calendar_and_classify_quarter_and_ytd():
+    q1 = {(f.identity.concept, f.period.fiscal_period, f.identity.period_end) for f in facts_for(Q1_2020_10Q)}
+    assert q1 == {
+        (SEGMENT_SALES, "Q1", date(2020, 3, 31)),
+        (SEGMENT_COST_OF_GOODS_SOLD, "Q1", date(2020, 3, 31)),
+    }
+    q2 = {(f.identity.concept, f.period.fiscal_period, f.identity.period_start) for f in facts_for(Q2_2020_10Q)}
+    assert q2 == {
+        (concept, period, start)
+        for concept in (SEGMENT_SALES, SEGMENT_COST_OF_GOODS_SOLD)
+        for period, start in (("Q2", date(2020, 4, 1)), ("Q2YTD", date(2020, 1, 1)))
+    }
+
+
+# --------------------------------------------------------------------------
+# Superscript detection: markup, not cell alignment
+# --------------------------------------------------------------------------
+
+TOP = ' style="vertical-align:top"'
+
+
+def _raw_row(label, *cells, label_style=TOP):
+    tds = "".join(cells)
+    return f'<tr><td{label_style}><span style="font-size:10pt">{label}</span></td>{tds}</tr>'
+
+
+def _td(content, style=TOP):
+    return f'<td{style}><span style="font-size:10pt">{content}</span></td>'
+
+
+def _cost_row(*cells):
+    return _raw_row("Cost of goods sold", *cells)
+
+
+# An ordinary adjustment of 9 in a top-aligned cell: a digit-only value that
+# the old rule (any vertical-align:top is superscript) dropped as a footnote.
+TOP_ALIGNED_COST = _cost_row(_td("6,110"), _td("6,101"), _td("—"), _td("9"))
+
+
+def test_top_aligned_numeric_values_are_values_not_footnotes():
+    top_sales = _raw_row(
+        "Sales of Machinery, Energy &amp; Transportation", _td("$"), _td("10,000"), _td("$"), _td("10,000"),
+        _td("$"), _td("—"), _td("$"), _td("—"),
+    )
+    values = _values(parse_supplemental_tables(_doc(_table(top_sales, TOP_ALIGNED_COST)), RULE))
+    assert values[(SEGMENT_COST_OF_GOODS_SOLD, date(2024, 1, 1), date(2024, 6, 30))] == 6101
+    assert values[(SEGMENT_SALES, date(2024, 1, 1), date(2024, 6, 30))] == 10000
+    # Inline top alignment alone is not superscript either.
+    inline_top = _cost_row(_td("6,110"), _td("6,101"), _td("—"), _td('<span style="vertical-align:top">9</span>'))
+    assert _values(parse_supplemental_tables(_doc(_table(SALES, inline_top)), RULE))[
+        (SEGMENT_COST_OF_GOODS_SOLD, date(2024, 1, 1), date(2024, 6, 30))
+    ] == 6101
+
+
+@pytest.mark.parametrize(
+    "marker",
+    [
+        '<sup style="vertical-align:top;font-size:7pt">3</sup>',  # CAT 2020 (EDGAR)
+        '<span style="font-size:10pt;vertical-align:super">3</span>',  # explicit superscript, same size
+        '<span style="font-size:10pt;position:relative;top:-2.8pt;vertical-align:baseline">3</span>',  # raised
+        '<span style="font-size:5.2pt">3</span>',  # CAT 2021+ (Workiva): smaller font only
+    ],
+    ids=["sup-tag", "vertical-align-super", "raised-offset", "smaller-font"],
+)
+def test_actual_footnote_markers_are_skipped(marker):
+    row = _cost_row(_td("6,110"), _td("6,101"), _td("—"), _td("9"), f"<td{TOP}>{marker}</td>")
+    assert _values(parse_supplemental_tables(_doc(_table(SALES, row)), RULE))[
+        (SEGMENT_COST_OF_GOODS_SOLD, date(2024, 1, 1), date(2024, 6, 30))
+    ] == 6101
+
+
+def test_a_trailing_superscript_marker_inside_a_value_cell_is_removed():
+    row = _cost_row(_td("6,110"), _td("6,101<sup>2</sup>"), _td("—"), _td("9"))
+    assert _values(parse_supplemental_tables(_doc(_table(SALES, row)), RULE))[
+        (SEGMENT_COST_OF_GOODS_SOLD, date(2024, 1, 1), date(2024, 6, 30))
+    ] == 6101
+
+
+def _with_met_header(header):
+    return _table(SALES, COST).replace("<td>Machinery, Energy &amp; Transportation</td>", f"<td>{header}</td>")
+
+
+def test_a_trailing_numeric_footnote_on_the_segment_header_is_accepted():
+    for header in (
+        "Machinery, Energy &amp; Transportation <sup>1</sup>",
+        'Machinery,<br/>Energy &amp;<br/>Transportation <span style="position:relative;top:-3pt">12</span>',
+    ):
+        assert _values(parse_supplemental_tables(_doc(_with_met_header(header)), RULE))[
+            (SEGMENT_COST_OF_GOODS_SOLD, date(2024, 1, 1), date(2024, 6, 30))
+        ] == 6101
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "Machinery, Energy &amp; Transportation 1",  # a plain-text 1 is not a marker
+        "Machinery, Energy &amp; <sup>1</sup>Transportation",  # marker mid-label
+        "Machinery, Energy &amp; Transportation <sup>a</sup>",  # not a footnote number
+        "Machinery, Energy &amp; Transportation <sup>123</sup>",
+        "<sup>1</sup>",  # nothing but a marker
+    ],
+)
+def test_unfamiliar_header_markers_refuse(header):
+    with pytest.raises(FilingDocumentError) as error:
+        parse_supplemental_tables(_doc(_with_met_header(header)), RULE)
+    assert error.value.code is FilingDocumentIssueCode.UNSUPPORTED_LAYOUT
+
+
+def test_a_negative_split_across_adjacent_cells_is_joined():
+    row = _cost_row(_td("6,100"), _td("6,101"), _td("—"), _td("(1"), _td(")"), f"<td{TOP}><sup>3</sup></td>")
+    assert _values(parse_supplemental_tables(_doc(_table(SALES, row)), RULE))[
+        (SEGMENT_COST_OF_GOODS_SOLD, date(2024, 1, 1), date(2024, 6, 30))
+    ] == 6101
+
+
+@pytest.mark.parametrize(
+    "cells",
+    [
+        (_td("6,100"), _td("6,101"), _td("—"), _td("(1")),  # never closed
+        (_td("6,100"), _td("6,101"), _td("—"), _td("(1"), _td(""), _td(")")),  # closed, but not adjacent
+        (_td("6,100"), _td("6,101"), _td("—"), _td("(1"), _td(")3")),  # closing cell carries more
+        (_td("6,100"), _td("6,101"), _td(")"), _td("—"), _td("(1)")),  # stray close
+        (_td("6,100"), _td("6,<sup>1</sup>101"), _td("—"), _td("(1)")),  # superscript inside a value
+        (_td("6,100"), _td("6,101<sup>x</sup>"), _td("—"), _td("(1)")),  # non-numeric trailing marker
+    ],
+    ids=["unclosed", "not-adjacent", "closing-cell-not-bare", "stray-close", "inner-superscript", "letter-marker"],
+)
+def test_malformed_value_layouts_refuse(cells):
+    with pytest.raises(FilingDocumentError) as error:
+        parse_supplemental_tables(_doc(_table(SALES, _cost_row(*cells))), RULE)
+    assert error.value.code is FilingDocumentIssueCode.MALFORMED_VALUE

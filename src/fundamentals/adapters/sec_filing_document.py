@@ -16,9 +16,17 @@ the filing's primary HTML document under an explicit, issuer-scoped
   30, 2024") or, for annual tables, a header row repeating the same fiscal
   years once per column group; a table with neither, or both, refuses;
 * the scale label must be present;
+* the column-group header may carry a trailing footnote marker (a
+  superscript number, as in CAT's 2020 10-Qs); any other marker, or one in
+  the middle of a label, refuses;
 * every required row must appear exactly once per qualifying table, and
-  every value cell must parse ("(9)" is -9, a dash is zero); footnote
-  markers are recognized by their smaller font or superscript styling;
+  every value cell must parse ("(9)" is -9, a dash is zero). A negative may
+  span two adjacent cells, "(1" then ")", as in CAT's 2020 10-Qs; an
+  unclosed or stray parenthesis refuses. Footnote markers are recognized by
+  their smaller font or by genuine superscript markup (``<sup>``,
+  ``vertical-align: super``, or a raised ``position: relative`` offset).
+  A table cell's own ``vertical-align`` only places content inside the cell,
+  so a top-aligned value is never mistaken for a footnote;
 * in every column the total group must equal the sum of the other groups;
 * every row must satisfy the rule's declared ``RowInvariant`` (for example,
   the segment value is positive and a group that never reports this line is
@@ -70,7 +78,14 @@ _DASHES = frozenset(("—", "–", "-", "−"))
 _VOID_TAGS = frozenset(("br", "img", "hr", "meta", "link", "input", "col", "wbr", "area", "base", "source"))
 _BLOCK_TAGS = frozenset(("p", "div", "br", "tr", "table", "li", "h1", "h2", "h3", "h4", "h5", "h6"))
 _FONT_SIZE = re.compile(r"font-size:\s*([\d.]+)\s*pt", re.IGNORECASE)
-_SUPERSCRIPT = re.compile(r"vertical-align:\s*(top|super)", re.IGNORECASE)
+_SUPERSCRIPT = re.compile(r"vertical-align:\s*super\b", re.IGNORECASE)
+# Workiva filings raise footnote markers with a negative relative offset.
+_RAISED = re.compile(r"position:\s*relative\b.*?(?<![\w-])top:\s*-\s*\d", re.IGNORECASE | re.DOTALL)
+# Table structure: its vertical-align places content in the cell, it never
+# raises text above the baseline.
+_TABLE_STRUCTURE_TAGS = frozenset(("table", "thead", "tbody", "tfoot", "tr", "td", "th"))
+_FOOTNOTE_MARKER = re.compile(r"^\d{1,2}$")
+_OPEN_NEGATIVE = re.compile(r"^\(\$?(\d{1,3}(?:,\d{3})*|\d+)$")
 
 
 class FilingDocumentIssueCode(str, Enum):
@@ -226,6 +241,24 @@ class _Cell:
         visible = [run for run in self.runs if run.text.strip()]
         return bool(visible) and all(run.superscript for run in visible)
 
+    def without_trailing_marker(self) -> Optional[str]:
+        """The cell's text without one trailing superscript footnote marker.
+
+        ``None`` when superscript text sits before ordinary text, or the
+        trailing superscript is not a footnote number: an unfamiliar layout.
+        """
+
+        visible = [run for run in self.runs if run.text.strip()]
+        split = len(visible)
+        while split and visible[split - 1].superscript:
+            split -= 1
+        if any(run.superscript for run in visible[:split]):
+            return None
+        marker = re.sub(r"\s+", "", "".join(run.text for run in visible[split:]))
+        if marker and (not split or not _FOOTNOTE_MARKER.fullmatch(marker)):
+            return None
+        return re.sub(r"\s+", " ", "".join(run.text for run in visible[:split])).strip()
+
 
 @dataclass(frozen=True)
 class _Table:
@@ -260,7 +293,9 @@ class _DocumentParser(HTMLParser):
         match = _FONT_SIZE.search(style)
         if match:
             size = float(match.group(1))
-        if tag == "sup" or _SUPERSCRIPT.search(style):
+        if tag == "sup" or (
+            tag not in _TABLE_STRUCTURE_TAGS and (_SUPERSCRIPT.search(style) or _RAISED.search(style))
+        ):
             superscript = True
         self._stack.append((tag, size, superscript))
         if tag == "table":
@@ -343,9 +378,19 @@ def _parse_value(token: str, where: str) -> Decimal:
     return -value if match.group(1) else value
 
 
-def _value_tokens(cells: Tuple[_Cell, ...], label_size: Optional[float]) -> List[str]:
+def _value_tokens(cells: Tuple[_Cell, ...], label_size: Optional[float], where: str) -> List[str]:
+    """The printed value of each column, footnote markers removed.
+
+    A negative split across two adjacent cells ("(1" then ")") is joined;
+    an unclosed or stray parenthesis, or a superscript that is not a
+    trailing footnote number, refuses.
+    """
+
     tokens = []
-    for cell in cells:
+    index = 0
+    while index < len(cells):
+        cell = cells[index]
+        index += 1
         text = cell.text
         if not text or text == "$":
             continue
@@ -354,8 +399,30 @@ def _value_tokens(cells: Tuple[_Cell, ...], label_size: Optional[float]) -> List
         )
         if footnote and text.isdigit():
             continue
+        text = cell.without_trailing_marker()
+        if text is None:
+            raise FilingDocumentError(
+                FilingDocumentIssueCode.MALFORMED_VALUE, f"{where}: superscript text inside a value cell."
+            )
+        if _OPEN_NEGATIVE.fullmatch(text.replace(" ", "")):
+            if index >= len(cells) or cells[index].text != ")":
+                raise FilingDocumentError(
+                    FilingDocumentIssueCode.MALFORMED_VALUE, f"{where}: {text!r} is not closed by the next cell."
+                )
+            text += ")"
+            index += 1
+        elif text == ")":
+            raise FilingDocumentError(FilingDocumentIssueCode.MALFORMED_VALUE, f"{where}: stray ')'.")
         tokens.append(text)
     return tokens
+
+
+def _group_label(cell: _Cell) -> str:
+    """A column-group header without its footnote marker, normalized; an
+    unfamiliar marker keeps the whole text, so the header does not match."""
+
+    label = cell.without_trailing_marker()
+    return _normalized(cell.text if label is None else label)
 
 
 def _table_periods(
@@ -476,7 +543,7 @@ def parse_supplemental_tables(document: bytes, rule: SupplementalTableRule) -> T
         group_rows = [
             position
             for position, row in enumerate(table.rows)
-            if [_normalized(cell.text) for cell in row if cell.text] == groups
+            if [_group_label(cell) for cell in row if cell.text] == groups
         ]
         header_end = group_rows[0] if group_rows else len(table.rows)
         header_text = "".join(
@@ -517,7 +584,7 @@ def parse_supplemental_tables(document: bytes, rule: SupplementalTableRule) -> T
                 raise FilingDocumentError(
                     FilingDocumentIssueCode.DUPLICATE_ROW, f"{where}: row {printed!r} appears more than once."
                 )
-            tokens = _value_tokens(row[position + 1:], label_cell.font_size)
+            tokens = _value_tokens(row[position + 1:], label_cell.font_size, f"{where} row {printed!r}")
             if len(tokens) != len(groups) * len(periods):
                 raise FilingDocumentError(
                     FilingDocumentIssueCode.UNSUPPORTED_LAYOUT,

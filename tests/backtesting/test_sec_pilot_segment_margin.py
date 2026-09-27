@@ -17,7 +17,7 @@ from src.backtesting.sec_pilot import (
 )
 from src.fundamentals.issuer_manifest import issuer_policy_for
 from src.fundamentals.repository import InMemoryFundamentalsRepository
-from src.valuation.piotroski import calculate_f_score_from_statements
+from src.valuation.piotroski import calculate_f_score_from_statements, f_score_factors_from_statements
 from src.valuation_input import ValuationInputSource
 from tests.fundamentals.segment_margin_fixtures import INGESTED_AT, pilot_facts
 
@@ -54,6 +54,43 @@ def test_override_changes_only_the_gross_margin_factor():
     no_gp = _statements(gross_profit=False)
     assert calculate_f_score_from_statements(*no_gp) == base
     assert calculate_f_score_from_statements(*no_gp, gross_margin_override=(MET_CURRENT, MET_PRIOR)) == base + 1
+
+
+# Each variant flips one of the eight other factors relative to _statements().
+_OTHER_FACTOR_VARIANTS = {
+    "roa_positive": ("income", "Net Income", T, -10.0),
+    "cfo_positive": ("cash", "Operating Cash Flow", T, -12.0),
+    "accruals": ("cash", "Operating Cash Flow", T, 5.0),
+    "roa_improves": ("income", "Net Income", T1, 30.0),
+    "leverage_falls": ("balance", "Long Term Debt", T, 50.0),
+    "current_ratio_rises": ("balance", "Current Assets", T, 60.0),
+    "no_dilution": ("balance", "Share Issued", T, 11.0),
+    "asset_turnover_rises": ("income", "Total Revenue", T, 90.0),
+}
+
+
+def _variant(name, *, gross_profit=True):
+    income, balance, cash = _statements(gross_profit=gross_profit)
+    frames = {"income": income, "balance": balance, "cash": cash}
+    frame, row, column, value = _OTHER_FACTOR_VARIANTS[name]
+    frames[frame].loc[row, column] = value
+    return frames["income"], frames["balance"], frames["cash"]
+
+
+@pytest.mark.parametrize("name", [None, *_OTHER_FACTOR_VARIANTS])
+def test_the_other_eight_factors_are_identical_with_and_without_the_override(name):
+    consolidated = _variant(name) if name else _statements()
+    segment_basis = _variant(name, gross_profit=False) if name else _statements(gross_profit=False)
+    base = f_score_factors_from_statements(*consolidated)
+    overridden = f_score_factors_from_statements(*segment_basis, gross_margin_override=(MET_CURRENT, MET_PRIOR))
+
+    assert len(base) == len(overridden) == 9
+    assert [base[i] for i in range(9) if i != 7] == [overridden[i] for i in range(9) if i != 7]
+    assert (base[7], overridden[7]) == (False, True)
+    assert calculate_f_score_from_statements(*consolidated) == sum(base)
+    if name:
+        # The variant really flips its factor, so this is not vacuous.
+        assert f_score_factors_from_statements(*consolidated) != f_score_factors_from_statements(*_statements())
 
 
 # --------------------------------------------------------------------------
@@ -113,8 +150,8 @@ def harness(monkeypatch):
     return calls
 
 
-def _decide(repository):
-    config = PilotConfig(universe=(PilotIssuer("AAPL", "Technology"), PilotIssuer("CAT", "Industrials")))
+def _decide(repository, universe=(PilotIssuer("AAPL", "Technology"), PilotIssuer("CAT", "Industrials"))):
+    config = PilotConfig(universe=universe)
     decisions, _weights = decide_portfolio(
         config, loader=_Loader(), repository=repository, manifest_lookup=issuer_policy_for,
         prices=None, data_vintage_cutoff=INGESTED_AT + timedelta(hours=1),
@@ -153,3 +190,18 @@ def test_cat_is_refused_before_valuation_when_segment_facts_are_missing(harness)
     # A refused CAT never enters the sector medians; AAPL is unaffected.
     assert harness["median_tickers"] == ["AAPL"]
     assert records["AAPL"].piotroski_f_score == calculate_f_score_from_statements(*_statements())
+
+
+def test_every_other_manifest_issuer_keeps_consolidated_gross_margin(harness):
+    assert [issuer.ticker for issuer in sec_pilot.PILOT_UNIVERSE] == ["AAPL", "MSFT", "WMT", "CAT"]
+    records = _decide(InMemoryFundamentalsRepository(pilot_facts()), sec_pilot.PILOT_UNIVERSE)
+    consolidated = calculate_f_score_from_statements(*_statements())
+
+    for ticker in ("AAPL", "MSFT", "WMT"):
+        assert harness["build"][ticker] == sec_pilot._QUALITY_FLOW_OPTIONAL
+        assert harness["f_score"][ticker] is None
+        assert records[ticker].segment_gross_margin is None
+        assert records[ticker].piotroski_f_score == consolidated
+        assert "piotroski_gross_margin_segment_basis" not in records[ticker].approximations
+    assert harness["f_score"]["CAT"] == (MET_CURRENT, MET_PRIOR)
+    assert records["CAT"].piotroski_f_score == consolidated + 1

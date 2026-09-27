@@ -177,6 +177,23 @@ def calculate_f_score_from_statements(
     only, for an issuer whose gross margin must use an approved segment basis.
     Every other factor, including asset turnover, still reads the statements.
     """
+    return sum(
+        1
+        for factor in f_score_factors_from_statements(
+            income_stmt, balance_sheet, cash_flow, gross_margin_override=gross_margin_override
+        )
+        if factor
+    )
+
+
+def f_score_factors_from_statements(
+    income_stmt: Optional[pd.DataFrame],
+    balance_sheet: Optional[pd.DataFrame],
+    cash_flow: Optional[pd.DataFrame],
+    *,
+    gross_margin_override: Optional[Tuple[float, float]] = None,
+) -> Tuple[bool, ...]:
+    """The nine Piotroski tests in order (factor 8, index 7, is gross margin)."""
     income_t, income_t1 = _two_most_recent_columns(income_stmt)
     balance_t, balance_t1 = _two_most_recent_columns(balance_sheet)
     cash_t, _ = _two_most_recent_columns(cash_flow)
@@ -211,7 +228,7 @@ def calculate_f_score_from_statements(
         asset_turnover_t is not None and asset_turnover_t1 is not None and asset_turnover_t > asset_turnover_t1,
     ]
 
-    return sum(1 for factor in factors if factor)
+    return tuple(bool(factor) for factor in factors)
 
 
 if __name__ == "__main__":

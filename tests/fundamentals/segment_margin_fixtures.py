@@ -1,8 +1,9 @@
 """CAT ME&T supplemental-table fixtures shared by the segment-margin tests.
 
 The HTML excerpts under tests/fixtures/sec_filing_document are cut from the
-real filings named below; the filing metadata is copied from SEC's
-submissions JSON for CIK 0000018230.
+real filings named below (each excerpt records its source URL and the full
+document's SHA-256); the filing metadata is copied from SEC's submissions
+JSON for CIK 0000018230.
 """
 
 from dataclasses import replace
@@ -49,20 +50,62 @@ Q2_2024_10Q = reference(
     "0000018230-24-000045", "10-Q", date(2024, 8, 7),
     datetime(2024, 8, 7, 14, 40, 25, tzinfo=timezone.utc), date(2024, 6, 30), "cat-20240630.htm",
 )
+# 2020 10-Qs in EDGAR's older layout: a footnoted ME&T column header and
+# negatives split across two cells ("(1" then ")").
+Q1_2020_10Q = reference(
+    "0000018230-20-000155", "10-Q", date(2020, 5, 6),
+    datetime(2020, 5, 6, 17, 9, 58, tzinfo=timezone.utc), date(2020, 3, 31), "cat10q3312020.htm",
+)
+Q2_2020_10Q = reference(
+    "0000018230-20-000214", "10-Q", date(2020, 8, 5),
+    datetime(2020, 8, 5, 14, 50, 24, tzinfo=timezone.utc), date(2020, 6, 30), "cat10q6302020.htm",
+)
+# Filings behind the Q1, Q3, and annual margin-selection tests.
+Q3_2022_10Q = reference(
+    "0000018230-22-000223", "10-Q", date(2022, 11, 2),
+    datetime(2022, 11, 2, 14, 37, 8, tzinfo=timezone.utc), date(2022, 9, 30), "cat-20220930.htm",
+)
+FY2022_10K = reference(
+    "0000018230-23-000011", "10-K", date(2023, 2, 15),
+    datetime(2023, 2, 15, 15, 27, 56, tzinfo=timezone.utc), date(2022, 12, 31), "cat-20221231.htm",
+)
+Q1_2023_10Q = reference(
+    "0000018230-23-000022", "10-Q", date(2023, 5, 3),
+    datetime(2023, 5, 3, 14, 19, 47, tzinfo=timezone.utc), date(2023, 3, 31), "cat-20230331.htm",
+)
+Q3_2023_10Q = reference(
+    "0000018230-23-000056", "10-Q", date(2023, 11, 1),
+    datetime(2023, 11, 1, 14, 3, 2, tzinfo=timezone.utc), date(2023, 9, 30), "cat-20230930.htm",
+)
+Q1_2024_10Q = reference(
+    "0000018230-24-000020", "10-Q", date(2024, 5, 1),
+    datetime(2024, 5, 1, 14, 5, 24, tzinfo=timezone.utc), date(2024, 3, 31), "cat-20240331.htm",
+)
 FIXTURE_FILE = {
     FY2023_10K.accession_number: "cat-20231231-supplemental.htm",
     Q2_2023_10Q.accession_number: "cat-20230630-supplemental.htm",
     Q2_2024_10Q.accession_number: "cat-20240630-supplemental.htm",
 }
+# Kept apart from FIXTURE_FILE, which is exactly the pilot's three filings.
+MORE_FIXTURE_FILES = {
+    Q1_2020_10Q.accession_number: "cat-20200331-supplemental.htm",
+    Q2_2020_10Q.accession_number: "cat-20200630-supplemental.htm",
+    Q3_2022_10Q.accession_number: "cat-20220930-supplemental.htm",
+    FY2022_10K.accession_number: "cat-20221231-supplemental.htm",
+    Q1_2023_10Q.accession_number: "cat-20230331-supplemental.htm",
+    Q3_2023_10Q.accession_number: "cat-20230930-supplemental.htm",
+    Q1_2024_10Q.accession_number: "cat-20240331-supplemental.htm",
+}
 
 
 def document(filing) -> bytes:
-    return (FIXTURES / FIXTURE_FILE[filing.accession_number]).read_bytes()
+    name = FIXTURE_FILE.get(filing.accession_number) or MORE_FIXTURE_FILES[filing.accession_number]
+    return (FIXTURES / name).read_bytes()
 
 
-def facts_for(filing, *, ingested_at=INGESTED_AT, batch=BATCH, source=None):
+def facts_for(filing, *, ingested_at=INGESTED_AT, batch=BATCH, source=None, document_bytes=None):
     return extract_supplemental_facts(
-        document(source or filing),
+        document_bytes if document_bytes is not None else document(source or filing),
         CAT_MET_SUPPLEMENTAL_RULE,
         filing=filing,
         calendar_policy=CAT_CALENDAR,

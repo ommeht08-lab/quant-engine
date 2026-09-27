@@ -15,6 +15,7 @@ from src.fundamentals.segment_gross_margin import (
     SEGMENT_SALES,
     SegmentGrossMarginRefusal,
     load_segment_gross_margin_pair,
+    periodic_filing_documents,
     run_segment_document_dry_run,
     segment_gross_margin_rule_for,
 )
@@ -22,11 +23,16 @@ from tests.fundamentals.segment_margin_fixtures import (
     CAT_CALENDAR,
     FIXTURE_FILE,
     FIXTURES,
+    FY2022_10K,
     FY2023_10K,
     INGESTED_AT,
     PILOT_CUTOFF,
+    Q1_2023_10Q,
+    Q1_2024_10Q,
     Q2_2023_10Q,
     Q2_2024_10Q,
+    Q3_2022_10Q,
+    Q3_2023_10Q,
     facts_for,
     pilot_facts,
     reference,
@@ -276,7 +282,22 @@ def _documents():
     return {accession: (FIXTURES / name).read_bytes() for accession, name in FIXTURE_FILE.items()}
 
 
+class _Clock:
+    """Each read is one second later than the last, starting after the
+    submissions download."""
+
+    def __init__(self, start=INGESTED_AT):
+        self.reads = []
+        self._next = start
+
+    def __call__(self):
+        self._next += timedelta(seconds=1)
+        self.reads.append(self._next)
+        return self._next
+
+
 def _dry_run(downloader, cutoff=PILOT_CUTOFF, **kwargs):
+    kwargs.setdefault("clock", _Clock())
     return run_segment_document_dry_run(
         downloader=downloader, rule=CAT_MET_SUPPLEMENTAL_RULE, calendar_policy=CAT_CALENDAR,
         ingestion_batch_id="segment-dry-run-1", knowledge_cutoff=cutoff, **kwargs,
@@ -318,7 +339,7 @@ def test_dry_run_reads_each_periodic_filing_and_its_output_reproduces_the_pair()
     )
     assert result.amendments_without_table == ((part_iii.accession_number, "Part III only"),)
     assert {fact.lineage.ingestion_batch_id for fact in result.facts} == {"segment-dry-run-1+sec_filing_document"}
-    assert all(len(sha) == 64 for _accession, _url, sha in result.documents)
+    assert all(len(item.sha256) == 64 for item in result.documents)
     assert _pair(result.facts).current == Decimal(21605) / Decimal(63025)
 
 
@@ -420,3 +441,201 @@ def test_a_recognized_amendment_is_read_and_supersedes_only_after_acceptance():
 
 def test_no_cat_amendment_has_a_reviewed_exception_yet():
     assert REVIEWED_AMENDMENTS_WITHOUT_TABLE == {CAT_MET_SUPPLEMENTAL_RULE.cik: {}}
+
+
+# --------------------------------------------------------------------------
+# Data vintage: facts are never available before their documents
+# --------------------------------------------------------------------------
+
+
+def test_dry_run_vintage_is_the_last_document_capture_not_the_submissions_download():
+    clock = _Clock()
+    result = _dry_run(_FakeDownloader([_row(filing) for filing in PILOT_ROWS], _documents()), clock=clock)
+
+    assert result.is_complete, result.issues
+    assert result.submissions_downloaded_at == INGESTED_AT
+    captures = [item.captured_at for item in result.documents]
+    assert captures == clock.reads == [INGESTED_AT + timedelta(seconds=n) for n in (1, 2, 3)]
+    last_capture = captures[-1]
+    assert result.ingested_at == last_capture
+    assert {fact.lineage.ingested_at for fact in result.facts} == {last_capture}
+
+    # The old stamp (the submissions download) would have exposed facts
+    # whose documents had not yet been captured.
+    for vintage in (INGESTED_AT, captures[0], last_capture - timedelta(microseconds=1)):
+        with pytest.raises(SegmentGrossMarginRefusal, match="missing"):
+            _pair(result.facts, vintage=vintage)
+    assert _pair(result.facts, vintage=last_capture).current == Decimal(21605) / Decimal(63025)
+    assert _pair(result.facts, vintage=last_capture + timedelta(microseconds=1)).current == Decimal(21605) / Decimal(63025)
+
+
+def test_a_document_captured_before_its_submissions_list_refuses():
+    clock = _Clock(start=INGESTED_AT - timedelta(seconds=2))
+    result = _dry_run(_FakeDownloader([_row(filing) for filing in PILOT_ROWS], _documents()), clock=clock)
+
+    assert not result.is_complete and not result.facts and result.ingested_at is None
+    assert "before the submissions" in result.issues[0]
+    assert result.submissions_downloaded_at == INGESTED_AT
+
+
+def test_a_naive_capture_clock_is_rejected():
+    with pytest.raises(ValueError, match="timezone-aware"):
+        _dry_run(
+            _FakeDownloader([_row(filing) for filing in PILOT_ROWS], _documents()),
+            clock=lambda: datetime(2026, 9, 25, 13),
+        )
+
+
+def test_a_refused_dry_run_keeps_the_captures_it_made_but_stamps_no_vintage():
+    documents = _documents()
+    documents[Q2_2024_10Q.accession_number] = b"<html><body><p>layout changed</p></body></html>"
+    result = _dry_run(_FakeDownloader([_row(filing) for filing in PILOT_ROWS], documents))
+
+    assert not result.is_complete and result.ingested_at is None
+    assert len(result.documents) == 3 and result.submissions_downloaded_at == INGESTED_AT
+
+
+# --------------------------------------------------------------------------
+# Filing list: acceptance exactly at the cutoff is in, one microsecond later is out
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "offset, included",
+    [(timedelta(microseconds=-1), True), (timedelta(0), True), (timedelta(microseconds=1), False)],
+    ids=["cutoff-after-acceptance", "cutoff-at-acceptance", "cutoff-before-acceptance"],
+)
+def test_filing_list_includes_a_filing_accepted_at_or_before_the_cutoff(offset, included):
+    # The cutoff moves around Q2 2024's acceptance: 1 microsecond before it,
+    # exactly at it, and 1 microsecond after (offset is acceptance - cutoff).
+    cutoff = Q2_2024_10Q.accepted_at - offset
+    listed = periodic_filing_documents(
+        (_submissions(*[_row(filing) for filing in PILOT_ROWS]),),
+        cik="18230", accepted_by=cutoff, report_date_floor=date(2020, 1, 1),
+    )
+    assert (Q2_2024_10Q in listed) is included
+    assert {FY2023_10K, Q2_2023_10Q} <= set(listed)
+
+
+@pytest.mark.parametrize(
+    "offset, included",
+    [(timedelta(microseconds=-1), True), (timedelta(0), True), (timedelta(microseconds=1), False)],
+    ids=["cutoff-after-acceptance", "cutoff-at-acceptance", "cutoff-before-acceptance"],
+)
+def test_dry_run_reads_a_10q_only_once_its_acceptance_is_at_or_before_the_cutoff(offset, included):
+    downloader = _FakeDownloader([_row(filing) for filing in PILOT_ROWS], _documents())
+    result = _dry_run(downloader, cutoff=Q2_2024_10Q.accepted_at - offset)
+
+    assert result.is_complete, result.issues
+    assert (Q2_2024_10Q.accession_number in downloader.fetched) is included
+    accessions = {fact.provenance.accession_number for fact in result.facts}
+    assert (Q2_2024_10Q.accession_number in accessions) is included
+
+
+# --------------------------------------------------------------------------
+# Trailing-year selection: annual, Q1, Q3, and three-month vs year-to-date
+# --------------------------------------------------------------------------
+
+SELECTION_FILINGS = (Q3_2022_10Q, FY2022_10K, Q1_2023_10Q, Q3_2023_10Q, FY2023_10K, Q1_2024_10Q)
+
+
+def _selection_facts():
+    return tuple(fact for filing in SELECTION_FILINGS for fact in facts_for(filing))
+
+
+def _parts(pair):
+    return {
+        (item.concept, item.fiscal_period, item.period_start, item.period_end, item.accession_number)
+        for item in pair.components
+    }
+
+
+def test_annual_margins_use_the_fiscal_year_facts_alone():
+    pair = _pair(_selection_facts(), latest=date(2023, 12, 31), prior=date(2022, 12, 31))
+
+    assert pair.current == Decimal(63869 - 42776) / Decimal(63869)
+    assert pair.prior == Decimal(56574 - 41356) / Decimal(56574)
+    assert {item.fiscal_period for item in pair.components} == {"FY"}
+    assert {(item.period_start, item.period_end) for item in pair.components} == {
+        (date(2023, 1, 1), date(2023, 12, 31)), (date(2022, 1, 1), date(2022, 12, 31)),
+    }
+
+
+def test_q1_trailing_year_is_prior_fy_plus_q1_less_prior_q1():
+    cutoff = Q1_2024_10Q.accepted_at
+    pair = _pair(_selection_facts(), cutoff=cutoff, latest=date(2024, 3, 31), prior=date(2023, 3, 31))
+
+    # TTM Mar 2024 = FY2023 + Q1 2024 - Q1 2023; TTM Mar 2023 = FY2022 + Q1 2023 - Q1 2022.
+    assert pair.current == Decimal((63869 + 14960 - 15099) - (42776 + 9664 - 10104)) / Decimal(63869 + 14960 - 15099)
+    assert pair.prior == Decimal((56574 + 15099 - 12886) - (41356 + 10104 - 9560)) / Decimal(56574 + 15099 - 12886)
+    q1 = {(c, fp, start, end) for c, fp, start, end, _a in _parts(pair) if fp == "Q1"}
+    assert q1 == {
+        (concept, "Q1", date(year, 1, 1), date(year, 3, 31))
+        for concept in (SEGMENT_SALES, SEGMENT_COST_OF_GOODS_SOLD)
+        for year in (2022, 2023, 2024)
+    }
+    assert all(item.accepted_at <= cutoff for item in pair.components)
+
+
+def test_q3_trailing_year_uses_nine_month_ytd_never_the_three_month_quarter():
+    facts = _selection_facts()
+    # Both bases are present for every Q3 end.
+    assert {
+        fact.period.fiscal_period for fact in facts if fact.identity.period_end == date(2023, 9, 30)
+    } == {"Q3", "Q3YTD"}
+    pair = _pair(facts, cutoff=Q3_2023_10Q.accepted_at, latest=date(2023, 9, 30), prior=date(2022, 9, 30))
+
+    # TTM Sep 2023 = FY2022 + 9M 2023 - 9M 2022; TTM Sep 2022 = FY2021 + 9M 2022 - 9M 2021.
+    sales, cost = 56574 + 47632 - 40703, 41356 + 31758 - 29741
+    prior_sales, prior_cost = 48188 + 40703 - 35091, 35521 + 29741 - 25515
+    assert pair.current == Decimal(sales - cost) / Decimal(sales)
+    assert pair.prior == Decimal(prior_sales - prior_cost) / Decimal(prior_sales)
+    assert {item.fiscal_period for item in pair.components} == {"FY", "Q3YTD"}
+    assert all(
+        item.period_start.month == 1 for item in pair.components if item.fiscal_period == "Q3YTD"
+    )
+
+
+def test_q2_trailing_year_uses_six_month_ytd_when_three_month_tables_are_read():
+    # The pilot's Q2 10-Qs in full print three- and six-month tables; the
+    # three-month figures are read too, and must not change the pair.
+    full = {
+        Q2_2023_10Q.accession_number: "cat-20230630-all-supplemental.htm",
+        Q2_2024_10Q.accession_number: "cat-20240630-all-supplemental.htm",
+    }
+
+    def read(filing):
+        name = full.get(filing.accession_number)
+        return (FIXTURES / name).read_bytes() if name else None
+
+    facts = tuple(
+        fact
+        for filing in PILOT_ROWS
+        for fact in (facts_for(filing, document_bytes=read(filing)) if read(filing) else facts_for(filing))
+    )
+    assert {
+        fact.period.fiscal_period for fact in facts if fact.identity.period_end == LATEST
+    } == {"Q2", "Q2YTD"}
+    pair = _pair(facts)
+    assert (pair.current, pair.prior) == (_pair(pilot_facts()).current, _pair(pilot_facts()).prior)
+    assert {item.fiscal_period for item in pair.components} == {"FY", "Q2YTD"}
+
+
+def test_two_annual_facts_for_one_year_end_refuse_instead_of_picking_one():
+    fy2023 = _find(pilot_facts(), SEGMENT_SALES, date(2023, 1, 1), date(2023, 12, 31))
+    rival = replace(
+        fy2023,
+        value=fy2023.value + 1,
+        identity=replace(fy2023.identity, period_start=date(2022, 12, 31)),
+        period=replace(fy2023.period, period_start=date(2022, 12, 31)),
+        raw_tag=fy2023.raw_tag + "|rival",
+    )
+    assert rival.period.fiscal_period == "FY"
+    # A trailing year ending on the fiscal year end reads the annual fact directly.
+    annual = {"latest": date(2023, 12, 31), "prior": date(2022, 12, 31)}
+    assert _pair(pilot_facts(), **annual).current == Decimal(63869 - 42776) / Decimal(63869)
+    with pytest.raises(SegmentGrossMarginRefusal, match="Ambiguous annual segment_sales ending 2023-12-31"):
+        _pair(pilot_facts() + (rival,), **annual)
+    # A mid-year trailing year that needs the same annual fact refuses too.
+    with pytest.raises(SegmentGrossMarginRefusal, match="ambiguous"):
+        _pair(pilot_facts() + (rival,))

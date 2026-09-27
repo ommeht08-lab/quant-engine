@@ -438,3 +438,32 @@ def test_segment_document_facts_round_trip_and_reproduce_the_cat_margin(empty_st
     assert stored <= {(fact.provenance.accession_number, fact.raw_tag) for fact in facts}
     with pytest.raises(SegmentGrossMarginRefusal, match="missing"):
         pair(INGESTED_AT - dt.timedelta(microseconds=1))
+
+
+def test_dry_run_facts_are_invisible_in_postgres_until_their_last_document_was_captured(empty_store):
+    from src.fundamentals.segment_gross_margin import run_segment_document_dry_run
+    from tests.fundamentals.test_segment_gross_margin import PILOT_ROWS, _Clock, _documents, _FakeDownloader, _row
+
+    result = run_segment_document_dry_run(
+        downloader=_FakeDownloader([_row(filing) for filing in PILOT_ROWS], _documents()),
+        rule=CAT_MET_SUPPLEMENTAL_RULE, calendar_policy=CAT_CALENDAR,
+        ingestion_batch_id="segment-postgres-vintage", knowledge_cutoff=PILOT_CUTOFF, clock=_Clock(),
+    )
+    assert result.is_complete, result.issues
+    append_facts(result.facts, database_url=DATABASE_URL)
+    repository = PostgresFundamentalsRepository(database_url=DATABASE_URL)
+
+    def pair(vintage):
+        return load_segment_gross_margin_pair(
+            repository, rule=CAT_MET_SUPPLEMENTAL_RULE, fiscal_calendar_version=CAT_CALENDAR.version,
+            knowledge_cutoff=PILOT_CUTOFF, data_vintage_cutoff=vintage,
+            latest_end=dt.date(2024, 6, 30), prior_end=dt.date(2023, 6, 30),
+        )
+
+    last_capture = max(item.captured_at for item in result.documents)
+    assert result.submissions_downloaded_at < last_capture == result.ingested_at
+    for vintage in (result.submissions_downloaded_at, last_capture - dt.timedelta(microseconds=1)):
+        with pytest.raises(SegmentGrossMarginRefusal, match="missing"):
+            pair(vintage)
+    assert pair(last_capture).current == Decimal(21605) / Decimal(63025)
+    assert {item.ingested_at for item in pair(last_capture).components} == {last_capture}

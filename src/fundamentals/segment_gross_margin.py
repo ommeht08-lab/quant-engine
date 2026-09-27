@@ -14,7 +14,10 @@ Two operations live here, deliberately separate:
 * ``run_segment_document_dry_run`` downloads the issuer's submissions, reads
   every 10-K/10-Q (and amendment) accepted by the cutoff, and returns
   classified, dimensioned facts ready for the existing append-only publisher.
-  It never publishes.
+  It never publishes. Its facts' ingestion time (the data vintage) is when
+  the last supporting document was captured, never the earlier submissions
+  download, so no fact is visible at a vintage before its document existed
+  locally.
 * ``load_segment_gross_margin_pair`` reads only published facts through the
   repository seam, bounded by the knowledge cutoff (SEC acceptance time) and
   the data-vintage cutoff (ingestion time), and computes the two trailing-year
@@ -32,9 +35,9 @@ from __future__ import annotations
 import hashlib
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from decimal import Decimal
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from .adapters.sec_downloader import SecDownloadError
 from .adapters.sec_filing_document import (
@@ -179,13 +182,34 @@ def periodic_filing_documents(
 
 
 @dataclass(frozen=True)
+class CapturedDocument:
+    """One filing document as read: where from, its hash, and when its
+    bytes were in hand (UTC)."""
+
+    accession_number: str
+    url: str
+    sha256: str
+    captured_at: datetime
+
+
+@dataclass(frozen=True)
 class SegmentDocumentDryRun:
+    """What a dry run read and would publish; nothing here is published.
+
+    Three instants are kept apart: ``submissions_downloaded_at`` (the filing
+    list), each document's ``captured_at``, and ``ingested_at``, the data
+    vintage stamped on every fact: the latest capture, so no fact is visible
+    at a vintage before every document behind the batch was captured.
+    Publication is a later, separately approved step that must record these
+    facts with this ``ingested_at`` unchanged; it is never the publish time.
+    """
+
     cik: str
     knowledge_cutoff: datetime
-    ingested_at: Optional[datetime]
+    submissions_downloaded_at: Optional[datetime] = None
+    ingested_at: Optional[datetime] = None
     facts: Tuple[FinancialFact, ...] = ()
-    # (accession, document URL, document SHA-256) for every document read.
-    documents: Tuple[Tuple[str, str, str], ...] = ()
+    documents: Tuple[CapturedDocument, ...] = ()
     # (accession, reviewed reason) for each excepted amendment without a table.
     amendments_without_table: Tuple[Tuple[str, str], ...] = ()
     issues: Tuple[str, ...] = ()
@@ -218,6 +242,10 @@ def _unordered_conflicts(facts: Iterable[FinancialFact]) -> List[str]:
     return sorted(problems)
 
 
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
 def run_segment_document_dry_run(
     *,
     downloader,
@@ -226,8 +254,13 @@ def run_segment_document_dry_run(
     ingestion_batch_id: str,
     knowledge_cutoff: datetime,
     reviewed_amendments_without_table: Optional[Mapping[str, str]] = None,
+    clock: Callable[[], datetime] = _utc_now,
 ) -> SegmentDocumentDryRun:
     """Read every periodic filing accepted by the cutoff; publish nothing.
+
+    Every document is captured first (``clock`` is read as each one's bytes
+    arrive), then all are parsed with the latest capture as the facts'
+    ingestion time.
 
     Any filing without the rule's table refuses the whole run (a layout
     change must be reviewed, not skipped). The one exception is an amendment
@@ -244,13 +277,23 @@ def run_segment_document_dry_run(
     if not is_aware(knowledge_cutoff):
         raise ValueError("knowledge_cutoff must be timezone-aware.")
 
-    def refuse(message: str, ingested_at=None, documents=()) -> SegmentDocumentDryRun:
-        return SegmentDocumentDryRun(cik, knowledge_cutoff, ingested_at, documents=tuple(documents), issues=(message,))
+    downloaded_at: Optional[datetime] = None
+    documents: List[CapturedDocument] = []
+
+    def refuse(message: str) -> SegmentDocumentDryRun:
+        return SegmentDocumentDryRun(
+            cik,
+            knowledge_cutoff,
+            submissions_downloaded_at=downloaded_at,
+            documents=tuple(documents),
+            issues=(message,),
+        )
 
     try:
         payload = downloader.fetch_issuer(cik)
     except SecDownloadError as error:
         return refuse(f"download: {error}")
+    downloaded_at = payload.downloaded_at
     floor = min(
         definition.period_start
         for definition in (*calendar_policy.fiscal_years, *calendar_policy.transitions, *calendar_policy.open_fiscal_years)
@@ -260,24 +303,38 @@ def run_segment_document_dry_run(
             payload.submissions, cik=cik, accepted_by=knowledge_cutoff, report_date_floor=floor
         )
     except (ValueError, TypeError, KeyError) as error:
-        return refuse(f"submissions: {error}", payload.downloaded_at)
+        return refuse(f"submissions: {error}")
     if not filings:
-        return refuse("No periodic filing was accepted by the cutoff.", payload.downloaded_at)
+        return refuse("No periodic filing was accepted by the cutoff.")
 
     if reviewed_amendments_without_table is None:
         reviewed_amendments_without_table = REVIEWED_AMENDMENTS_WITHOUT_TABLE.get(cik, {})
     batch_id = source_qualified_batch_id(ingestion_batch_id, SOURCE_ADAPTER)
-    facts: List[FinancialFact] = []
-    documents: List[Tuple[str, str, str]] = []
-    skipped: List[Tuple[str, str]] = []
+    contents: List[bytes] = []
     for filing in filings:
         try:
             url, document = downloader.fetch_filing_document(cik, filing.accession_number, filing.document_name)
         except (SecDownloadError, OSError) as error:
-            return refuse(f"{filing.accession_number}: document unavailable ({error})", payload.downloaded_at, documents)
+            return refuse(f"{filing.accession_number}: document unavailable ({error})")
+        captured_at = clock()
+        if not is_aware(captured_at):
+            raise ValueError("clock must return timezone-aware datetimes.")
         if url != filing.document_url:
-            return refuse(f"{filing.accession_number}: fetched {url}, expected {filing.document_url}", payload.downloaded_at, documents)
-        documents.append((filing.accession_number, url, hashlib.sha256(document).hexdigest()))
+            return refuse(f"{filing.accession_number}: fetched {url}, expected {filing.document_url}")
+        documents.append(
+            CapturedDocument(filing.accession_number, url, hashlib.sha256(document).hexdigest(), captured_at)
+        )
+        if captured_at < downloaded_at:
+            return refuse(
+                f"{filing.accession_number}: captured at {captured_at.isoformat()}, before the submissions "
+                f"that list it were downloaded ({downloaded_at.isoformat()}); the clock cannot be trusted."
+            )
+        contents.append(document)
+    ingested_at = max(item.captured_at for item in documents)
+
+    facts: List[FinancialFact] = []
+    skipped: List[Tuple[str, str]] = []
+    for filing, document in zip(filings, contents):
         try:
             extracted = extract_supplemental_facts(
                 document,
@@ -285,43 +342,36 @@ def run_segment_document_dry_run(
                 filing=filing,
                 calendar_policy=calendar_policy,
                 ingestion_batch_id=batch_id,
-                ingested_at=payload.downloaded_at,
+                ingested_at=ingested_at,
             )
         except FilingDocumentError as error:
-            return refuse(f"{filing.accession_number}: {error.code.value}: {error}", payload.downloaded_at, documents)
+            return refuse(f"{filing.accession_number}: {error.code.value}: {error}")
         excepted = filing.form_type.endswith("/A") and filing.accession_number in reviewed_amendments_without_table
         if not extracted:
             if excepted and contains_rule_rows(document, rule):
                 return refuse(
                     f"{filing.accession_number} is excepted as having no {rule.title!r} table, but it has rows "
-                    "the rule reads under an unrecognized layout.",
-                    payload.downloaded_at,
-                    documents,
+                    "the rule reads under an unrecognized layout."
                 )
             if excepted:
                 skipped.append((filing.accession_number, reviewed_amendments_without_table[filing.accession_number]))
                 continue
             return refuse(
                 f"{filing.accession_number} ({filing.form_type}) has no recognized {rule.title!r} table"
-                + (" and no reviewed exception." if filing.form_type.endswith("/A") else "."),
-                payload.downloaded_at,
-                documents,
+                + (" and no reviewed exception." if filing.form_type.endswith("/A") else ".")
             )
         if excepted:
-            return refuse(
-                f"{filing.accession_number} is excepted as having no {rule.title!r} table, but one was found.",
-                payload.downloaded_at,
-                documents,
-            )
+            return refuse(f"{filing.accession_number} is excepted as having no {rule.title!r} table, but one was found.")
         facts.extend(extracted)
 
     conflicts = _unordered_conflicts(facts)
     if conflicts:
-        return refuse("Conflicting segment values: " + "; ".join(conflicts), payload.downloaded_at, documents)
+        return refuse("Conflicting segment values: " + "; ".join(conflicts))
     return SegmentDocumentDryRun(
         cik=cik,
         knowledge_cutoff=knowledge_cutoff,
-        ingested_at=payload.downloaded_at,
+        submissions_downloaded_at=downloaded_at,
+        ingested_at=ingested_at,
         facts=tuple(facts),
         documents=tuple(documents),
         amendments_without_table=tuple(skipped),
@@ -484,6 +534,9 @@ def load_segment_gross_margin_pair(
         totals = []
         for concept in (SEGMENT_SALES, SEGMENT_COST_OF_GOODS_SOLD):
             annual = [fact for (name, _s, e), fact in winners.items() if name == concept and e == end and fact.period.fiscal_period == "FY"]
+            if len(annual) > 1:
+                periods = sorted(f"{fact.identity.period_start}..{fact.identity.period_end}" for fact in annual)
+                raise SegmentGrossMarginRefusal(f"Ambiguous annual {concept} ending {end}: {periods}.")
             if annual:
                 parts = [(annual[0], 1)]
             else:

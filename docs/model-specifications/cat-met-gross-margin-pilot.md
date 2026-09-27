@@ -41,12 +41,35 @@ the consolidating adjustment is at most 1% of Consolidated (the largest in
 the filings reviewed is 9 of 42,767). A rule cannot be built without one
 invariant per row.
 
+Two layouts are recognized. CAT's 2020 Q1 and Q2 10-Qs (older EDGAR markup)
+put a superscript footnote number after the ME&T column header and print a
+negative across two adjacent cells (`(1` then `)`); from Q3 2020 (Workiva
+markup) footnote numbers are small raised spans. The parser accepts exactly
+these: a trailing superscript number on a column header, a split negative
+closed by the very next cell, and footnote cells identified by `<sup>`,
+`vertical-align: super`, a raised relative offset, or a smaller font than
+the row label. A table cell's own `vertical-align: top` is layout, never a
+footnote, so a top-aligned value such as an adjustment of 9 is read, not
+dropped. A marker inside a label or value, a non-numeric marker, an
+unclosed or stray parenthesis, or a split whose `)` is not in the next cell
+refuses.
+
 Facts are ordinary `FinancialFact`s with source adapter `sec_filing_document`,
 dimension `srt:ProductOrServiceAxis = cat:MachineryEnergyTransportationMember`
 (CAT's own XBRL member), filing provenance (accession, form, acceptance time
 from SEC submissions metadata), and lineage (document URL, document SHA-256
 in `raw_tag`, rule version, ingestion batch, ingestion time). They publish
 through the existing append-only store in a `+sec_filing_document` batch.
+
+The dry run keeps three instants apart: when the submissions list was
+downloaded, when each document's bytes were captured (`CapturedDocument`),
+and the facts' ingestion time (the data vintage), which is the **latest
+document capture**. A fact is therefore never visible at a data-vintage
+cutoff before every document in its batch was captured locally; the earlier
+submissions-download time is never used as the vintage. A capture time
+earlier than the submissions download refuses. Publication is a later,
+separately approved step that records the facts with this ingestion time
+unchanged; the store has no separate publication timestamp.
 
 Only 10-K/10-Q documents (and amendments) are read, never earnings 8-Ks:
 they are the filings the CAT fiscal calendar classifies. The source can
@@ -68,7 +91,11 @@ Point-in-time rules (`load_segment_gross_margin_pair`):
   from its acceptance onward; superseded and corroborating filings are
   recorded per component;
 * values that cannot be ordered (one filing reporting two, or two filings
-  accepted at the same instant) refuse, as does any missing component.
+  accepted at the same instant) refuse, as does any missing component;
+* a trailing year ending on a fiscal year end uses that year's annual fact
+  and refuses if more than one annual fact ends there; any other trailing
+  year is the prior fiscal year plus the current year-to-date less the prior
+  year-to-date (Q1, six-month, or nine-month; never a three-month quarter).
 
 ## Independent verification (September 3, 2024 pilot)
 
@@ -93,6 +120,28 @@ margin 34.2800476002%. `TTM Jun 2023 = FY2022 + H1 2023 - H1 2022`: sales
 61,793; COGS 42,990; margin 30.4290129950%. The gross-margin factor alone
 would be 1 at this date. This says nothing about CAT's other gates or any
 investment return.
+
+## Historical parse check (offline, cached documents)
+
+Run 2026-09-27 against the SEC documents a reviewer cached on 2026-09-25
+(no fresh download: no SEC contact identity is configured here). Three of
+the cached documents' SHA-256s equal the hashes pinned in the committed
+excerpts; the others have no independent hash.
+
+* **September 3, 2024 cutoff: all 18 periodic filings** (Q1 2020 10-Q
+  through Q2 2024 10-Q, no amendments) parse through
+  `run_segment_document_dry_run`: 100 facts, no refusals. 42 of 54
+  (concept, period) values are printed by more than one filing and none
+  disagree. The pair above (34.2800476% vs 30.4290130%) is reproduced.
+  Trailing-year pairs ending 2021-12-31 through 2024-06-30 compute; pairs
+  ending 2020-03-31 through 2021-09-30 refuse by design, because their
+  prior year needs FY2019, before the FY2020 calendar start.
+* **Intended backfill (FY2020 to FY2026 Q2): 26 filings, 18 verified.** The
+  8 filings accepted after the pilot cutoff (Q3 2024 10-Q
+  `0000018230-24-000053` through Q2 2026 10-Q `0000018230-26-000046`) were
+  not cached and have **not** been parsed; a dry run to the present stops
+  at the first of them. Their layout is unverified until the approved live
+  dry run.
 
 ## Pilot integration
 
