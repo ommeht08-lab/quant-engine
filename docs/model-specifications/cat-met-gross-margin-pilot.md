@@ -231,3 +231,82 @@ only the three used here), review of its document hashes, publication of the
 resulting batch, verification at the 2024-09-03 and publish cutoffs, and only
 then a pilot run labeled pipeline validation rather than performance
 evidence.
+
+## Publishing from a saved capture
+
+`src/fundamentals/segment_publication_command.py` publishes the facts of a
+reviewed dry run from the saved SEC capture itself, so the stored facts are
+exactly the reviewed ones: each document's SHA-256 (part of every fact's
+`raw_tag`, and so of its stored identity) is checked against the capture
+record, and whenever a `--manifest` is supplied the documents and a digest
+of the facts (everything except ingestion batch and time) must equal it, or
+the command exits nonzero with `"status": "refused"` before any database
+connection. `--publish` goes through `publish_incremental` as a standalone
+`+sec_filing_document` batch under `cat-met-supplemental-results-v3`, which
+is read and proved separately from CAT's Company Facts and filing-XBRL
+batches (a different source and concept-map version).
+
+Timestamps:
+
+* **Eligibility** is SEC acceptance (`eligible_at = accepted_at`), bounded by
+  the knowledge cutoff.
+* **Ingestion** (`ingested_at`, bounded by the data-vintage cutoff) is when
+  the publishing process read the last document, just before its
+  transaction; it is never the earlier SEC capture time, because the data
+  vintage describes when facts existed in our dataset. A run whose vintage
+  is before the publication therefore never sees these facts.
+* **SEC capture** and submissions-download times stay in the manifest as
+  document provenance. The store keeps no separate publication time;
+  `ingested_at` precedes the commit by the seconds the transaction takes.
+* **Replays.** Publishing the same facts again inserts nothing: they stay in
+  their original batch with its original `ingested_at`. The command reports
+  `stored_ingestion` (the batches holding the facts and their own ingestion
+  times) separately from `this_run_ingested_at`, which is only what a new
+  insert would have been stamped.
+* **A metadata read-back failure after a successful publish is never a
+  refusal.** `--publish` calls `publish_incremental` (which commits or rolls
+  back its own transaction before returning or raising) and then reads back
+  the stored batch row to build `stored_ingestion`. If that read-back fails
+  -- the facts are already safely stored, whether newly inserted or a
+  genuine no-op replay/reuse of an earlier publication -- the command
+  prints `"status": "published_unverified"` with the exact `publication`
+  receipt (inserted/reused/replayed counts and batch IDs) it would have
+  printed on success, a `metadata_read_error`, and a nonzero exit code. It
+  never reports `"refused"` for this case, and its `message` points at a
+  read-only recovery step (`--verify`, or reading
+  `fundamentals_ingestion_batches` directly) rather than instructing
+  another publish. A failure from `publish_incremental` itself, before any
+  commit, is unaffected and still reports `"status": "refused"`.
+
+`--verify` is read-only. It requires the stored batch named by `--batch-id`
+to hold exactly the reviewed facts, all with one ingestion time equal to
+that batch row's (and to `--expect-ingested-at` when given), with matching
+source and versions; then no reviewed fact 1 µs before that time and all of
+them at it; per filing, none 1 µs before SEC acceptance and all at it; and
+the supplied margin pairs recomputed from stored facts, refusing 1 µs before
+the ingestion time.
+
+Arguments go in a shell array, which works in zsh and bash and keeps paths
+with spaces intact (a scalar `$ARGS` is one argument in zsh). A saved offline
+script must include `--manifest` explicitly: a package's `offline-dry-run.zsh`
+that omits it parses the capture without checking it against the reviewed
+package, which defeats the check.
+
+```shell
+args=(
+  --capture-dir "/path/to/capture" --cik 18230
+  --knowledge-cutoff 2026-09-27T18:54:12.086501Z
+  --batch-id cat-segment-backfill-20260927T185412Z
+  --manifest "/path/to/package/manifest.json"
+)
+python -m src.fundamentals.segment_publication_command "${args[@]}"            # offline check
+python -m src.fundamentals.segment_publication_command "${args[@]}" --publish  # needs DATABASE_URL
+python -m src.fundamentals.segment_publication_command "${args[@]}" --verify \
+  --expect-ingested-at <stored ingested_at> --expectations "/path/to/package/expectations.json"
+```
+
+A fresh SEC download of the same filings cannot republish or refresh this
+batch: SEC appends a different script tag to every response, so every
+document hash, `raw_tag`, and stored identity changes, and the pre-commit
+proof refuses the stored facts as unexpected. A refresh needs a reviewed
+change to how the document is identified.
