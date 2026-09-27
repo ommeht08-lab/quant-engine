@@ -70,6 +70,7 @@ jobs:
         run: >
           python -m pytest -q tests/fundamentals/test_store_postgres.py
           tests/fundamentals/test_incremental_publication_postgres.py
+          tests/fundamentals/test_segment_publication_command.py
 
   frontend:
     runs-on: ubuntu-latest
