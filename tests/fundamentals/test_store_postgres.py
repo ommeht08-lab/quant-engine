@@ -15,6 +15,7 @@ import psycopg2
 import pytest
 
 from src.fundamentals.adapters.fixture import make_fact, make_lineage, make_period, make_provenance
+from src.fundamentals.opening_balance_sheet import OpeningBalanceSheetRequest, build_opening_balance_sheet
 from src.fundamentals.repository import FundamentalsQuery
 from src.fundamentals.segment_gross_margin import (
     CAT_MET_SUPPLEMENTAL_RULE,
@@ -467,3 +468,40 @@ def test_dry_run_facts_are_invisible_in_postgres_until_their_last_document_was_c
             pair(vintage)
     assert pair(last_capture).current == Decimal(21605) / Decimal(63025)
     assert {item.ingested_at for item in pair(last_capture).components} == {last_capture}
+
+
+def test_opening_balance_sheet_reads_published_facts_with_provenance(empty_store):
+    period = make_period(fiscal_year=2024, fiscal_period="Q2", period_end=dt.date(2024, 6, 30), periodicity="quarterly")
+    accepted = dt.datetime(2024, 8, 1, 20, tzinfo=UTC)
+    lineage = make_lineage(ingested_at=dt.datetime(2024, 8, 2, tzinfo=UTC), ingestion_batch_id="obs-batch")
+    values = {
+        "cash_and_cash_equivalents": "10", "current_assets": "60", "total_assets": "100",
+        "current_liabilities": "20", "total_liabilities": "50", "total_equity": "50",
+    }
+    append_facts(
+        [
+            make_fact(
+                statement_kind=StatementKind.BALANCE_SHEET, concept=concept, period=period, value=value,
+                provenance=make_provenance(accession_number="0001111111-24-000010", filed_date=accepted.date(),
+                                           form_type="10-Q", accepted_at=accepted),
+                entity_cik=CIK, lineage=lineage,
+            )
+            for concept, value in values.items()
+        ],
+        database_url=DATABASE_URL,
+    )
+    request = OpeningBalanceSheetRequest(
+        cik=CIK, period_end=dt.date(2024, 6, 30), knowledge_cutoff=dt.datetime(2024, 9, 3, 20, tzinfo=UTC),
+        data_vintage_cutoff=dt.datetime(2024, 9, 4, tzinfo=UTC), source_adapter="fixture",
+        concept_map_version="fixture-v1", fiscal_calendar_version="fixture-calendar-v1",
+    )
+    repository = PostgresFundamentalsRepository(database_url=DATABASE_URL)
+
+    snapshot = build_opening_balance_sheet(repository, request).snapshot
+    assert snapshot.value("total_assets") == Decimal("100")
+    line = snapshot.line("total_equity")
+    assert (line.accession_number, line.accepted_at, line.ingestion_batch_id) == (
+        "0001111111-24-000010", accepted, "obs-batch",
+    )
+    early = replace(request, data_vintage_cutoff=dt.datetime(2024, 8, 1, tzinfo=UTC))
+    assert not build_opening_balance_sheet(repository, early).is_complete
