@@ -508,6 +508,27 @@ class TestFilingInstanceFetch:
             self._downloader(session).fetch_filing_instance("18230", "../../etc/passwd")
         assert session.calls == []
 
+    def test_fetches_one_named_html_filing_document(self):
+        session = FakeSession([FakeResponse(b"<html></html>", content_type="text/html; charset=utf-8")])
+
+        url, document = self._downloader(session).fetch_filing_document("18230", self.ACCESSION, "cat-20240630.htm")
+
+        assert url == self.FOLDER + "cat-20240630.htm"
+        assert document == b"<html></html>"
+        assert [call[0] for call in session.calls] == [url]
+
+    def test_filing_document_refuses_non_html_content_and_unsafe_names(self):
+        session = FakeSession([FakeResponse(b"{}", content_type="application/json")])
+        with pytest.raises(SecDownloadError) as error:
+            self._downloader(session).fetch_filing_document("18230", self.ACCESSION, "cat-20240630.htm")
+        assert error.value.code is SecDownloadErrorCode.INVALID_CONTENT_TYPE
+
+        session = FakeSession([])
+        for name in ("../x.htm", "cat-20240630.xml", "a/b.htm", ""):
+            with pytest.raises(SecDownloadError):
+                self._downloader(session).fetch_filing_document("18230", self.ACCESSION, name)
+        assert session.calls == []
+
     def test_archive_urls_are_restricted_to_the_edgar_data_path(self):
         with pytest.raises(SecDownloadError):
             SecDownloader._validate_url("https://www.sec.gov/cgi-bin/browse-edgar", archive=True)
