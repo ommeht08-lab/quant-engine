@@ -14,11 +14,22 @@ from src.fundamentals.adapters.sec_filing_document import (
 )
 from src.fundamentals.segment_gross_margin import (
     CAT_MET_SUPPLEMENTAL_RULE,
+    CAT_MPE_SUPPLEMENTAL_RULE,
+    CAT_SEGMENT_MARGIN_SOURCE,
     SEGMENT_COST_OF_GOODS_SOLD,
     SEGMENT_SALES,
+    ReportingBasis,
+    SegmentMarginSource,
 )
 from tests.fundamentals.segment_margin_fixtures import (
     FY2023_10K,
+    FY2024_10K,
+    FY2025_10K,
+    Q1_2025_10Q,
+    Q1_2026_10Q,
+    Q2_2025_10Q,
+    Q2_2026_10Q,
+    Q3_2025_10Q,
     Q1_2020_10Q,
     Q2_2020_10Q,
     Q2_2023_10Q,
@@ -407,3 +418,115 @@ def test_malformed_value_layouts_refuse(cells):
     with pytest.raises(FilingDocumentError) as error:
         parse_supplemental_tables(_doc(_table(SALES, _cost_row(*cells))), RULE)
     assert error.value.code is FilingDocumentIssueCode.MALFORMED_VALUE
+
+
+# --------------------------------------------------------------------------
+# CAT's renaming of ME&T to Machinery, Power & Energy (FY2025 10-K onward)
+# --------------------------------------------------------------------------
+
+MPE = CAT_MPE_SUPPLEMENTAL_RULE
+MPE_FILINGS = (FY2025_10K, Q1_2026_10Q, Q2_2026_10Q)
+LAST_MET_FILINGS = (FY2024_10K, Q1_2025_10Q, Q2_2025_10Q, Q3_2025_10Q)
+
+
+def test_fy2025_10k_reads_the_mpe_column_for_three_years():
+    assert _values(parse_supplemental_tables(document(FY2025_10K), MPE)) == {
+        (SEGMENT_SALES, date(2023, 1, 1), date(2023, 12, 31)): 63869,
+        (SEGMENT_SALES, date(2024, 1, 1), date(2024, 12, 31)): 61363,
+        (SEGMENT_SALES, date(2025, 1, 1), date(2025, 12, 31)): 63980,
+        # MP&E column, not the consolidated 42,767 / 40,199 / 44,752.
+        (SEGMENT_COST_OF_GOODS_SOLD, date(2023, 1, 1), date(2023, 12, 31)): 42776,
+        (SEGMENT_COST_OF_GOODS_SOLD, date(2024, 1, 1), date(2024, 12, 31)): 40206,
+        (SEGMENT_COST_OF_GOODS_SOLD, date(2025, 1, 1), date(2025, 12, 31)): 44761,
+    }
+
+
+def test_2026_10qs_read_the_mpe_column():
+    assert _values(parse_supplemental_tables(document(Q1_2026_10Q), MPE)) == {
+        (SEGMENT_SALES, date(2025, 1, 1), date(2025, 3, 31)): 13378,
+        (SEGMENT_SALES, date(2026, 1, 1), date(2026, 3, 31)): 16473,
+        (SEGMENT_COST_OF_GOODS_SOLD, date(2025, 1, 1), date(2025, 3, 31)): 8967,
+        (SEGMENT_COST_OF_GOODS_SOLD, date(2026, 1, 1), date(2026, 3, 31)): 11308,
+    }
+    assert _values(parse_supplemental_tables(document(Q2_2026_10Q), MPE)) == {
+        (SEGMENT_SALES, date(2025, 4, 1), date(2025, 6, 30)): 15674,
+        (SEGMENT_SALES, date(2025, 1, 1), date(2025, 6, 30)): 29052,
+        (SEGMENT_SALES, date(2026, 4, 1), date(2026, 6, 30)): 19581,
+        (SEGMENT_SALES, date(2026, 1, 1), date(2026, 6, 30)): 36054,
+        (SEGMENT_COST_OF_GOODS_SOLD, date(2025, 4, 1), date(2025, 6, 30)): 10809,
+        (SEGMENT_COST_OF_GOODS_SOLD, date(2025, 1, 1), date(2025, 6, 30)): 19776,
+        (SEGMENT_COST_OF_GOODS_SOLD, date(2026, 4, 1), date(2026, 6, 30)): 12783,
+        (SEGMENT_COST_OF_GOODS_SOLD, date(2026, 1, 1), date(2026, 6, 30)): 24091,
+    }
+
+
+def test_mpe_facts_keep_the_printed_labels_and_the_one_canonical_identity():
+    mpe = next(f for f in facts_for(FY2025_10K) if f.identity.concept == SEGMENT_SALES)
+    met = next(f for f in facts_for(FY2024_10K) if f.identity.concept == SEGMENT_SALES)
+    assert "|row=Sales of Machinery, Power & Energy|column=Machinery, Power & Energy" in mpe.raw_tag
+    assert "|row=Sales of Machinery, Energy & Transportation|column=Machinery, Energy & Transportation" in met.raw_tag
+    assert mpe.identity.context == met.identity.context
+    assert mpe.lineage.concept_map_version == met.lineage.concept_map_version == "cat-met-supplemental-results-v3"
+
+
+@pytest.mark.parametrize("filing", MPE_FILINGS + LAST_MET_FILINGS, ids=lambda f: f.document_name)
+def test_each_layout_refuses_under_the_other_basis(filing):
+    own = CAT_SEGMENT_MARGIN_SOURCE.basis_for(filing.report_date).rule
+    other = RULE if own is MPE else MPE
+    assert parse_supplemental_tables(document(filing), own)
+    with pytest.raises(FilingDocumentError) as error:
+        parse_supplemental_tables(document(filing), other)
+    assert error.value.code is FilingDocumentIssueCode.UNSUPPORTED_LAYOUT
+
+
+def test_a_document_mixing_both_layouts_refuses_under_either():
+    mixed = document(Q3_2025_10Q).replace(b"</body></html>", b"") + document(Q1_2026_10Q)
+    for rule in (RULE, MPE):
+        with pytest.raises(FilingDocumentError) as error:
+            parse_supplemental_tables(mixed, rule)
+        assert error.value.code is FilingDocumentIssueCode.UNSUPPORTED_LAYOUT
+
+
+def test_mpe_column_with_the_old_sales_row_label_refuses():
+    relabelled = document(Q1_2026_10Q).replace(
+        b"Sales of Machinery, Power &amp; Energy", b"Sales of Machinery, Energy &amp; Transportation"
+    )
+    assert relabelled != document(Q1_2026_10Q)
+    with pytest.raises(FilingDocumentError) as error:
+        parse_supplemental_tables(relabelled, MPE)
+    assert error.value.code is FilingDocumentIssueCode.MISSING_ROW
+
+
+def test_cat_source_scopes_each_layout_to_reviewed_report_dates():
+    source = CAT_SEGMENT_MARGIN_SOURCE
+    assert source.basis_for(date(2020, 3, 31)).rule is RULE
+    assert source.basis_for(date(2025, 9, 30)).rule is RULE
+    assert source.basis_for(date(2025, 12, 31)).rule is MPE
+    assert source.basis_for(date(2026, 6, 30)).rule is MPE
+    # Not yet reviewed: refuses until a filing's layout is checked.
+    assert source.basis_for(date(2026, 9, 30)) is None
+    assert (source.cik, source.version, source.dimension, source.concepts) == (
+        RULE.cik, RULE.version, RULE.dimension, RULE.concepts,
+    )
+
+
+def test_reporting_bases_may_differ_only_in_labels_and_never_overlap():
+    from dataclasses import replace
+
+    met = ReportingBasis("ME&T", None, date(2025, 9, 30), RULE)
+    mpe = ReportingBasis("MP&E", date(2025, 12, 31), date(2026, 6, 30), MPE)
+    assert SegmentMarginSource((met, mpe)).basis_for(date(2025, 11, 30)) is None
+    with pytest.raises(ValueError, match="overlap"):
+        SegmentMarginSource((met, replace(mpe, first_report_date=date(2025, 9, 30))))
+    with pytest.raises(ValueError, match="overlap"):
+        SegmentMarginSource((met, replace(mpe, first_report_date=None)))
+    for changed in (
+        replace(MPE, version="other-version"),
+        replace(MPE, dimension=("srt:ProductOrServiceAxis", "cat:MachineryPowerEnergyMember")),
+        replace(MPE, scale=Decimal(1000)),
+        replace(MPE, invariants=(replace(MPE.invariants[0], max_adjustment_share=Decimal("0.5")), MPE.invariants[1])),
+    ):
+        with pytest.raises(ValueError, match="only in printed labels"):
+            SegmentMarginSource((met, replace(mpe, rule=changed)))
+    with pytest.raises(ValueError, match="end before it starts"):
+        ReportingBasis("bad", date(2026, 1, 31), date(2025, 12, 31), MPE)
