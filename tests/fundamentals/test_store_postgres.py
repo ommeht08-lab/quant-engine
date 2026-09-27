@@ -15,7 +15,13 @@ import psycopg2
 import pytest
 
 from src.fundamentals.adapters.fixture import make_fact, make_lineage, make_period, make_provenance
+from src.fundamentals.opening_balance_sheet import OpeningBalanceSheetRequest, build_opening_balance_sheet
 from src.fundamentals.repository import FundamentalsQuery
+from src.fundamentals.segment_gross_margin import (
+    CAT_MET_SUPPLEMENTAL_RULE,
+    SegmentGrossMarginRefusal,
+    load_segment_gross_margin_pair,
+)
 from src.fundamentals.store import (
     FundamentalsPublishError,
     PostgresFundamentalsRepository,
@@ -23,6 +29,7 @@ from src.fundamentals.store import (
     ensure_schema,
 )
 from src.fundamentals.types import StatementKind
+from tests.fundamentals.segment_margin_fixtures import CAT_CALENDAR, INGESTED_AT, PILOT_CUTOFF, pilot_facts
 
 DATABASE_URL = os.getenv("FUNDAMENTALS_TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(
@@ -411,3 +418,90 @@ def test_swapped_or_shared_batch_ids_write_nothing(empty_store, ids):
         append_facts(facts, database_url=DATABASE_URL)
 
     assert _store_contents() == ([], [])
+
+
+def test_segment_document_facts_round_trip_and_reproduce_the_cat_margin(empty_store):
+    facts = pilot_facts()
+    append_facts(facts, database_url=DATABASE_URL)
+    repository = PostgresFundamentalsRepository(database_url=DATABASE_URL)
+
+    def pair(vintage):
+        return load_segment_gross_margin_pair(
+            repository, rule=CAT_MET_SUPPLEMENTAL_RULE, fiscal_calendar_version=CAT_CALENDAR.version,
+            knowledge_cutoff=PILOT_CUTOFF, data_vintage_cutoff=vintage,
+            latest_end=dt.date(2024, 6, 30), prior_end=dt.date(2023, 6, 30),
+        )
+
+    result = pair(INGESTED_AT)
+    assert result.current == Decimal(21605) / Decimal(63025)
+    assert result.prior == Decimal(18803) / Decimal(61793)
+    stored = {(item.accession_number, item.raw_tag) for item in result.components}
+    assert stored <= {(fact.provenance.accession_number, fact.raw_tag) for fact in facts}
+    with pytest.raises(SegmentGrossMarginRefusal, match="missing"):
+        pair(INGESTED_AT - dt.timedelta(microseconds=1))
+
+
+def test_dry_run_facts_are_invisible_in_postgres_until_their_last_document_was_captured(empty_store):
+    from src.fundamentals.segment_gross_margin import run_segment_document_dry_run
+    from tests.fundamentals.test_segment_gross_margin import PILOT_ROWS, _Clock, _documents, _FakeDownloader, _row
+
+    result = run_segment_document_dry_run(
+        downloader=_FakeDownloader([_row(filing) for filing in PILOT_ROWS], _documents()),
+        rule=CAT_MET_SUPPLEMENTAL_RULE, calendar_policy=CAT_CALENDAR,
+        ingestion_batch_id="segment-postgres-vintage", knowledge_cutoff=PILOT_CUTOFF, clock=_Clock(),
+    )
+    assert result.is_complete, result.issues
+    append_facts(result.facts, database_url=DATABASE_URL)
+    repository = PostgresFundamentalsRepository(database_url=DATABASE_URL)
+
+    def pair(vintage):
+        return load_segment_gross_margin_pair(
+            repository, rule=CAT_MET_SUPPLEMENTAL_RULE, fiscal_calendar_version=CAT_CALENDAR.version,
+            knowledge_cutoff=PILOT_CUTOFF, data_vintage_cutoff=vintage,
+            latest_end=dt.date(2024, 6, 30), prior_end=dt.date(2023, 6, 30),
+        )
+
+    last_capture = max(item.captured_at for item in result.documents)
+    assert result.submissions_downloaded_at < last_capture == result.ingested_at
+    for vintage in (result.submissions_downloaded_at, last_capture - dt.timedelta(microseconds=1)):
+        with pytest.raises(SegmentGrossMarginRefusal, match="missing"):
+            pair(vintage)
+    assert pair(last_capture).current == Decimal(21605) / Decimal(63025)
+    assert {item.ingested_at for item in pair(last_capture).components} == {last_capture}
+
+
+def test_opening_balance_sheet_reads_published_facts_with_provenance(empty_store):
+    period = make_period(fiscal_year=2024, fiscal_period="Q2", period_end=dt.date(2024, 6, 30), periodicity="quarterly")
+    accepted = dt.datetime(2024, 8, 1, 20, tzinfo=UTC)
+    lineage = make_lineage(ingested_at=dt.datetime(2024, 8, 2, tzinfo=UTC), ingestion_batch_id="obs-batch")
+    values = {
+        "cash_and_cash_equivalents": "10", "current_assets": "60", "total_assets": "100",
+        "current_liabilities": "20", "total_liabilities": "50", "total_equity": "50",
+    }
+    append_facts(
+        [
+            make_fact(
+                statement_kind=StatementKind.BALANCE_SHEET, concept=concept, period=period, value=value,
+                provenance=make_provenance(accession_number="0001111111-24-000010", filed_date=accepted.date(),
+                                           form_type="10-Q", accepted_at=accepted),
+                entity_cik=CIK, lineage=lineage,
+            )
+            for concept, value in values.items()
+        ],
+        database_url=DATABASE_URL,
+    )
+    request = OpeningBalanceSheetRequest(
+        cik=CIK, period_end=dt.date(2024, 6, 30), knowledge_cutoff=dt.datetime(2024, 9, 3, 20, tzinfo=UTC),
+        data_vintage_cutoff=dt.datetime(2024, 9, 4, tzinfo=UTC), source_adapter="fixture",
+        concept_map_version="fixture-v1", fiscal_calendar_version="fixture-calendar-v1",
+    )
+    repository = PostgresFundamentalsRepository(database_url=DATABASE_URL)
+
+    snapshot = build_opening_balance_sheet(repository, request).snapshot
+    assert snapshot.value("total_assets") == Decimal("100")
+    line = snapshot.line("total_equity")
+    assert (line.accession_number, line.accepted_at, line.ingestion_batch_id) == (
+        "0001111111-24-000010", accepted, "obs-batch",
+    )
+    early = replace(request, data_vintage_cutoff=dt.datetime(2024, 8, 1, tzinfo=UTC))
+    assert not build_opening_balance_sheet(repository, early).is_complete

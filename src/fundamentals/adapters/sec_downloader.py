@@ -31,6 +31,8 @@ SEC_SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
 SEC_ARCHIVE_HOST = "www.sec.gov"
 SEC_ARCHIVE_PATH_PREFIX = "/Archives/edgar/data/"
 _XML_CONTENT_TYPES = ("application/xml", "text/xml", "application/xbrl+xml")
+_HTML_CONTENT_TYPES = ("text/html", "application/xhtml+xml")
+_ARCHIVE_DOCUMENT_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*\.html?$")
 _LINKBASE_SUFFIXES = ("_cal.xml", "_def.xml", "_lab.xml", "_pre.xml")
 
 # SEC currently permits no more than 10 requests/second.  The slightly slower
@@ -353,10 +355,45 @@ class SecDownloader:
                 except Exception as error:
                     logger.warning("SEC session close failed (%s).", type(error).__name__)
 
+    def fetch_filing_document(self, cik: str, accession_number: str, document_name: str) -> Tuple[str, bytes]:
+        """Return (url, bytes) of one named HTML document inside a filing."""
+
+        normalized_cik = normalize_cik(cik)
+        if not isinstance(accession_number, str) or not re.fullmatch(r"\d{10}-\d{2}-\d{6}", accession_number):
+            raise SecDownloadError(SecDownloadErrorCode.NETWORK_FAILURE, "Invalid accession number.")
+        if not isinstance(document_name, str) or not _ARCHIVE_DOCUMENT_PATTERN.fullmatch(document_name):
+            raise SecDownloadError(SecDownloadErrorCode.NETWORK_FAILURE, "Invalid filing document name.")
+        url = (
+            f"https://{SEC_ARCHIVE_HOST}{SEC_ARCHIVE_PATH_PREFIX}"
+            f"{int(normalized_cik)}/{accession_number.replace('-', '')}/{document_name}"
+        )
+        session = self._provided_session
+        owns_session = session is None
+        if session is None:
+            import requests
+
+            session = requests.Session()
+        try:
+            return url, self._request(session, url, archive=True, raw=True, content_types=_HTML_CONTENT_TYPES)
+        finally:
+            if owns_session:
+                try:
+                    session.close()
+                except Exception as error:
+                    logger.warning("SEC session close failed (%s).", type(error).__name__)
+
     def _request_json(self, session, url: str) -> Mapping[str, Any]:
         return self._request(session, url)
 
-    def _request(self, session, url: str, *, archive: bool = False, raw: bool = False):
+    def _request(
+        self,
+        session,
+        url: str,
+        *,
+        archive: bool = False,
+        raw: bool = False,
+        content_types: Tuple[str, ...] = _XML_CONTENT_TYPES,
+    ):
         self._validate_url(url, archive=archive)
         for attempt_index in range(self._config.max_attempts):
             self._pace()
@@ -366,7 +403,7 @@ class SecDownloader:
                     url,
                     headers={
                         "User-Agent": self._config.user_agent,
-                        "Accept": "application/xml" if raw else "application/json",
+                        "Accept": content_types[0] if raw else "application/json",
                         "Accept-Encoding": "gzip, deflate",
                     },
                     timeout=(
@@ -395,7 +432,9 @@ class SecDownloader:
                         SecDownloadErrorCode.HTTP_STATUS,
                         f"SEC request failed with HTTP {status_code}.",
                     )
-                return self._read_bytes_response(response) if raw else self._read_json_response(response)
+                if raw:
+                    return self._read_body(response, content_types)
+                return self._read_json_response(response)
             except SecDownloadError as error:
                 if (
                     error.code is SecDownloadErrorCode.NETWORK_FAILURE
@@ -425,9 +464,6 @@ class SecDownloader:
         return _decode_json_document(
             self._read_body(response, ("application/json", "application/problem+json"))
         )
-
-    def _read_bytes_response(self, response) -> bytes:
-        return self._read_body(response, _XML_CONTENT_TYPES)
 
     def _read_body(self, response, allowed_content_types) -> bytes:
         content_type = _header(getattr(response, "headers", {}), "Content-Type")
