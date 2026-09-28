@@ -833,6 +833,44 @@
   background: var(--rp-cobalt);
 }
 
+/* Scenario picker (MSFT case): unlike .legend, this stays visible and
+   full-sized at every breakpoint, including inside the 760px mobile
+   media query below, so the scenario selector and its 44px touch
+   targets are never hidden on a phone. */
+.scenarioPicker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.scenarioChip,
+.scenarioChipActive {
+  display: inline-flex;
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 0.5rem 0.9rem;
+  color: var(--rp-slate);
+  background: transparent;
+  font-family: var(--rp-interface);
+  transition-property: color, background-color, border-color;
+}
+
+.scenarioChip:hover {
+  background: var(--rp-surface-soft);
+  color: var(--rp-text);
+}
+
+.scenarioChipActive {
+  border-color: rgba(98, 135, 255, 0.34);
+  background: var(--rp-cobalt-soft);
+  color: var(--rp-cobalt-deep);
+  cursor: default;
+}
+
 .chartWrap {
   min-width: 0;
   margin-top: 0.7rem;
@@ -1506,8 +1544,8 @@
 
   .menuButton {
     display: grid;
-    width: 2.55rem;
-    height: 2.55rem;
+    width: 2.75rem;
+    height: 2.75rem;
     place-content: center;
     gap: 0.25rem;
     border: 1px solid var(--rp-line-strong);
