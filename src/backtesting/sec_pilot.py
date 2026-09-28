@@ -360,6 +360,10 @@ def build_sec_quality_statements(
         ("Long Term Debt", "long_term_debt"),
         ("Retained Earnings", "retained_earnings"),
         ("Stockholders Equity", "shareholders_equity"),
+        # Some issuers report only consolidated equity including noncontrolling
+        # interests. Keep that reported line distinct; calculate_roic already
+        # accepts it after parent stockholders equity in its precedence order.
+        ("Total Equity Gross Minority Interest", "total_equity"),
         ("Cash And Cash Equivalents", "cash_and_cash_equivalents"),
     ):
         row = {}

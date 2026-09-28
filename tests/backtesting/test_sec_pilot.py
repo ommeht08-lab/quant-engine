@@ -180,3 +180,55 @@ def test_report_is_labelled_pipeline_validation_and_lists_refusals():
     assert report["knowledge_cutoff"] == "2024-09-03T16:00:00-04:00"
     assert set(report["cost_cases"]) == {"5", "10", "25"}
     assert math.isclose(report["initial_capital"], 100_000.0)
+
+
+def test_reported_total_equity_reaches_roic_when_parent_equity_is_unreported(monkeypatch):
+    """CAT's reported consolidated equity must not disappear from the pilot adapter."""
+    from types import SimpleNamespace
+    from src.backtesting.historical_tester import calculate_roic
+
+    latest, prior = dt.date(2024, 6, 30), dt.date(2023, 6, 30)
+    values = {
+        "revenue": (66_368.0, 64_771.0),
+        "operating_income": (13_584.0, 10_488.0),
+        "net_income": (11_007.0, 8_360.0),
+        "operating_cash_flow": (12_000.0, 11_000.0),
+        "capital_expenditures": (2_000.0, 2_000.0),
+    }
+    ttm = tuple(
+        SimpleNamespace(key=SimpleNamespace(concept=concept), period_end=end, value=value)
+        for concept, pair in values.items()
+        for end, value in zip((latest, prior), pair)
+    )
+    monkeypatch.setattr(
+        sec_pilot, "assemble_quarterly_fundamentals",
+        lambda *args, **kwargs: SimpleNamespace(is_complete=True, ttm_values=ttm),
+    )
+
+    def balance(end, equity):
+        facts = tuple(
+            SimpleNamespace(
+                identity=SimpleNamespace(concept=concept, context=SimpleNamespace(dimensions=())),
+                value=value,
+                lineage=SimpleNamespace(ingestion_batch_id="reported"),
+                provenance=SimpleNamespace(accession_number="filed"),
+            )
+            for concept, value in (
+                ("total_assets", 83_336.0), ("total_liabilities", 66_200.0),
+                ("total_equity", equity), ("long_term_debt", 23_836.0),
+                ("cash_and_cash_equivalents", 4_341.0),
+            )
+        )
+        return SimpleNamespace(period=SimpleNamespace(period_end=end), facts=facts)
+
+    history = SimpleNamespace(
+        balance_sheet_periods=(balance(latest, 17_136.0), balance(prior, 18_256.0)),
+        income_statement_periods=(), cash_flow_periods=(), cover_facts=(),
+    )
+    quality = sec_pilot.build_sec_quality_statements(history, optional_concepts=())
+    assert "Stockholders Equity" not in quality.balance_sheet.index
+    assert quality.balance_sheet.loc["Total Equity Gross Minority Interest", pd.Timestamp(latest)] == 17_136.0
+    assert calculate_roic(
+        quality.income_stmt, quality.balance_sheet, tax_rate=0.21,
+        total_debt=23_836.0, cash_and_equivalents=4_341.0,
+    ) == pytest.approx(13_584.0 * 0.79 / (23_836.0 + 17_136.0 - 4_341.0))
