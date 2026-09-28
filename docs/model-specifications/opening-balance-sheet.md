@@ -125,4 +125,17 @@ adds a separate, issuer-and-filing-scoped adapter for all balance-sheet
 presentation lines in that 10-K. Its full filing itemization and 13 stored
 fact comparisons do not change this generic snapshot's itemization result:
 it still reports four gaps because its existing store concept map is narrower.
-Walmart's liabilities composition remains a separate future issuer rule.
+MSFT's forecast does not depend on this generic snapshot's
+`forecast_itemization_gaps`; it uses its own separate reviewed adapter and
+stored-fact verification gate.
+
+## Future generic and issuer coverage
+
+Extending this generic snapshot itself is an issuer-scoped balance-sheet
+line map, reviewed filing by filing, whose reported lines sum exactly to
+each section (as the CAT supplemental-table rules do for segment data),
+plus a reviewed composition rule for Walmart's total liabilities. Only
+when `forecast_itemization_gaps` is empty should a linked forecast use this
+generic snapshot. Walmart's composition rule is a proposal only: it is not
+implemented, not required before using MSFT's separate adapter, and not a
+selected next issuer.
