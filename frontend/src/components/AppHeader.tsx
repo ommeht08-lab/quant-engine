@@ -12,7 +12,8 @@ interface NavItem {
   href: string;
   label: string;
   activePrefix?: string;
-  icon: "valuation" | "portfolio" | "backtests" | "trades";
+  icon: "valuation" | "portfolio" | "backtests" | "trades" | "study";
+  title?: string;
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -20,6 +21,16 @@ const NAV_ITEMS: NavItem[] = [
   { href: "/portfolio", label: "Portfolio", icon: "portfolio" },
   { href: "/backtests", label: "Backtests", icon: "backtests" },
   { href: "/trades", label: "Trades", icon: "trades" },
+  // Archived research case study, not a live valuation run — distinct
+  // route/shell (the public /research/* prototype, not this workspace),
+  // distinct icon, and a title/aria-label spelling out that distinction
+  // since the nav label itself has to stay short like its siblings.
+  {
+    href: "/research/msft",
+    label: "MSFT Study",
+    icon: "study",
+    title: "MSFT sensitivity study — archived research case study, not a live Run Valuation result",
+  },
 ];
 
 function NavIcon({ name }: { name: NavItem["icon"] }) {
@@ -28,6 +39,7 @@ function NavIcon({ name }: { name: NavItem["icon"] }) {
     portfolio: <><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M3 12h18"/></>,
     backtests: <><path d="M4 19V5"/><path d="M4 19h16"/><path d="m7 15 4-4 3 2 5-6"/></>,
     trades: <><path d="M7 7h12l-3-3"/><path d="m19 7-3 3"/><path d="M17 17H5l3 3"/><path d="m5 17 3-3"/></>,
+    study: <><path d="M9 2h6"/><path d="M10 2v6.34a2 2 0 0 1-.4 1.2L5.4 16a2 2 0 0 0 1.6 3.2h10a2 2 0 0 0 1.6-3.2l-4.2-6.46a2 2 0 0 1-.4-1.2V2"/><path d="M7 14h10"/></>,
   };
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
 }
@@ -36,7 +48,7 @@ function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
   const prefix = item.activePrefix ?? item.href;
   const active = pathname === prefix || pathname.startsWith(`${prefix}/`);
   return (
-    <Link href={item.href} className={styles.navLink} aria-current={active ? "page" : undefined}>
+    <Link href={item.href} className={styles.navLink} aria-current={active ? "page" : undefined} title={item.title}>
       <NavIcon name={item.icon} />
       <span>{item.label}</span>
     </Link>
