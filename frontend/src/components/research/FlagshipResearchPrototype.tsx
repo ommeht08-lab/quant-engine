@@ -459,7 +459,7 @@ export default function FlagshipResearchPrototype({
   return (
     <div className={styles.prototypeShell} data-research-shell>
       <aside className={`${styles.sidebar} ${mobileNavigationOpen ? styles.sidebarOpen : ""}`} aria-hidden={selectedFact ? true : undefined}>
-        <div className={styles.brand}><span className={styles.brandMark} aria-hidden="true">VE</span><span><strong>Valuation Engine</strong><small>Research system</small></span></div>
+        <div className={styles.brand}><span className={styles.brandMark} aria-hidden="true">DCF</span><span><strong>Valuation Workspace</strong><small>Research system</small></span></div>
         <p className={styles.navEyebrow}>Research workflow</p>
         <nav className={styles.workflowNav} aria-label="Research workflow">
           {WORKFLOW.map((item) => (
@@ -495,7 +495,7 @@ export default function FlagshipResearchPrototype({
       <div className={styles.workspace} aria-hidden={selectedFact ? true : undefined}>
         <header className={styles.utilityBar}>
           <button type="button" className={styles.menuButton} aria-label="Toggle research navigation" aria-expanded={mobileNavigationOpen} onClick={() => setMobileNavigationOpen((open) => !open)}><span /><span /><span /></button>
-          <div className={styles.mobileBrand}>Valuation Engine</div>
+          <div className={styles.mobileBrand}>Valuation Workspace</div>
           <div className={styles.breadcrumb}><span>Research</span><b>/</b><span>{researchCase.ticker}</span><b>/</b>{activeLabel}</div>
           <div className={styles.utilityActions}>
             <Link className={styles.evidenceLink} href="/research/aapl/evidence" prefetch>

@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import OverviewClient from "./OverviewClient";
 
 export const metadata: Metadata = {
-  title: "Research Overview | Valuation Engine",
+  title: "Research Overview | Valuation Workspace",
   description: "Live, ticker-selectable intrinsic-value overview built from the same default model the dashboard uses.",
 };
 

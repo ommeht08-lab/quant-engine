@@ -1,86 +1,104 @@
-# Om Mehta Equity Research
+# DCF Valuation Model
 
-## Introduction
+A personal, student-built project for learning corporate finance and full-stack software engineering through a working valuation and research workspace. It brings company financial statements, explicit DCF assumptions, scenario analysis and source evidence into one place. It is an educational project, not a commercial product or an investment track record.
 
-This is a personal, student-built project I use to learn quantitative finance and full-stack software engineering at the same time. It's not a commercial product, and it isn't run by a fund or a team — it's one person's sandbox for actually implementing the ideas covered in corporate finance and investing coursework (DCF valuation, CAPM/WACC, factor-based screening, risk-adjusted position sizing) instead of just reading about them, and then wiring the result up to a real (paper-money) trading account and a real database so I can see whether the theory actually holds up over time.
+[Open the live workspace](https://quant-engine-taupe.vercel.app/workspace).
 
-Everything here should be read in that spirit: a learning project with working code, not investment advice, and not a track record. See the [Disclaimer](#disclaimer) at the bottom.
+## The workspace
+
+Enter a ticker and select **Run Valuation**. Historical mode derives growth and operating margin from company history; Custom mode uses your explicit overrides. Terminal growth remains an explicit assumption in both modes. Navigation and restoring a saved result do not run the model.
+
+- **Overview:** reported financial history and the valuation summary.
+- **Valuation:** market price, intrinsic-value estimates, Bear/Base/Bull scenarios, sensitivity and available peer context.
+- **Cash flow forecast:** Base-case projected free cash flow and a year-selectable cash-flow bridge.
+- **Projection detail:** annual forecast assumptions and cash-flow components.
+- **Evidence & sources:** selected source, reporting period, knowledge cutoff, policy version and ingestion batches.
+- **Model assumptions:** inputs and model settings.
+
+The latest completed result, inputs, selected scenario and available market history are saved in the current browser. Reloading restores the original run time and displays an age warning. Prices and statements refresh only after another explicit run. **Clear saved result** removes the stored result. If browser storage is unavailable, the workspace explains that a refresh will lose it.
+
+## Data and model boundaries
+
+Yahoo provides financial statements and market observations for the default live workflow. SEC ingestion and an explicit SEC valuation path also exist. Automatic SEC selection is controlled separately for each issuer: it stays pending until the declared repeated, period-aligned SEC/Yahoo comparison gate passes. Scheduled ingestion does not itself approve a source change. Missing or refused inputs are disclosed rather than silently invented.
+
+Historical cash FCF is calculated as operating cash flow minus cash CapEx. Yahoo history uses annual statement periods; SEC history uses trailing twelve-month periods. Adjacent SEC periods overlap and must not be added together. This reported cash-flow measure differs from the model's projected unlevered FCFF.
+
+The public workspace uses a five-year maturation forecast: two near-term years followed by three maturation years. Growth above the policy target fades during maturation; weak or negative growth is not replaced with an assumed recovery. Terminal growth is a separate perpetuity assumption. Bear/Base/Bull re-project the same stage timing with their own assumptions. Quality cautions, invalid scenarios, negative modeled equity and WACC limits remain visible. Peer comparisons require a compatible forecast-policy snapshot.
+
+Historical statement values and market observations are provider data. Forecasts and intrinsic values are conditional model estimates. A complete API response does not establish that every issuer line or financial assumption has been independently reconciled.
+
+Archived research cases remain available at their direct URLs and retain their own disclosures. They are separate from live valuation results. The MSFT study is no longer promoted in workspace navigation.
 
 ## Architecture
 
-The project is split into a Python research/execution engine and a Next.js dashboard, connected through a shared Postgres database.
+- **Frontend:** Next.js App Router, React and TypeScript in `frontend/`. The dark workspace uses shared app styles, SVG financial charts and existing analytical components.
+- **Valuation service:** FastAPI in `src/api/main.py`, backed by the Python DCF, scenario, sensitivity and data-selection modules. Next.js calls it server-to-server; the service token stays on the server.
+- **Fundamentals:** point-in-time SEC extraction, fiscal classification, immutable ingestion lineage and PostgreSQL storage in `src/fundamentals/`.
+- **Supporting modules:** historical backtesting, risk analysis and Alpaca paper execution remain in the repository. They are separate from running a public single-company valuation. Account APIs remain session-protected; account pages are absent from workspace navigation.
+- **Deployment:** separate Vercel frontend and Python API projects. `frontend/vercel.json` configures Next.js; root `vercel.json` and `pyproject.toml` configure the Python service. The deployed API uses its own trimmed dependencies and Python runtime declaration.
 
-**Frontend**
-- [Next.js](https://nextjs.org/) (App Router, TypeScript) — the dashboard at `frontend/`
-- [Tailwind CSS](https://tailwindcss.com/) — dark-themed styling throughout
-- [Recharts](https://recharts.org/) — the strategy-vs-S&P 500 backtest equity curve chart
+## Local setup
 
-**Backend**
-- A Python execution engine (`src/`) covering data ingestion, DCF valuation, point-in-time backtesting, and trade execution
-- [yfinance](https://github.com/ranaroussi/yfinance) — market prices, financial statements, shares outstanding, beta, and sector data
-- [Alpaca Trading API](https://alpaca.markets/) (`alpaca-py`) — autonomous **paper trading** execution of the strategy's top picks, plus a live account/positions read for the dashboard
-- [FastAPI](https://fastapi.tiangolo.com/) — a small HTTP API (`src/api/main.py`) exposing single-ticker DCF valuations to the frontend
+Use Python 3.11 for the development/test environment and Node.js 24 for the frontend, matching CI. The Vercel Python deployment uses the runtime specified in `pyproject.toml`. Run these commands from the repository root unless indicated otherwise.
 
-**Database**
-- [Supabase](https://supabase.com/) (hosted PostgreSQL) — two tables written by the Python engine (`src/utils/db.py`) and read by the Next.js API routes:
-  - `trade_logs` — every order the paper-trading engine actually submits, with the WACC, beta, and Conviction Score behind the decision
-  - `backtest_curve` — the strategy's equity curve vs. a same-notional SPY curve from the most recent backtest run
-
-## Core Features
-
-**Live DCF / WACC valuation math**
-Rather than applying one static set of assumptions to every company, each ticker's discount rate is derived from a live CAPM calculation (current beta, a live 10-year Treasury yield as the risk-free rate, and market-value capital structure for WACC), and its revenue growth / operating margin assumptions default to that company's own historical figures instead of a single generic number. A two-pass sector-relative filter and a composite Conviction Score are then used to rank and screen the universe, both in live use and in point-in-time historical backtests.
-
-The dashboard's single-ticker request opts into a five-year maturation forecast: it holds resolved growth for two years, then fades growth above 3% over the final three years while holding operating margin flat. Negative or weak growth is not automatically replaced with a recovery during those five years; terminal growth remains a separate, explicit perpetuity assumption. Bear/Base/Bull re-project that same annual path. The autonomous trading engine and other default DCF callers still use the existing constant-growth projection. The dashboard withholds sector-relative comparisons until a peer snapshot uses the same forecast policy. This changes forecast policy only: it does not switch the live statement source to SEC data.
-
-**Dynamic risk management (inverse volatility / beta weighting)**
-Position sizing in the execution engine isn't equal-weighted. Each Top-N pick's target portfolio weight is proportional to its inverse beta (`1 / beta`, floored so an anomalously low beta can't dominate the allocation), so lower-volatility picks receive a larger share of capital and higher-volatility picks receive a smaller one — a simple, explicit form of risk-adjusted sizing rather than treating every position as equally risky.
-
-**End-to-end database logging**
-Every trade the execution engine actually places (paper trading only) and every backtest run's equity curve are written to Postgres and surfaced live on the dashboard: a trade history table, a live portfolio allocation view (pulled directly from Alpaca), and a strategy-vs-SPY backtest chart — so the pipeline is genuinely connected front-to-back rather than being a script that only prints to a terminal.
-
-## Local Setup
-
-This is a two-process local setup: the Python engine and the Next.js frontend run independently and talk to the same Supabase database.
-
-### 1. Python (repository root)
+### Python service
 
 ```bash
-python3 -m venv venv
+python3.11 -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt
+cp .env.example .env
 ```
 
-Useful entry points once dependencies are installed:
+Replace the example values before starting the service. Set a non-placeholder `VALUATION_API_TOKEN` of at least 32 characters; the frontend must use the same token. Database and paper-account settings are needed only for the corresponding integrations. For an unconnected local public-model preview, leave `DATABASE_URL` and broker credentials empty.
 
 ```bash
-# Run the DCF valuation API (used by the frontend's single-ticker view)
-uvicorn src.api.main:app --reload
-
-# Run a point-in-time historical backtest
-python -m src.backtesting.historical_tester
-
-# Run the autonomous paper-trading engine (--dry-run previews orders without submitting them)
-python -m src.trading.alpaca_execution --dry-run
+uvicorn src.api.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-### 2. Frontend
+### Next.js frontend
+
+In a second terminal:
 
 ```bash
 cd frontend
-npm install
-npm run dev
+npm ci
+cp .env.local.example .env.local
 ```
 
-### 3. Environment variables
+Configure `VALUATION_API_URL=http://127.0.0.1:8000`, the matching `VALUATION_API_TOKEN`, and a non-placeholder `SESSION_SECRET` of at least 32 characters. `DASHBOARD_PASSWORD` applies to protected operator pages. The public workspace does not require signing in. Next.js loads its configuration from `frontend/.env.local`; Python uses the root `.env`. Real environment files are gitignored.
 
-Both the Python engine and the frontend need their own local `.env` file — Next.js only loads environment variables from its own directory, not the project root, so credentials have to be duplicated across both.
+```bash
+npm run dev -- --hostname 127.0.0.1
+```
 
-- **Root `.env`** (copy from `.env.example`): Alpaca paper trading credentials (`APCA_API_KEY_ID`, `APCA_API_SECRET_KEY`, `APCA_API_BASE_URL`), the non-secret `ALPACA_ACCOUNT_EPOCH`, and a Supabase Postgres connection string (`DATABASE_URL`). The Alpaca keys should be **paper trading** keys — this project never places live trades.
-- **`frontend/.env.local`** (copy from `frontend/.env.local.example`): the same `DATABASE_URL` and Alpaca credentials, plus the same account epoch. The dashboard's live portfolio allocation view calls Alpaca's REST API directly from a Next.js API route; its risk panel uses the epoch to hide old-account snapshots. Set `ALPACA_ACCOUNT_EPOCH=alpaca-paper-100k-v1` in Vercel as well before releasing the account-scoped risk panel.
+Open `http://127.0.0.1:3000/workspace`. Optional `LOCAL_PASSWORDLESS=1` opens account page shells only in loopback development and blocks their private APIs before handlers. It has no effect in production.
 
-Both `.env` files are already covered by `.gitignore` and should never be committed.
+Production requires configured rate limiting for public evaluations and login; see `frontend/.env.local.example`. Upstash caching is optional, but production rate-limit failures are handled separately. Secrets remain server-only.
+
+## Checks
+
+```bash
+# Repository root, with the Python environment activated
+python -m pytest -q
+
+# frontend/
+npm test
+npx tsc --noEmit
+npm run lint
+npm run build
+```
+
+Tests isolate external accounts and services. Synthetic PostgreSQL integration is a separate CI check. Passing tests and a build establish software checks, not financial-model accuracy, research validity or investment performance.
+
+## Further reading
+
+- [DCF specification](docs/model-specifications/dcf.md)
+- [SEC comparison policy](docs/model-specifications/sec-dcf-integration.md)
+- [SEC ingestion operations](docs/model-specifications/sec-ingestion-operations.md)
+- [Assumptions register](docs/assumptions-register.md)
+- [Limitations register](docs/limitations-register.md)
 
 ## Disclaimer
 
-This project is for **educational purposes only**. It trades exclusively against Alpaca's paper trading (simulated money) environment, and nothing in this repository is financial advice or a recommendation to buy or sell any security. Model outputs depend on the quality and completeness of free third-party data sources and are not guaranteed to be accurate.
+This project is for educational purposes only. Model outputs depend on source completeness and explicit assumptions and are not financial advice or a recommendation to buy or sell securities. The execution modules are restricted to Alpaca paper trading; public valuation requests do not submit orders.

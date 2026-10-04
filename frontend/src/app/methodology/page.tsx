@@ -4,7 +4,7 @@ import FlagshipResearchPrototype from "@/components/research/FlagshipResearchPro
 import { AAPL_RESEARCH_FIXTURE } from "@/lib/research-fixture";
 
 export const metadata: Metadata = {
-  title: "Methodology | Valuation Engine",
+  title: "Methodology | Valuation Workspace",
   description: "Methods and limitations for the point-in-time valuation research platform.",
 };
 

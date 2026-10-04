@@ -26,7 +26,7 @@ export default function LoginPage() {
           <div className="brand-lockup">
             <span className="brand-mark" aria-hidden="true">V</span>
             <span>
-              <strong>Valuation Engine</strong>
+              <strong>Valuation Workspace</strong>
               <small>Equity research workspace</small>
             </span>
           </div>
@@ -51,7 +51,7 @@ export default function LoginPage() {
             <div className="brand-lockup">
               <span className="brand-mark" aria-hidden="true">V</span>
               <span>
-                <strong>Valuation Engine</strong>
+                <strong>Valuation Workspace</strong>
                 <small>Private research workspace</small>
               </span>
             </div>

@@ -13,7 +13,7 @@ web
 
 ## Product Purpose
 
-Valuation Engine publicly demonstrates an auditable, staged intrinsic-value model while keeping the operator's portfolio and trading data private. A successful public visit lets someone open the workspace without an account, value a company, compare Bear/Base/Bull outcomes, and inspect the assumptions, cash flows, diagnostics, and source provenance behind the result.
+Valuation Workspace publicly demonstrates an auditable, staged intrinsic-value model while keeping the operator's portfolio and trading data private. A successful public visit lets someone open the workspace without an account, value a company, compare Bear/Base/Bull outcomes, and inspect the assumptions, cash flows, diagnostics, and source provenance behind the result.
 
 ## Positioning
 
@@ -42,7 +42,7 @@ This is a working equity-research model, not a decorative dashboard or static ca
 
 ## Brand Commitments
 
-- Product name: Valuation Engine.
+- Product name: Valuation Workspace.
 - Attribution: Om Mehta Equity Research.
 - The interface uses an institutional graphite market-workspace direction: near-black navigation and utility chrome, blue-gray raised surfaces, cool-white data ink, restrained periwinkle actions, and semantic green/red only for genuine outcomes.
 - TailAdmin V2, TailAdmin V1, and NextAdmin are the permanent visual reference set recorded in [`.impeccable/references/tailadmin-stock-dashboard.md`](.impeccable/references/tailadmin-stock-dashboard.md). They govern information architecture, hierarchy, spacing, density, and analytical composition, while the user's black-theme, sharp-corner, direct-entry, and honest-chart instructions override conflicting source details.

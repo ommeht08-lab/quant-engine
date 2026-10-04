@@ -734,7 +734,7 @@ function MsftSensitivityShell({ view }: { view: MsftView }) {
   return (
     <div className={styles.prototypeShell} data-research-shell>
       <aside className={`${styles.sidebar} ${mobileNavigationOpen ? styles.sidebarOpen : ""}`}>
-        <div className={styles.brand}><span className={styles.brandMark} aria-hidden="true">VE</span><span><strong>Valuation Engine</strong><small>Research system</small></span></div>
+        <div className={styles.brand}><span className={styles.brandMark} aria-hidden="true">DCF</span><span><strong>Valuation Workspace</strong><small>Research system</small></span></div>
         <p className={styles.navEyebrow}>MSFT sensitivity case</p>
         <nav className={styles.workflowNav} aria-label="MSFT research workflow">
           {WORKFLOW.map((item) => (
@@ -778,7 +778,7 @@ function MsftSensitivityShell({ view }: { view: MsftView }) {
           >
             <span /><span /><span />
           </button>
-          <div className={styles.mobileBrand}>Valuation Engine</div>
+          <div className={styles.mobileBrand}>Valuation Workspace</div>
           <div className={styles.breadcrumb}><span>Research</span><b>/</b><span>MSFT</span><b>/</b>{activeLabel}</div>
           <div className={styles.utilityActions}>
             <Link className={styles.evidenceLink} href={withScenario("/research/msft/evidence", selected)} prefetch><span>Inspect evidence</span><ArrowIcon /></Link>
