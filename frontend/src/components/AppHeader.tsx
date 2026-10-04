@@ -1,100 +1,23 @@
 "use client";
-
-import { usePathname } from "next/navigation";
+import {useEffect,useRef,useState} from "react";
+import {usePathname} from "next/navigation";
 import Link from "next/link";
-import type { ReactNode } from "react";
-
 import SearchBar from "@/components/SearchBar";
-import { DEFAULT_APP_PATH } from "@/lib/default-route";
 import styles from "./AppHeader.module.css";
-
-interface NavItem {
-  href: string;
-  label: string;
-  activePrefix?: string;
-  icon: "valuation" | "portfolio" | "backtests" | "trades" | "study";
-  title?: string;
-}
-
-const NAV_ITEMS: NavItem[] = [
-  { href: DEFAULT_APP_PATH, label: "Valuation", icon: "valuation" },
-  { href: "/portfolio", label: "Portfolio", icon: "portfolio" },
-  { href: "/backtests", label: "Backtests", icon: "backtests" },
-  { href: "/trades", label: "Trades", icon: "trades" },
-  // Archived research case study, not a live valuation run — distinct
-  // route/shell (the public /research/* prototype, not this workspace),
-  // distinct icon, and a title/aria-label spelling out that distinction
-  // since the nav label itself has to stay short like its siblings.
-  {
-    href: "/research/msft",
-    label: "MSFT Study",
-    icon: "study",
-    title: "MSFT sensitivity study — archived research case study, not a live Run Valuation result",
-  },
-];
-
-function NavIcon({ name }: { name: NavItem["icon"] }) {
-  const paths: Record<NavItem["icon"], ReactNode> = {
-    valuation: <><path d="M4 19V9"/><path d="M10 19V5"/><path d="M16 19v-7"/><path d="M22 19H2"/></>,
-    portfolio: <><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M3 12h18"/></>,
-    backtests: <><path d="M4 19V5"/><path d="M4 19h16"/><path d="m7 15 4-4 3 2 5-6"/></>,
-    trades: <><path d="M7 7h12l-3-3"/><path d="m19 7-3 3"/><path d="M17 17H5l3 3"/><path d="m5 17 3-3"/></>,
-    study: <><path d="M9 2h6"/><path d="M10 2v6.34a2 2 0 0 1-.4 1.2L5.4 16a2 2 0 0 0 1.6 3.2h10a2 2 0 0 0 1.6-3.2l-4.2-6.46a2 2 0 0 1-.4-1.2V2"/><path d="M7 14h10"/></>,
-  };
-  return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{paths[name]}</svg>;
-}
-
-function NavLink({ item, pathname }: { item: NavItem; pathname: string }) {
-  const prefix = item.activePrefix ?? item.href;
-  const active = pathname === prefix || pathname.startsWith(`${prefix}/`);
-  return (
-    <Link href={item.href} className={styles.navLink} aria-current={active ? "page" : undefined} title={item.title}>
-      <NavIcon name={item.icon} />
-      <span>{item.label}</span>
-    </Link>
-  );
-}
-
-export default function AppHeader() {
-  const pathname = usePathname();
-  const isValuationWorkspace = pathname === DEFAULT_APP_PATH;
-  const usesStandaloneResearchShell = pathname === "/methodology"
-    || pathname.startsWith("/methodology/")
-    || pathname === "/research"
-    || pathname.startsWith("/research/");
-  if (pathname === "/login" || usesStandaloneResearchShell) return null;
-
-  return (
-    <div className={styles.chrome} data-app-chrome>
-      <aside className={styles.sidebar}>
-        <Link href={DEFAULT_APP_PATH} className={styles.brand} aria-label="Open valuation workspace">
-          <span className={styles.brandMark}>V</span>
-          <span><strong>Valuation Engine</strong><small>Equity research</small></span>
-        </Link>
-
-        <p className={styles.navLabel}>Research</p>
-        <nav className={styles.nav} aria-label="Primary navigation">
-          {NAV_ITEMS.map((item) => <NavLink key={item.href} item={item} pathname={pathname} />)}
-        </nav>
-
-      </aside>
-
-      <header className={styles.topbar}>
-        <div className={styles.mobileBrand}><span className={styles.brandMark}>V</span><strong>Valuation Engine</strong></div>
-        {isValuationWorkspace ? (
-          <div className={styles.workspaceContext}>
-            <strong>Valuation workspace</strong>
-            <span>Public model</span>
-          </div>
-        ) : (
-          <SearchBar className={styles.search} />
-        )}
-        <div className={styles.topMeta}>Om Mehta Equity Research</div>
-      </header>
-
-      <nav className={styles.mobileNav} aria-label="Mobile navigation">
-        {NAV_ITEMS.map((item) => <NavLink key={item.href} item={item} pathname={pathname} />)}
-      </nav>
-    </div>
-  );
+const items=[
+ ['/workspace','Overview','dashboard'],['/workspace/valuation','Valuation','chart'],['/workspace/cash-flows','Cash flow forecast','chart'],['/workspace/projections','Projection detail','table'],['/research/msft','MSFT Study','study'],['/workspace/evidence','Evidence & sources','study'],['/workspace/assumptions','Model assumptions','settings']
+] as const;
+function Icon({name}:{name:string}){const paths:Record<string,string>={dashboard:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',chart:'M4 4v16h16 M8 16v-5 M13 16V7 M18 16V4',table:'M3 4h18v16H3z M3 10h18 M10 4v16',portfolio:'M3 8h18v12H3z M8 8V4h8v4 M3 13h18',trades:'M4 7h16l-4-4 M20 17H4l4 4',study:'M4 3h7v18H4z M13 3h7v18h-7z',settings:'M3 6h18 M3 12h18 M3 18h18 M8 3v6 M16 9v6 M10 15v6',lock:'M5 10h14v11H5z M8 10V6a4 4 0 0 1 8 0v4',menu:'M4 6h16 M4 12h16 M4 18h16',close:'M6 6l12 12 M6 18 18 6'};return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]??paths.chart}/></svg>}
+export default function AppHeader(){
+ const pathname=usePathname(),dialog=useRef<HTMLDialogElement>(null),trigger=useRef<HTMLButtonElement>(null),[open,setOpen]=useState(false);
+ useEffect(()=>{dialog.current?.close();},[pathname]);
+ useEffect(()=>{const m=window.matchMedia('(min-width: 821px)');const close=()=>{if(m.matches)dialog.current?.close()};m.addEventListener('change',close);return()=>m.removeEventListener('change',close)},[]);
+ if(pathname==='/login'||pathname==='/methodology'||pathname.startsWith('/methodology/')||pathname==='/research'||pathname.startsWith('/research/'))return null;
+ const brand=<Link href="/workspace" className={styles.brand}><span className={styles.brandMark}><Icon name="chart"/></span><strong>Valuation Engine</strong></Link>;
+ const nav=<nav className={styles.nav} aria-label="Main navigation">{items.map(([href,label,icon])=><Link key={href} href={href} aria-current={pathname===href?'page':undefined} title={href==='/research/msft'?'Archived MSFT sensitivity study, separate from live valuation':undefined} className={styles.navLink}><Icon name={icon}/><span>{label}</span></Link>)}</nav>;
+ return <div className={styles.chrome} data-app-chrome>
+  <aside className={styles.sidebar}>{brand}<p className={styles.navLabel}>Workspace</p>{nav}<div className={styles.sidebarNote}><strong>Equity research workspace</strong><p>Company fundamentals, valuation assumptions and source evidence.</p></div></aside>
+  <header className={styles.topbar}><button ref={trigger} className={styles.menuButton} aria-label="Open navigation" aria-expanded={open} aria-controls="workspace-navigation" onClick={()=>{dialog.current?.showModal();setOpen(true)}}><Icon name="menu"/></button><SearchBar className={styles.search}/><div className={styles.topMeta}><span className={styles.avatar}>OM</span><span>Om Mehta</span></div></header>
+  <dialog id="workspace-navigation" ref={dialog} className={styles.drawer} aria-label="Workspace navigation" onClose={()=>{setOpen(false);trigger.current?.focus()}} onClick={event=>{if(event.target===dialog.current)dialog.current.close()}}><div className={styles.drawerHeading}>{brand}<button className={styles.closeButton} aria-label="Close navigation" onClick={()=>dialog.current?.close()}><Icon name="close"/></button></div>{nav}</dialog>
+ </div>;
 }

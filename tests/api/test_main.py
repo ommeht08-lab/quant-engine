@@ -106,6 +106,10 @@ def test_evaluation_reports_yahoo_source_and_explicit_auto_reason(client):
     assert "SEC automatic use is not approved" in provenance["source_selection_reason"]
     assert provenance["statement_period_end"] == "2023-12-31"
     assert provenance["ingestion_batch_ids"] == []
+    history = response.json()["historical_financials"]
+    assert history["currency"] is None
+    assert [row["revenue"] for row in history["periods"]] == [1000, 1100]
+    assert all(row["operating_cash_flow"] is None and row["free_cash_flow"] is None for row in history["periods"])
 
 
 def test_explicit_sec_request_refuses_without_yahoo_fallback(client, monkeypatch):

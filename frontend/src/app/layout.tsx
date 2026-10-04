@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { IBM_Plex_Mono, IBM_Plex_Sans, Instrument_Sans, Outfit } from "next/font/google";
 import AppHeader from "@/components/AppHeader";
 import "./globals.css";
+import "./dark-workspace.css";
 
 // Display: used sparingly (section headings, the workspace title) — never
 // for financial data. Body: copy and labels. Mono: every dollar amount,

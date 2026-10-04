@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 
 import { SESSION_COOKIE_NAME, verifySessionToken } from "@/lib/auth";
 import { isPublicRoute, publicRedirectPath } from "@/lib/public-route";
+import { isPasswordlessLocalRequest } from "@/lib/local-access";
 
 /**
  * Route protection for this single-operator dashboard — see
@@ -31,6 +32,21 @@ export function proxy(request: NextRequest) {
   const publicRedirect = publicRedirectPath(pathname);
   if (publicRedirect) {
     return NextResponse.redirect(new URL(publicRedirect, request.url));
+  }
+
+  if (isPasswordlessLocalRequest(request.headers.get("host"))) {
+    if (pathname === "/login") {
+      return NextResponse.redirect(new URL("/workspace", request.url));
+    }
+    if (!pathname.startsWith("/api/") || isPublicRoute(pathname)) {
+      return NextResponse.next();
+    }
+    // Open page shells without granting access to any account service.
+    // No handler, database query, or broker request runs in this mode.
+    return NextResponse.json(
+      { error: "Account data is not connected in this local workspace." },
+      { status: 503 },
+    );
   }
 
   if (pathname === "/login" || isPublicRoute(pathname)) {

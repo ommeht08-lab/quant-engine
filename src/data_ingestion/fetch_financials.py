@@ -246,6 +246,17 @@ def get_sector(ticker_obj: yf.Ticker) -> str:
     return "Unknown"
 
 
+def get_reporting_currency(ticker_obj: yf.Ticker) -> Optional[str]:
+    """Statement currency, which can differ from the quoted share currency."""
+    try:
+        currency = ticker_obj.info.get("financialCurrency")
+        if isinstance(currency, str) and len(currency) == 3 and currency.isalpha():
+            return currency.upper()
+    except Exception:
+        logger.warning("Statement currency unavailable for %s.", ticker_obj.ticker)
+    return None
+
+
 def fetch_company_financials(ticker: str) -> dict:
     """
     Fetch every input the DCF model needs for a given ticker in one call.
@@ -276,6 +287,7 @@ def fetch_company_financials(ticker: str) -> dict:
         "shares_outstanding": get_shares_outstanding(ticker_obj),
         "beta": get_beta(ticker_obj),
         "sector": get_sector(ticker_obj),
+        "reporting_currency": get_reporting_currency(ticker_obj),
     }
 
 

@@ -1,101 +1,48 @@
 "use client";
 
-import { useRef, useState } from "react";
-import type { FormEvent, KeyboardEvent } from "react";
+import { useEffect, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
+import { parseTickerQueryParam } from "@/lib/ticker-query";
+import CashFlowCharts from "@/components/valuation/CashFlowCharts";
+import HistoricalFinancialsPanel from "@/components/valuation/HistoricalFinancialsPanel";
+import { isWorkspaceResult, readSavedWorkspace, writeSavedWorkspace, clearSavedWorkspace } from "@/lib/workspace-storage";
+import type { EvaluationResponse } from "@/lib/workspace-result";
+import PriceComparison from "@/components/valuation/PriceComparison";
+import { formatCompactCurrency, formatPercent, formatPreciseCurrency } from "@/components/valuation/format";
+import type { FormEvent } from "react";
 import { valuationErrorFromResponse, type ValuationRequestError } from "@/lib/valuation-errors";
 import { errorBannerHeadline, errorBannerTone, resolveWorkspaceResultState } from "@/lib/valuation-state-copy";
 import TickerCommandBar from "@/components/valuation/TickerCommandBar";
 import AssumptionTray from "@/components/valuation/AssumptionTray";
-import ThesisRail from "@/components/valuation/ThesisRail";
-import ValuationSpectrum, { type CaseKey, type DCFScenarioSet } from "@/components/valuation/ValuationSpectrum";
-import SensitivityMatrix, { type DCFSensitivityMatrix } from "@/components/valuation/SensitivityMatrix";
-import SectorRelativeValuation, {
-  type SectorMedianSnapshot,
-} from "@/components/valuation/SectorRelativeValuation";
-import ProjectedCashFlows, { type FreeCashFlowYear } from "@/components/valuation/ProjectedCashFlows";
+import ValuationSpectrum, { type CaseKey } from "@/components/valuation/ValuationSpectrum";
+import SensitivityMatrix from "@/components/valuation/SensitivityMatrix";
+import SectorRelativeValuation from "@/components/valuation/SectorRelativeValuation";
+import ProjectedCashFlows from "@/components/valuation/ProjectedCashFlows";
 import MarketPriceChart from "@/components/valuation/MarketPriceChart";
 import AssumptionsBridge from "@/components/valuation/AssumptionsBridge";
-import type { SectorMedianUnavailableCode } from "@/lib/sector-median-copy";
-import { qualityIssueCopy, type ValuationQuality } from "@/lib/valuation-quality";
+import { qualityIssueCopy } from "@/lib/valuation-quality";
 import { DEFAULT_TERMINAL_GROWTH_RATE, STAGED_FORECAST_MODE } from "@/lib/evaluation-request-policy";
 import { resolveMarginOfSafetyDisplay } from "@/lib/overview-response";
 import { recordValuationRun } from "@/lib/valuation-history";
 import { isMarketHistoryResponse, type MarketHistoryResponse } from "@/lib/market-history";
 
-interface EvaluationResponse {
-  ticker: string;
-  current_price: number | null;
-  wacc: number;
-  wacc_pre_clamp: number;
-  wacc_was_clamped: boolean;
-  enterprise_value: number;
-  equity_value: number;
-  intrinsic_value_per_share: number;
-  implies_negative_equity_value: boolean;
-  projected_free_cash_flows: FreeCashFlowYear[];
-  forecast_method: "constant" | "maturation";
-  forecast_path: {
-    year: number;
-    stage: "constant" | "near_term" | "maturation";
-    revenue_growth_rate: number;
-    operating_margin: number;
-  }[];
-  valuation_quality: ValuationQuality;
-  assumptions: {
-    revenue_growth_rate: number;
-    operating_margin: number;
-    terminal_growth_rate: number;
-    projection_years: number;
-  };
-  // "historical" = derived from the company's own financials (the
-  // default); "custom" = an explicit slider value was sent and used
-  // instead. Lets the UI say what was ACTUALLY used rather than
-  // guessing from the numeric value alone.
-  revenue_growth_rate_source: "historical" | "custom";
-  operating_margin_source: "historical" | "custom";
-  sector: string;
-  price_to_intrinsic_value: number | null;
-  sector_median_p_iv: number | null;
-  sector_median_unavailable_code: SectorMedianUnavailableCode | null;
-  sector_median_unavailable_reason: string | null;
-  sector_median_snapshot: SectorMedianSnapshot | null;
-  sensitivity: DCFSensitivityMatrix;
-  scenarios: DCFScenarioSet;
-  valuation_input_provenance: {
-    source: "sec" | "yahoo";
-    source_selection_reason: string;
-    knowledge_cutoff: string;
-    statement_period_end: string;
-    policy_version: string;
-    ingestion_batch_ids: string[];
-  };
-}
 
 export interface WorkspaceClientProps {
-  /**
-   * Prefills the ticker field without running the model — set by
-   * `workspace/page.tsx` from a validated `?ticker=` query parameter
-   * (e.g. the research home page's "Value again" link), or "AAPL" when
-   * absent/invalid. This component itself has no fallback of its own;
-   * the page decides the default so that policy lives in exactly one
-   * place.
-   */
+  /** Fallback used when the current URL has no valid ticker query. */
   initialTicker: string;
 }
 
-const DETAIL_TABS = [
-  ["forecast", "Forecast"],
-  ["scenarios", "Scenarios"],
-  ["sensitivity", "Sensitivity"],
-  ["comparison", "Peer context"],
-  ["assumptions", "Assumptions"],
-] as const;
-
-type DetailTab = (typeof DETAIL_TABS)[number][0];
-
 export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const queryTicker = parseTickerQueryParam(searchParams.getAll("ticker").length === 1 ? searchParams.get("ticker") ?? undefined : undefined);
+  const view = pathname.split("/")[2] ?? "overview";
   const requestSequence = useRef(0);
-  const [ticker, setTicker] = useState(initialTicker);
+  const [ticker, setTicker] = useState(queryTicker ?? initialTicker);
+  const [previousQuery, setPreviousQuery] = useState(queryTicker);
+  if (queryTicker !== previousQuery) { setPreviousQuery(queryTicker); if (queryTicker) setTicker(queryTicker); }
   // Default mode: use each company's own historical revenue growth and
   // operating margin — the growth/margin query params are OMITTED
   // entirely in this mode (never sent as 0 or as the slider's current
@@ -116,29 +63,47 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
   // Valuation Spectrum instrument — one persisted choice, two places to
   // see and change it.
   const [selectedScenario, setSelectedScenario] = useState<CaseKey>("base");
-  const [activeDetail, setActiveDetail] = useState<DetailTab>("forecast");
-
-  function handleDetailTabKeyDown(event: KeyboardEvent<HTMLButtonElement>, current: DetailTab) {
-    const currentIndex = DETAIL_TABS.findIndex(([key]) => key === current);
-    let nextIndex: number | null = null;
-    if (event.key === "ArrowRight") nextIndex = (currentIndex + 1) % DETAIL_TABS.length;
-    if (event.key === "ArrowLeft") nextIndex = (currentIndex - 1 + DETAIL_TABS.length) % DETAIL_TABS.length;
-    if (event.key === "Home") nextIndex = 0;
-    if (event.key === "End") nextIndex = DETAIL_TABS.length - 1;
-    if (nextIndex === null) return;
-
-    event.preventDefault();
-    const next = DETAIL_TABS[nextIndex][0];
-    setActiveDetail(next);
-    document.getElementById(`workspace-tab-${next}`)?.focus();
+  const [runAt, setRunAt] = useState<string | null>(null);
+  const [restored, setRestored] = useState(false);
+  const [storageAvailable, setStorageAvailable] = useState(true);
+  useEffect(() => {
+    function restore() {
+      const saved = readSavedWorkspace();
+      if (!saved) return;
+      setResult(saved.result);
+      if (!queryTicker) setTicker(saved.result.ticker);
+      setUseCustomAssumptions(saved.result.revenue_growth_rate_source === "custom");
+      setRevenueGrowthRate(saved.result.assumptions.revenue_growth_rate);
+      setOperatingMargin(saved.result.assumptions.operating_margin);
+      setTerminalGrowthRate(saved.result.assumptions.terminal_growth_rate);
+      setMarketHistory(saved.marketHistory);
+      setMarketHistoryStatus(saved.marketHistory ? "ready" : "unavailable");
+      setSelectedScenario(saved.selectedScenario);
+      setRunAt(saved.savedAt);
+      setRestored(true);
+    }
+    // Restore external browser storage only; this effect never fetches or runs a model.
+    restore();
+    // Hydrate once. Later ticker-query changes are handled independently above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  function selectScenario(scenario: CaseKey) {
+    setSelectedScenario(scenario);
+    if (result && runAt) setStorageAvailable(writeSavedWorkspace({ result, marketHistory, selectedScenario: scenario, savedAt: runAt }));
   }
-
+  function clearResult() {
+    requestSequence.current += 1;
+    setIsLoading(false);
+    clearSavedWorkspace();
+    setResult(null); setMarketHistory(null); setRunAt(null); setRestored(false); setError(null);
+    router.push("/workspace");
+  }
   async function runValuation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const trimmedTicker = ticker.trim().toUpperCase();
-    if (!trimmedTicker) {
-      setError({ kind: "input", message: "Enter a ticker symbol." });
+    if (!parseTickerQueryParam(trimmedTicker)) {
+      setError({ kind: "input", message: "Enter a ticker using 1–10 letters, numbers, dots or hyphens." });
       return;
     }
 
@@ -179,25 +144,15 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
       }
 
       const data: EvaluationResponse = await response.json();
-      if (
-        data.forecast_method !== "maturation" ||
-        !Array.isArray(data.forecast_path) ||
-        !Array.isArray(data.projected_free_cash_flows) ||
-        data.forecast_path.length !== data.projected_free_cash_flows.length
-        || !data.valuation_quality
-        || !Array.isArray(data.valuation_quality.codes)
-        || typeof data.valuation_quality.allows_market_comparison !== "boolean"
-        || !["ordinary", "caution", "diagnostic_only"].includes(data.valuation_quality.level)
-        || data.valuation_quality.allows_market_comparison !== (data.valuation_quality.codes.length === 0)
-        || !data.valuation_input_provenance
-        || !["sec", "yahoo"].includes(data.valuation_input_provenance.source)
-      ) {
-        throw {
-          kind: "unavailable",
-          message: "The valuation service has not enabled the staged forecast yet. Please try again after it is updated.",
-        } satisfies ValuationRequestError;
+      if (requestSequence.current !== requestId) return;
+      if (!isWorkspaceResult(data)) {
+        throw { kind: "unavailable", message: "The valuation service returned incomplete data. Please try again." } satisfies ValuationRequestError;
       }
       setResult(data);
+      const completedAt = new Date().toISOString();
+      setRunAt(completedAt);
+      setRestored(false);
+      setStorageAvailable(writeSavedWorkspace({ result: data, marketHistory: null, selectedScenario: "base", savedAt: completedAt }));
       setMarketHistory(null);
       setMarketHistoryStatus("loading");
       void historyPromise.then((history) => {
@@ -205,12 +160,13 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
         if (isMarketHistoryResponse(history) && history.ticker === data.ticker) {
           setMarketHistory(history);
           setMarketHistoryStatus("ready");
+          setStorageAvailable(writeSavedWorkspace({ result: data, marketHistory: history, selectedScenario: readSavedWorkspace()?.savedAt === completedAt ? readSavedWorkspace()!.selectedScenario : "base", savedAt: completedAt }));
         } else {
           setMarketHistoryStatus("unavailable");
         }
       });
       setSelectedScenario("base");
-      setActiveDetail("forecast");
+      router.push("/workspace");
 
       // Record this explicit, successful run for the research home
       // page's "Recent valuations" module — never for an automatic page
@@ -235,6 +191,7 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
         terminalGrowthRate: data.assumptions.terminal_growth_rate,
       });
     } catch (err) {
+      if (requestSequence.current !== requestId) return;
       // A failed rerun must never clear a previous result that's still
       // useful on screen — `result` is left exactly as it was; only the
       // error banner and the "previous result" state change.
@@ -244,7 +201,7 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
           : { kind: "unavailable", message: "The valuation service did not respond." }
       );
     } finally {
-      setIsLoading(false);
+      if (requestSequence.current === requestId) setIsLoading(false);
     }
   }
 
@@ -254,57 +211,28 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
     hasError: error !== null,
   });
 
+  const pageTitle: Record<string,string> = { overview: "Valuation workspace", valuation: "Valuation", "cash-flows": "Cash flow forecast", projections: "Projection detail", evidence: "Evidence & sources", assumptions: "Model assumptions" };
+  const selected = result?.scenarios[selectedScenario];
   return (
-    <div className="page-shell">
+    <main className="page-shell dark-workspace">
       <div className="shell-container pb-16">
         <header className="page-header">
-          <div>
-            <h1 className="display-title">Valuation workspace</h1>
-            <p className="mt-1 text-xs text-[var(--paper-dim)]">Intrinsic value, scenarios, and cash-flow evidence</p>
-          </div>
-          <p className="page-deck">
-            Build a staged DCF case from company history or your own assumptions, then read it
-            against market price. Peer comparisons appear only when their forecast policy matches.
-          </p>
+          <div><h1 className="display-title">{pageTitle[view] ?? "Valuation workspace"}</h1>
+          <p className="page-deck">{view === "overview" ? "Choose a company, review its assumptions, then inspect its reported financial history and model estimates." : result ? `${result.ticker} · ${restored ? "Saved valuation" : "Completed valuation"}` : "Run a valuation to inspect this part of the model."}</p></div>
         </header>
-
-        <TickerCommandBar
-          ticker={ticker}
-          onTickerChange={setTicker}
-          onSubmit={runValuation}
-          isLoading={isLoading}
-          useCustomAssumptions={useCustomAssumptions}
-          onModeChange={setUseCustomAssumptions}
-        />
-
-        <AssumptionTray
-          useCustomAssumptions={useCustomAssumptions}
-          revenueGrowthRate={revenueGrowthRate}
-          onRevenueGrowthRateChange={setRevenueGrowthRate}
-          operatingMargin={operatingMargin}
-          onOperatingMarginChange={setOperatingMargin}
-          terminalGrowthRate={terminalGrowthRate}
-          onTerminalGrowthRateChange={setTerminalGrowthRate}
-        />
-
+        {(view === "overview" || view === "assumptions") && (
+          <section className="model-start">
+            <div>
+              <TickerCommandBar ticker={ticker} onTickerChange={setTicker} onSubmit={runValuation} isLoading={isLoading} useCustomAssumptions={useCustomAssumptions} onModeChange={setUseCustomAssumptions} />
+              <AssumptionTray useCustomAssumptions={useCustomAssumptions} revenueGrowthRate={revenueGrowthRate} onRevenueGrowthRateChange={setRevenueGrowthRate} operatingMargin={operatingMargin} onOperatingMarginChange={setOperatingMargin} terminalGrowthRate={terminalGrowthRate} onTerminalGrowthRateChange={setTerminalGrowthRate} />
+            </div>
+            <div className="model-start-context"><h2>Begin with company history</h2><p>Historical growth and margin are the model default. Custom mode sends your explicit overrides. Terminal growth applies to every run.</p><p>The model runs only when you select Run Valuation. Page navigation does not request a new valuation.</p><Link href="/methodology">Read the methodology</Link></div>
+          </section>
+        )}
         {error && (
           <div className={`${errorBannerTone(error.kind) === "warning" ? "status-warning" : "status-error"} mb-6`} role="alert">
             <strong className="block text-[var(--paper)]">{errorBannerHeadline(error.kind)}</strong>
             <span className="mt-1 block">{error.message}</span>
-          </div>
-        )}
-
-        {workspaceState === "empty" && (
-          <div className="workspace-empty">
-            <div className="workspace-empty-copy">
-              <span className="workspace-empty-mark" aria-hidden="true">V</span>
-              <div><strong>Ready to build the first case</strong><p>Choose a ticker, confirm the assumptions above, and run the staged model.</p></div>
-            </div>
-            <ol className="workspace-empty-steps">
-              <li><span>1</span><div><strong>Resolve the operating case</strong><p>Use company history or explicit overrides.</p></div></li>
-              <li><span>2</span><div><strong>Project five years of FCFF</strong><p>Read the near-term and maturation path.</p></div></li>
-              <li><span>3</span><div><strong>Cross-check value</strong><p>Compare scenarios, market price, and peers.</p></div></li>
-            </ol>
           </div>
         )}
 
@@ -370,105 +298,35 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
           </div>
         )}
 
+
+        {!result && !isLoading && view !== "overview" && view !== "assumptions" && <section className="panel model-empty"><h2>No completed valuation yet</h2><p>Start with a company and run the model. Completed results are saved in this browser and remain available across workspace pages and refreshes.</p><Link className="button-primary" href="/workspace">Choose a company</Link></section>}
+        {!result && !isLoading && view === "overview" && <section className="model-next"><h2>Review the case</h2><div className="model-step-links"><Link href="/workspace/valuation"><strong>Valuation</strong><span>Price comparison, scenarios and sensitivity</span></Link><Link href="/workspace/cash-flows"><strong>Cash flows</strong><span>Annual forecast and cash flow reconciliation</span></Link><Link href="/workspace/evidence"><strong>Evidence</strong><span>Input sources and reporting cutoffs</span></Link></div></section>}
         {result && (
-          <div
-            className={`workspace-results ${workspaceState === "ready" ? "result-enter" : ""} ${
-              isLoading || workspaceState === "previous-result" ? "result-stale" : ""
-            }`}
-            aria-busy={isLoading}
-          >
-            <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 border-y border-[var(--line)] py-3 text-[11px] text-[var(--paper-dim)]">
-              <span className="font-semibold uppercase tracking-[0.14em] text-[var(--paper)]">
-                {result.valuation_input_provenance.source === "sec" ? "SEC filings" : "Yahoo statements"}
-              </span>
-              <span>Statement period {result.valuation_input_provenance.statement_period_end}</span>
-              <span>Cutoff {new Date(result.valuation_input_provenance.knowledge_cutoff).toLocaleString()}</span>
-              <span>{result.valuation_input_provenance.source_selection_reason}</span>
-              <span>{result.valuation_input_provenance.policy_version}</span>
-            </div>
-            <div className="workspace-primary-grid">
-              <MarketPriceChart
-                ticker={result.ticker}
-                history={marketHistory}
-                status={marketHistoryStatus}
-              />
-              <ThesisRail
-                ticker={result.ticker}
-                sector={result.sector}
-                marketPrice={result.current_price}
-                scenarios={result.scenarios}
-                valuationQuality={result.valuation_quality}
-                revenueGrowthSource={result.revenue_growth_rate_source}
-                operatingMarginSource={result.operating_margin_source}
-                selectedScenario={selectedScenario}
-                onSelectScenario={setSelectedScenario}
-                isUpdating={isLoading}
-              />
-            </div>
-
-            <div className="workspace-tabs" role="tablist" aria-label="Valuation detail">
-              {DETAIL_TABS.map(([key, label]) => (
-                <button
-                  key={key}
-                  id={`workspace-tab-${key}`}
-                  type="button"
-                  role="tab"
-                  aria-controls="workspace-detail-panel"
-                  aria-selected={activeDetail === key}
-                  tabIndex={activeDetail === key ? 0 : -1}
-                  className="workspace-tab"
-                  onClick={() => setActiveDetail(key)}
-                  onKeyDown={(event) => handleDetailTabKeyDown(event, key)}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            <div
-              id="workspace-detail-panel"
-              className="workspace-detail"
-              role="tabpanel"
-              aria-labelledby={`workspace-tab-${activeDetail}`}
-            >
-              {activeDetail === "forecast" && (
-                <ProjectedCashFlows rows={result.projected_free_cash_flows} forecastPath={result.forecast_path} />
-              )}
-
-              {activeDetail === "scenarios" && (
-              <ValuationSpectrum
-                scenarios={result.scenarios}
-                valuationQuality={result.valuation_quality}
-                marketPrice={result.current_price}
-                selectedScenario={selectedScenario}
-                onSelectScenario={setSelectedScenario}
-              />
-              )}
-
-              {activeDetail === "sensitivity" && (
-              <SensitivityMatrix
-                matrix={result.sensitivity}
-                marketPrice={result.valuation_quality.allows_market_comparison ? result.current_price : null}
-                comparisonWithheld={!result.valuation_quality.allows_market_comparison}
-              />
-              )}
-
-              {activeDetail === "comparison" && (
-              <SectorRelativeValuation
-                ticker={result.ticker}
-                sector={result.sector}
-                priceToIntrinsicValue={result.price_to_intrinsic_value}
-                sectorMedianPIV={result.sector_median_p_iv}
-                sectorMedianUnavailableCode={result.sector_median_unavailable_code}
-                sectorMedianSnapshot={result.sector_median_snapshot}
-              />
-              )}
-
-              {activeDetail === "assumptions" && <AssumptionsBridge result={result} />}
-            </div>
+          <div className={`workspace-results ${isLoading || workspaceState === "previous-result" ? "result-stale" : ""}`} aria-busy={isLoading}>
+            <div className="model-result-context"><strong>{result.ticker}</strong><span>Statement period {result.valuation_input_provenance.statement_period_end}</span><span>{result.revenue_growth_rate_source === "historical" && result.operating_margin_source === "historical" ? "Company history" : "Custom inputs"}</span><Link href="/workspace/assumptions">Review or rerun assumptions</Link></div>
+            <div className="model-saved-status"><p>{restored ? "Saved result" : "Completed run"} · {runAt ? new Date(runAt).toLocaleString() : "Run time unavailable"}. {restored ? "Prices and statements have not been refreshed. Run again to update." : storageAvailable ? "Saved in this browser; reloads will not run the model." : "Browser storage is unavailable; this result will be lost after a refresh."}</p><button className="button-secondary" onClick={clearResult}>Clear saved result</button></div>
+            {(view === "overview" || view === "cash-flows") && <HistoricalFinancialsPanel history={result.historical_financials ?? null} source={result.valuation_input_provenance.source} />}
+            {(view === "overview" || view === "valuation") && <>
+              <section className="panel model-summary"><div className="model-panel-heading"><h2>{result.ticker} valuation</h2><div className="model-scenarios" role="group" aria-label="Valuation scenario">{(["base","bear","bull"] as CaseKey[]).map(key=><button key={key} aria-pressed={selectedScenario===key} onClick={()=>selectScenario(key)}>{key === "base" ? "Base" : key === "bear" ? "Bear" : "Bull"}</button>)}</div></div>
+                <dl className="model-metrics"><div><dt>{result.valuation_quality.allows_market_comparison ? "Intrinsic value / share" : "Model output / share"}</dt><dd>{selected?.is_valid ? formatPreciseCurrency(selected.intrinsic_value_per_share) : "Not computable"}</dd></div><div><dt>Market price at run</dt><dd>{formatPreciseCurrency(result.current_price)}</dd></div><div><dt>Base enterprise value</dt><dd>{formatCompactCurrency(result.enterprise_value)}</dd></div><div><dt>Selected case WACC</dt><dd>{selected ? formatPercent(selected.assumptions.wacc,2) : "—"}</dd></div></dl>
+              </section>
+              {view === "overview" ? null : <>
+                <PriceComparison marketPrice={result.current_price} scenario={selected!} quality={result.valuation_quality} />
+                <section className="panel model-analysis"><ValuationSpectrum scenarios={result.scenarios} valuationQuality={result.valuation_quality} marketPrice={result.current_price} selectedScenario={selectedScenario} onSelectScenario={selectScenario} /></section>
+                <section className="panel model-analysis"><SensitivityMatrix matrix={result.sensitivity} marketPrice={result.valuation_quality.allows_market_comparison ? result.current_price : null} comparisonWithheld={!result.valuation_quality.allows_market_comparison} /></section>
+                <section className="panel model-analysis"><SectorRelativeValuation ticker={result.ticker} sector={result.sector} priceToIntrinsicValue={result.price_to_intrinsic_value} sectorMedianPIV={result.sector_median_p_iv} sectorMedianUnavailableCode={result.sector_median_unavailable_code} sectorMedianSnapshot={result.sector_median_snapshot} /></section>
+                <MarketPriceChart ticker={result.ticker} history={marketHistory} status={marketHistoryStatus} />
+              </>}
+            </>}
+            {view === "overview" && <section className="model-next"><h2>Inspect the model estimates</h2><div className="model-step-links"><Link href="/workspace/valuation"><strong>Valuation</strong><span>Scenario values, sensitivity and market prices</span></Link><Link href="/workspace/cash-flows"><strong>Cash flow forecast</strong><span>Projected Base FCF and the cash-flow bridge</span></Link><Link href="/workspace/projections"><strong>Projection detail</strong><span>Annual model assumptions and components</span></Link></div></section>}
+            {view === "cash-flows" && <CashFlowCharts rows={result.projected_free_cash_flows} showBridge />}
+            {(view === "cash-flows" || view === "projections") && <ProjectedCashFlows rows={result.projected_free_cash_flows} forecastPath={result.forecast_path} />}
+            {view === "assumptions" && <section className="panel model-analysis"><AssumptionsBridge result={result} /></section>}
+            {view === "evidence" && <section className="panel model-analysis"><h2>Valuation input provenance</h2><dl className="model-evidence"><div><dt>Source</dt><dd>{result.valuation_input_provenance.source === "sec" ? "SEC filings" : "Yahoo statements"}</dd></div><div><dt>Selection reason</dt><dd>{result.valuation_input_provenance.source_selection_reason}</dd></div><div><dt>Statement period end</dt><dd>{result.valuation_input_provenance.statement_period_end}</dd></div><div><dt>Knowledge cutoff</dt><dd>{result.valuation_input_provenance.knowledge_cutoff}</dd></div><div><dt>Policy version</dt><dd>{result.valuation_input_provenance.policy_version}</dd></div><div><dt>Ingestion batches</dt><dd>{result.valuation_input_provenance.ingestion_batch_ids.length ? result.valuation_input_provenance.ingestion_batch_ids.join(", ") : "None reported by the service"}</dd></div></dl><p>Source selection and cutoffs are reported by the valuation service. They do not establish that every issuer line has been independently reconciled.</p><Link href="/research/msft/evidence">Open archived MSFT study evidence</Link></section>}
           </div>
         )}
+        <footer className="model-footer"><span>Valuation Engine</span><Link href="/research/msft">Archived MSFT study</Link></footer>
       </div>
-    </div>
+    </main>
   );
 }

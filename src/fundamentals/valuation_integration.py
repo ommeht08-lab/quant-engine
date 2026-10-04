@@ -719,6 +719,7 @@ def build_sec_dcf_financial_data(prepared: PreparedSecDCFInputs) -> Dict[str, ob
     )
     return {
         "ticker": prepared.market.ticker,
+        "reporting_currency": "USD",
         "income_statement": income_statement,
         "balance_sheet": pd.DataFrame(
             {

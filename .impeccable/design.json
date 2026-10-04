@@ -1,350 +1,689 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-21T13:56:34-04:00",
+  "generatedAt": "2026-10-04T16:23:55.544951+00:00",
   "title": "Design System: Valuation Engine",
   "extensions": {
     "colorMeta": {
-      "graphite-canvas": {
+      "app-canvas": {
         "role": "neutral",
-        "displayName": "Graphite Canvas",
-        "canonical": "#080b10",
-        "tonalRamp": ["#080b10", "#111720", "#1d2633", "#303c4d", "#4b596d", "#718096", "#aab4c4", "#edf2f9"]
+        "displayName": "App Canvas",
+        "tonalRamp": [
+          "oklch(15.0% 0.0341 263.4)",
+          "oklch(26.4% 0.0341 263.4)",
+          "oklch(37.9% 0.0341 263.4)",
+          "oklch(49.3% 0.0341 263.4)",
+          "oklch(60.7% 0.0341 263.4)",
+          "oklch(72.1% 0.0341 263.4)",
+          "oklch(83.6% 0.0341 263.4)",
+          "oklch(95.0% 0.0341 263.4)"
+        ]
       },
-      "graphite-chrome": {
+      "app-surface": {
         "role": "neutral",
-        "displayName": "Graphite Chrome",
-        "canonical": "#090c11",
-        "tonalRamp": ["#090c11", "#121820", "#1e2733", "#313d4d", "#4c5a6c", "#728195", "#abb5c4", "#eef2f8"]
+        "displayName": "App Surface",
+        "tonalRamp": [
+          "oklch(15.0% 0.0327 263.7)",
+          "oklch(26.4% 0.0327 263.7)",
+          "oklch(37.9% 0.0327 263.7)",
+          "oklch(49.3% 0.0327 263.7)",
+          "oklch(60.7% 0.0327 263.7)",
+          "oklch(72.1% 0.0327 263.7)",
+          "oklch(83.6% 0.0327 263.7)",
+          "oklch(95.0% 0.0327 263.7)"
+        ]
       },
-      "graphite-surface": {
+      "app-rule": {
         "role": "neutral",
-        "displayName": "Graphite Surface",
-        "canonical": "#0f141c",
-        "tonalRamp": ["#0a0d12", "#0f141c", "#1c2531", "#2f3b4b", "#4a586b", "#707f94", "#aab4c3", "#edf2f8"]
+        "displayName": "App Rule",
+        "tonalRamp": [
+          "oklch(15.0% 0.0309 264.0)",
+          "oklch(26.4% 0.0309 264.0)",
+          "oklch(37.9% 0.0309 264.0)",
+          "oklch(49.3% 0.0309 264.0)",
+          "oklch(60.7% 0.0309 264.0)",
+          "oklch(72.1% 0.0309 264.0)",
+          "oklch(83.6% 0.0309 264.0)",
+          "oklch(95.0% 0.0309 264.0)"
+        ]
       },
-      "graphite-instrument": {
+      "app-rule-strong": {
         "role": "neutral",
-        "displayName": "Instrument Black",
-        "canonical": "#0c1118",
-        "tonalRamp": ["#080b10", "#0c1118", "#19222e", "#2c3848", "#465568", "#6d7c91", "#a7b2c1", "#ebf0f7"]
+        "displayName": "App Rule Strong",
+        "tonalRamp": [
+          "oklch(15.0% 0.0355 257.8)",
+          "oklch(26.4% 0.0355 257.8)",
+          "oklch(37.9% 0.0355 257.8)",
+          "oklch(49.3% 0.0355 257.8)",
+          "oklch(60.7% 0.0355 257.8)",
+          "oklch(72.1% 0.0355 257.8)",
+          "oklch(83.6% 0.0355 257.8)",
+          "oklch(95.0% 0.0355 257.8)"
+        ]
       },
-      "graphite-raised": {
+      "app-ink": {
         "role": "neutral",
-        "displayName": "Raised Graphite",
-        "canonical": "#121923",
-        "tonalRamp": ["#090d12", "#121923", "#202a37", "#344151", "#4f5e71", "#758499", "#adb7c6", "#eef2f8"]
+        "displayName": "App Ink",
+        "tonalRamp": [
+          "oklch(15.0% 0.0045 258.3)",
+          "oklch(26.4% 0.0045 258.3)",
+          "oklch(37.9% 0.0045 258.3)",
+          "oklch(49.3% 0.0045 258.3)",
+          "oklch(60.7% 0.0045 258.3)",
+          "oklch(72.1% 0.0045 258.3)",
+          "oklch(83.6% 0.0045 258.3)",
+          "oklch(95.0% 0.0045 258.3)"
+        ]
       },
-      "graphite-ledger": {
+      "app-ink-muted": {
         "role": "neutral",
-        "displayName": "Graphite Ledger",
-        "canonical": "#151c27",
-        "tonalRamp": ["#0a0e13", "#151c27", "#232d3a", "#374452", "#526174", "#78879b", "#afb9c8", "#eff3f8"]
+        "displayName": "App Ink Muted",
+        "tonalRamp": [
+          "oklch(15.0% 0.0235 260.7)",
+          "oklch(26.4% 0.0235 260.7)",
+          "oklch(37.9% 0.0235 260.7)",
+          "oklch(49.3% 0.0235 260.7)",
+          "oklch(60.7% 0.0235 260.7)",
+          "oklch(72.1% 0.0235 260.7)",
+          "oklch(83.6% 0.0235 260.7)",
+          "oklch(95.0% 0.0235 260.7)"
+        ]
       },
-      "rule": {
+      "app-ink-dim": {
         "role": "neutral",
-        "displayName": "Structural Rule",
-        "canonical": "#202938",
-        "tonalRamp": ["#0c1016", "#161d27", "#202938", "#354252", "#516174", "#78879a", "#afb9c7", "#eef2f7"]
+        "displayName": "App Ink Dim",
+        "tonalRamp": [
+          "oklch(15.0% 0.0273 261.1)",
+          "oklch(26.4% 0.0273 261.1)",
+          "oklch(37.9% 0.0273 261.1)",
+          "oklch(49.3% 0.0273 261.1)",
+          "oklch(60.7% 0.0273 261.1)",
+          "oklch(72.1% 0.0273 261.1)",
+          "oklch(83.6% 0.0273 261.1)",
+          "oklch(95.0% 0.0273 261.1)"
+        ]
       },
-      "rule-strong": {
-        "role": "neutral",
-        "displayName": "Strong Structural Rule",
-        "canonical": "#303c50",
-        "tonalRamp": ["#0d1117", "#1b2330", "#303c50", "#46566a", "#617186", "#8492a5", "#b7c0cd", "#f0f3f7"]
-      },
-      "ink-cool": {
-        "role": "neutral",
-        "displayName": "Cool White Ink",
-        "canonical": "#e8edf6",
-        "tonalRamp": ["#111820", "#27323f", "#435162", "#657486", "#8997a8", "#aeb9c7", "#cfd7e2", "#e8edf6"]
-      },
-      "ink-strong": {
-        "role": "neutral",
-        "displayName": "Instrument White",
-        "canonical": "#edf2f9",
-        "tonalRamp": ["#111820", "#293440", "#465363", "#687789", "#8d9aaa", "#b2bdca", "#d3dbe5", "#edf2f9"]
-      },
-      "ink-muted": {
-        "role": "neutral",
-        "displayName": "Muted Blue-Gray Ink",
-        "canonical": "#a1adbf",
-        "tonalRamp": ["#111820", "#25303d", "#414e5e", "#606e80", "#7f8da0", "#a1adbf", "#c9d1dc", "#f0f3f8"]
-      },
-      "ink-dim": {
-        "role": "neutral",
-        "displayName": "Dim Blue-Gray Ink",
-        "canonical": "#758196",
-        "tonalRamp": ["#0f151c", "#222c38", "#3c4858", "#566477", "#758196", "#97a3b3", "#c3cbd6", "#edf1f6"]
-      },
-      "periwinkle": {
+      "action-blue": {
         "role": "primary",
-        "displayName": "Research Periwinkle",
-        "canonical": "#8292ff",
-        "tonalRamp": ["#171b42", "#242b67", "#34418f", "#4a5bb8", "#6475df", "#8292ff", "#b0b9ff", "#eef0ff"]
+        "displayName": "Action Blue",
+        "tonalRamp": [
+          "oklch(15.0% 0.2369 270.0)",
+          "oklch(26.4% 0.2369 270.0)",
+          "oklch(37.9% 0.2369 270.0)",
+          "oklch(49.3% 0.2369 270.0)",
+          "oklch(60.7% 0.2369 270.0)",
+          "oklch(72.1% 0.2369 270.0)",
+          "oklch(83.6% 0.2369 270.0)",
+          "oklch(95.0% 0.2369 270.0)"
+        ]
       },
-      "periwinkle-hover": {
+      "action-blue-hover": {
         "role": "primary",
-        "displayName": "Research Periwinkle Hover",
-        "canonical": "#9aa7ff",
-        "tonalRamp": ["#181c43", "#282f69", "#3c4992", "#5666bd", "#7384e4", "#9aa7ff", "#bec5ff", "#f0f2ff"]
+        "displayName": "Action Blue Hover",
+        "tonalRamp": [
+          "oklch(15.0% 0.2597 270.0)",
+          "oklch(26.4% 0.2597 270.0)",
+          "oklch(37.9% 0.2597 270.0)",
+          "oklch(49.3% 0.2597 270.0)",
+          "oklch(60.7% 0.2597 270.0)",
+          "oklch(72.1% 0.2597 270.0)",
+          "oklch(83.6% 0.2597 270.0)",
+          "oklch(95.0% 0.2597 270.0)"
+        ]
       },
-      "periwinkle-soft": {
-        "role": "primary",
-        "displayName": "Periwinkle Field",
-        "canonical": "rgba(130,146,255,.13)",
-        "tonalRamp": ["rgba(130,146,255,.04)", "rgba(130,146,255,.07)", "rgba(130,146,255,.10)", "rgba(130,146,255,.13)", "rgba(130,146,255,.17)", "rgba(130,146,255,.21)", "rgba(130,146,255,.26)", "rgba(130,146,255,.32)"]
-      },
-      "cash-flow-cyan": {
+      "chart-blue": {
         "role": "secondary",
-        "displayName": "Cash-Flow Cyan",
-        "canonical": "#53b7dc",
-        "tonalRamp": ["#102a35", "#163f50", "#1f5a6f", "#2c7892", "#3c98b6", "#53b7dc", "#91d5eb", "#e5f6fb"]
+        "displayName": "Chart Blue",
+        "tonalRamp": [
+          "oklch(15.0% 0.1923 273.6)",
+          "oklch(26.4% 0.1923 273.6)",
+          "oklch(37.9% 0.1923 273.6)",
+          "oklch(49.3% 0.1923 273.6)",
+          "oklch(60.7% 0.1923 273.6)",
+          "oklch(72.1% 0.1923 273.6)",
+          "oklch(83.6% 0.1923 273.6)",
+          "oklch(95.0% 0.1923 273.6)"
+        ]
       },
-      "positive": {
-        "role": "secondary",
-        "displayName": "Verified Green",
-        "canonical": "#48cfa2",
-        "tonalRamp": ["#102a23", "#153f34", "#1e5a48", "#29785f", "#379879", "#48cfa2", "#91e4c7", "#e5f9f2"]
+      "link-periwinkle": {
+        "role": "primary",
+        "displayName": "Link Periwinkle",
+        "tonalRamp": [
+          "oklch(15.0% 0.1123 276.2)",
+          "oklch(26.4% 0.1123 276.2)",
+          "oklch(37.9% 0.1123 276.2)",
+          "oklch(49.3% 0.1123 276.2)",
+          "oklch(60.7% 0.1123 276.2)",
+          "oklch(72.1% 0.1123 276.2)",
+          "oklch(83.6% 0.1123 276.2)",
+          "oklch(95.0% 0.1123 276.2)"
+        ]
       },
-      "caution": {
-        "role": "tertiary",
-        "displayName": "Caution Amber",
-        "canonical": "#e2ad62",
-        "tonalRamp": ["#302411", "#4a3518", "#684a22", "#8a632f", "#b18243", "#e2ad62", "#f0d29c", "#fcf4e8"]
-      },
-      "negative": {
-        "role": "tertiary",
-        "displayName": "Signal Red",
-        "canonical": "#ff746d",
-        "tonalRamp": ["#381615", "#57201e", "#7a2e2a", "#a6403b", "#d4554f", "#ff746d", "#ffaaa6", "#ffedec"]
+      "nav-selected-field": {
+        "role": "primary",
+        "displayName": "Nav Selected Field",
+        "tonalRamp": [
+          "oklch(15.0% 0.2369 270.0)",
+          "oklch(26.4% 0.2369 270.0)",
+          "oklch(37.9% 0.2369 270.0)",
+          "oklch(49.3% 0.2369 270.0)",
+          "oklch(60.7% 0.2369 270.0)",
+          "oklch(72.1% 0.2369 270.0)",
+          "oklch(83.6% 0.2369 270.0)",
+          "oklch(95.0% 0.2369 270.0)"
+        ]
       },
       "on-accent": {
         "role": "neutral",
-        "displayName": "On-Accent White",
-        "canonical": "#ffffff",
-        "tonalRamp": ["#171717", "#333333", "#555555", "#777777", "#999999", "#bbbbbb", "#dddddd", "#ffffff"]
+        "displayName": "On Accent",
+        "tonalRamp": [
+          "oklch(15.0% 0.0000 89.9)",
+          "oklch(26.4% 0.0000 89.9)",
+          "oklch(37.9% 0.0000 89.9)",
+          "oklch(49.3% 0.0000 89.9)",
+          "oklch(60.7% 0.0000 89.9)",
+          "oklch(72.1% 0.0000 89.9)",
+          "oklch(83.6% 0.0000 89.9)",
+          "oklch(95.0% 0.0000 89.9)"
+        ]
+      },
+      "positive": {
+        "role": "secondary",
+        "displayName": "Positive",
+        "tonalRamp": [
+          "oklch(15.0% 0.1342 167.0)",
+          "oklch(26.4% 0.1342 167.0)",
+          "oklch(37.9% 0.1342 167.0)",
+          "oklch(49.3% 0.1342 167.0)",
+          "oklch(60.7% 0.1342 167.0)",
+          "oklch(72.1% 0.1342 167.0)",
+          "oklch(83.6% 0.1342 167.0)",
+          "oklch(95.0% 0.1342 167.0)"
+        ]
+      },
+      "caution": {
+        "role": "tertiary",
+        "displayName": "Caution",
+        "tonalRamp": [
+          "oklch(15.0% 0.1116 74.5)",
+          "oklch(26.4% 0.1116 74.5)",
+          "oklch(37.9% 0.1116 74.5)",
+          "oklch(49.3% 0.1116 74.5)",
+          "oklch(60.7% 0.1116 74.5)",
+          "oklch(72.1% 0.1116 74.5)",
+          "oklch(83.6% 0.1116 74.5)",
+          "oklch(95.0% 0.1116 74.5)"
+        ]
+      },
+      "negative": {
+        "role": "tertiary",
+        "displayName": "Negative",
+        "tonalRamp": [
+          "oklch(15.0% 0.1711 25.1)",
+          "oklch(26.4% 0.1711 25.1)",
+          "oklch(37.9% 0.1711 25.1)",
+          "oklch(49.3% 0.1711 25.1)",
+          "oklch(60.7% 0.1711 25.1)",
+          "oklch(72.1% 0.1711 25.1)",
+          "oklch(83.6% 0.1711 25.1)",
+          "oklch(95.0% 0.1711 25.1)"
+        ]
+      },
+      "research-canvas": {
+        "role": "neutral",
+        "displayName": "Research Canvas",
+        "tonalRamp": [
+          "oklch(15.0% 0.0208 264.3)",
+          "oklch(26.4% 0.0208 264.3)",
+          "oklch(37.9% 0.0208 264.3)",
+          "oklch(49.3% 0.0208 264.3)",
+          "oklch(60.7% 0.0208 264.3)",
+          "oklch(72.1% 0.0208 264.3)",
+          "oklch(83.6% 0.0208 264.3)",
+          "oklch(95.0% 0.0208 264.3)"
+        ]
+      },
+      "research-surface": {
+        "role": "neutral",
+        "displayName": "Research Surface",
+        "tonalRamp": [
+          "oklch(15.0% 0.0351 259.5)",
+          "oklch(26.4% 0.0351 259.5)",
+          "oklch(37.9% 0.0351 259.5)",
+          "oklch(49.3% 0.0351 259.5)",
+          "oklch(60.7% 0.0351 259.5)",
+          "oklch(72.1% 0.0351 259.5)",
+          "oklch(83.6% 0.0351 259.5)",
+          "oklch(95.0% 0.0351 259.5)"
+        ]
+      },
+      "research-surface-soft": {
+        "role": "neutral",
+        "displayName": "Research Surface Soft",
+        "tonalRamp": [
+          "oklch(15.0% 0.0400 260.9)",
+          "oklch(26.4% 0.0400 260.9)",
+          "oklch(37.9% 0.0400 260.9)",
+          "oklch(49.3% 0.0400 260.9)",
+          "oklch(60.7% 0.0400 260.9)",
+          "oklch(72.1% 0.0400 260.9)",
+          "oklch(83.6% 0.0400 260.9)",
+          "oklch(95.0% 0.0400 260.9)"
+        ]
+      },
+      "research-secondary": {
+        "role": "neutral",
+        "displayName": "Research Secondary",
+        "tonalRamp": [
+          "oklch(15.0% 0.0726 261.6)",
+          "oklch(26.4% 0.0726 261.6)",
+          "oklch(37.9% 0.0726 261.6)",
+          "oklch(49.3% 0.0726 261.6)",
+          "oklch(60.7% 0.0726 261.6)",
+          "oklch(72.1% 0.0726 261.6)",
+          "oklch(83.6% 0.0726 261.6)",
+          "oklch(95.0% 0.0726 261.6)"
+        ]
+      },
+      "research-ink": {
+        "role": "neutral",
+        "displayName": "Research Ink",
+        "tonalRamp": [
+          "oklch(15.0% 0.0074 260.7)",
+          "oklch(26.4% 0.0074 260.7)",
+          "oklch(37.9% 0.0074 260.7)",
+          "oklch(49.3% 0.0074 260.7)",
+          "oklch(60.7% 0.0074 260.7)",
+          "oklch(72.1% 0.0074 260.7)",
+          "oklch(83.6% 0.0074 260.7)",
+          "oklch(95.0% 0.0074 260.7)"
+        ]
+      },
+      "research-ink-muted": {
+        "role": "neutral",
+        "displayName": "Research Ink Muted",
+        "tonalRamp": [
+          "oklch(15.0% 0.0281 262.3)",
+          "oklch(26.4% 0.0281 262.3)",
+          "oklch(37.9% 0.0281 262.3)",
+          "oklch(49.3% 0.0281 262.3)",
+          "oklch(60.7% 0.0281 262.3)",
+          "oklch(72.1% 0.0281 262.3)",
+          "oklch(83.6% 0.0281 262.3)",
+          "oklch(95.0% 0.0281 262.3)"
+        ]
+      },
+      "research-ink-dim": {
+        "role": "neutral",
+        "displayName": "Research Ink Dim",
+        "tonalRamp": [
+          "oklch(15.0% 0.0384 261.9)",
+          "oklch(26.4% 0.0384 261.9)",
+          "oklch(37.9% 0.0384 261.9)",
+          "oklch(49.3% 0.0384 261.9)",
+          "oklch(60.7% 0.0384 261.9)",
+          "oklch(72.1% 0.0384 261.9)",
+          "oklch(83.6% 0.0384 261.9)",
+          "oklch(95.0% 0.0384 261.9)"
+        ]
+      },
+      "research-rule": {
+        "role": "neutral",
+        "displayName": "Research Rule",
+        "tonalRamp": [
+          "oklch(15.0% 0.0482 259.5)",
+          "oklch(26.4% 0.0482 259.5)",
+          "oklch(37.9% 0.0482 259.5)",
+          "oklch(49.3% 0.0482 259.5)",
+          "oklch(60.7% 0.0482 259.5)",
+          "oklch(72.1% 0.0482 259.5)",
+          "oklch(83.6% 0.0482 259.5)",
+          "oklch(95.0% 0.0482 259.5)"
+        ]
+      },
+      "research-rule-strong": {
+        "role": "neutral",
+        "displayName": "Research Rule Strong",
+        "tonalRamp": [
+          "oklch(15.0% 0.0482 259.5)",
+          "oklch(26.4% 0.0482 259.5)",
+          "oklch(37.9% 0.0482 259.5)",
+          "oklch(49.3% 0.0482 259.5)",
+          "oklch(60.7% 0.0482 259.5)",
+          "oklch(72.1% 0.0482 259.5)",
+          "oklch(83.6% 0.0482 259.5)",
+          "oklch(95.0% 0.0482 259.5)"
+        ]
+      },
+      "research-blue": {
+        "role": "primary",
+        "displayName": "Research Blue",
+        "tonalRamp": [
+          "oklch(15.0% 0.1823 268.2)",
+          "oklch(26.4% 0.1823 268.2)",
+          "oklch(37.9% 0.1823 268.2)",
+          "oklch(49.3% 0.1823 268.2)",
+          "oklch(60.7% 0.1823 268.2)",
+          "oklch(72.1% 0.1823 268.2)",
+          "oklch(83.6% 0.1823 268.2)",
+          "oklch(95.0% 0.1823 268.2)"
+        ]
+      },
+      "research-periwinkle": {
+        "role": "primary",
+        "displayName": "Research Periwinkle",
+        "tonalRamp": [
+          "oklch(15.0% 0.1260 270.7)",
+          "oklch(26.4% 0.1260 270.7)",
+          "oklch(37.9% 0.1260 270.7)",
+          "oklch(49.3% 0.1260 270.7)",
+          "oklch(60.7% 0.1260 270.7)",
+          "oklch(72.1% 0.1260 270.7)",
+          "oklch(83.6% 0.1260 270.7)",
+          "oklch(95.0% 0.1260 270.7)"
+        ]
+      },
+      "research-selected-field": {
+        "role": "primary",
+        "displayName": "Research Selected Field",
+        "tonalRamp": [
+          "oklch(15.0% 0.1823 268.2)",
+          "oklch(26.4% 0.1823 268.2)",
+          "oklch(37.9% 0.1823 268.2)",
+          "oklch(49.3% 0.1823 268.2)",
+          "oklch(60.7% 0.1823 268.2)",
+          "oklch(72.1% 0.1823 268.2)",
+          "oklch(83.6% 0.1823 268.2)",
+          "oklch(95.0% 0.1823 268.2)"
+        ]
+      },
+      "research-positive": {
+        "role": "secondary",
+        "displayName": "Research Positive",
+        "tonalRamp": [
+          "oklch(15.0% 0.1216 173.9)",
+          "oklch(26.4% 0.1216 173.9)",
+          "oklch(37.9% 0.1216 173.9)",
+          "oklch(49.3% 0.1216 173.9)",
+          "oklch(60.7% 0.1216 173.9)",
+          "oklch(72.1% 0.1216 173.9)",
+          "oklch(83.6% 0.1216 173.9)",
+          "oklch(95.0% 0.1216 173.9)"
+        ]
       }
     },
     "typographyMeta": {
-      "flagship": {
-        "displayName": "Flagship Interface",
-        "purpose": "Company overview title, panel headings, and supporting interface labels on the flagship route."
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "App page title; 24px at the compact breakpoint."
       },
-      "display": {
-        "displayName": "Compact Research Display",
-        "purpose": "Workspace and shell titles, panel headings, and analytical instrument titles."
+      "title": {
+        "displayName": "Title",
+        "purpose": "Model analytical panel heading."
       },
       "body": {
-        "displayName": "Operational Body",
-        "purpose": "Navigation, explanatory copy, state messages, and ordinary controls."
+        "displayName": "Body",
+        "purpose": "App interface copy and navigation."
       },
-      "data": {
-        "displayName": "Auditable Data",
-        "purpose": "Tickers, money, rates, percentages, and compact figures that benefit from fixed-width comparison."
+      "supporting": {
+        "displayName": "Supporting",
+        "purpose": "Analytical explanation and context."
       },
-      "label": {
-        "displayName": "Utility Label",
-        "purpose": "Small field and group labels; never a redundant decorative kicker."
+      "metric": {
+        "displayName": "Metric",
+        "purpose": "Headline financial figures with tabular numerals."
+      },
+      "research-interface": {
+        "displayName": "Research Interface",
+        "purpose": "Independent archived-study and methodology shell."
+      },
+      "research-data": {
+        "displayName": "Research Data",
+        "purpose": "Independent research data and audit figures."
       }
     },
     "shadows": [
       {
-        "name": "forecast-tooltip",
+        "name": "market-chart-tooltip",
         "value": "0 14px 34px rgba(0,0,0,.42)",
-        "purpose": "Transient separation for the forecast inspection tooltip only; resting surfaces remain shadowless."
+        "purpose": "Temporary inspection tooltip; no resting app-panel shadow."
+      },
+      {
+        "name": "research-brand-mark",
+        "value": "0 10px 24px -13px rgba(98, 135, 255, 0.7)",
+        "purpose": "Existing independent research shell only."
       }
     ],
     "motion": [
       {
         "name": "control-state",
         "value": "120ms ease",
-        "purpose": "Button, input, and compact control state changes."
+        "purpose": "Existing button/input state transitions."
       },
       {
         "name": "navigation-state",
         "value": "140ms ease",
-        "purpose": "Navigation and quick-company hover or selection changes."
+        "purpose": "App navigation background and text changes."
       },
       {
-        "name": "selector-state",
-        "value": "150ms ease",
-        "purpose": "Scenario and segmented selector feedback."
-      },
-      {
-        "name": "result-enter",
-        "value": "220ms cubic-bezier(0.16, 1, 0.3, 1)",
-        "purpose": "The single six-pixel fade-and-lift when a fresh analysis result arrives; disabled under reduced motion."
+        "name": "research-state",
+        "value": "180ms ease",
+        "purpose": "Independent research shell transitions."
       }
     ],
     "breakpoints": [
       {
-        "name": "dashboard-reflow",
-        "value": "1180px",
-        "purpose": "Summary metrics reduce to two columns and wide overview splits stack."
+        "name": "wide-custom-inputs",
+        "value": "1440px",
+        "purpose": "Two custom-assumption columns above this width."
       },
       {
-        "name": "analysis-stack",
-        "value": "900px",
-        "purpose": "Forecast and Thesis Rail become one column."
+        "name": "model-start-stack",
+        "value": "1100px",
+        "purpose": "Start panel stacks; summary metrics use two columns."
       },
       {
         "name": "chrome-mobile",
         "value": "820px",
-        "purpose": "Desktop rail becomes the fixed four-route bottom navigation and gutters contract."
+        "purpose": "Sidebar yields to native modal drawer; top bar remains 77px."
       },
       {
-        "name": "compact-controls",
-        "value": "640px",
-        "purpose": "Launchers, assumptions, charts, and supporting steps adapt for narrow screens."
+        "name": "compact-workspace",
+        "value": "560px",
+        "purpose": "20px panels, stacked evidence, chart scroll hint."
       },
       {
         "name": "minimum-supported-width",
         "value": "320px",
-        "purpose": "Application pages remain usable and free of page-level horizontal overflow."
+        "purpose": "No page-level horizontal overflow."
+      },
+      {
+        "name": "research-reflow",
+        "value": "1040px",
+        "purpose": "Independent research shell only."
+      },
+      {
+        "name": "research-mobile",
+        "value": "760px",
+        "purpose": "Independent research shell only."
       }
-    ]
+    ],
+    "scope": {
+      "app": "body:has([data-app-chrome]); dark-workspace.css follows globals.css.",
+      "appSources": [
+        "frontend/src/app/dark-workspace.css",
+        "frontend/src/components/AppHeader.module.css",
+        "frontend/src/components/AppHeader.tsx"
+      ],
+      "independentResearch": "/research/* and /methodology/* use FlagshipResearchPrototype.module.css and rp-* tokens.",
+      "excluded": "Login, model calculations, backend contracts, authentication boundaries, archives, and primary PRODUCT.md are outside this integration.",
+      "evidence": "Data-workspace correction review: overview-1280.png, overview-390.png, overview-320.png, cash-flows-1280.png, and cash-flows-390.png under .impeccable/review/data-workspace/. Independent review resolved all four material corrections and returned ship at this scope. Detector returned []; frontend 354 and backend 99 tests, type checks, scoped lint, and production build passed. Captures document visual review, not independently reconciled issuer data.",
+      "localPageAccess": "Authorized follow-up: LOCAL_PASSWORDLESS=1 permits loopback development page shells without login, redirects /login to /workspace, and blocks private APIs before handlers. Production session checks remain active. Sidebar has no Private session link.",
+      "dataWorkspace": {
+        "world": "Ordinary extension of the approved Outfit dark workspace; incumbent token primitives, ramps, and independent research system are preserved.",
+        "navigation": "Seven workspace/study routes; Portfolio, Backtests, and Trade log removed from workspace navigation while their routes and private-data protection remain. No Private session link.",
+        "historySources": [
+          "frontend/src/components/valuation/HistoricalFinancialsPanel.tsx",
+          "frontend/src/lib/historical-financials.ts",
+          "src/api/historical_financials.py"
+        ],
+        "historySemantics": "Reported revenue, operating cash flow, signed cash CapEx, and calculated cash FCF from the same selected-source statement frames. Provider period dates and supplied statement currency; null remains unavailable, zero remains zero. Reported history precedes estimates on Overview; projected FCFF and projected bridge components remain separate.",
+        "savedResultSources": [
+          "frontend/src/app/workspace/WorkspaceClient.tsx",
+          "frontend/src/lib/workspace-storage.ts"
+        ],
+        "savedResult": "Versioned browser-local latest completed result, reported history, available market history, run timestamp, scenario, and completed-run inputs. Strict nested validation; restore makes no requests or model runs. Saved-age warning and Market price at run label; clear has cancellation guards.",
+        "literalRecords": [
+          {
+            "value": "#6172f3",
+            "source": "frontend/src/components/valuation/HistoricalFinancialsPanel.tsx",
+            "role": "Historical bar fill; existing colors.chart-blue, no new primitive."
+          },
+          {
+            "value": "660px",
+            "source": "frontend/src/app/dark-workspace.css",
+            "role": "Existing minimum chart width, with local chart scrolling."
+          },
+          {
+            "value": "800px",
+            "source": "frontend/src/app/dark-workspace.css",
+            "role": "Historical full-amount table minimum width, with local table scrolling."
+          },
+          {
+            "value": "44px",
+            "source": "frontend/src/app/dark-workspace.css",
+            "role": "Historical metric selector minimum height; incumbent control target."
+          }
+        ],
+        "reviewDisposition": "Ship at the correction scope; no redesign, research run, valuation run, deployment, or broader audit."
+      }
+    }
   },
   "components": [
     {
       "name": "Primary Button",
       "kind": "button",
       "refersTo": "button-primary",
-      "description": "The direct action that advances research work.",
-      "html": "<button class=\"ds-btn-primary\" type=\"button\">Run valuation</button>",
-      "css": ".ds-btn-primary { min-height: 2.75rem; border: 1px solid var(--cobalt, #8292ff); border-radius: 4px; padding: 0 1.15rem; background: var(--cobalt, #8292ff); color: #fff; font: 600 .82rem/1 var(--body, sans-serif); transition: background 120ms ease, border-color 120ms ease, transform 120ms ease; } .ds-btn-primary:hover { border-color: var(--cobalt-hover, #9aa7ff); background: var(--cobalt-hover, #9aa7ff); } .ds-btn-primary:focus-visible { outline: 2px solid var(--cobalt, #8292ff); outline-offset: 2px; } .ds-btn-primary:active { transform: translateY(1px); }"
+      "description": "Explicit live-model action with white text on action blue.",
+      "html": "<button type=\"button\" class=\"ds-primary\">Run Valuation</button>",
+      "css": ".ds-primary{min-height:44px;border:1px solid #465fff;border-radius:8px;padding:0 1.15rem;background:#465fff;color:#fff;font:500 14px/1 var(--font-outfit, \"Outfit\"), sans-serif;transition:background 120ms ease,transform 120ms ease}.ds-primary:hover:not(:disabled){background:#3641f5;color:#fff}.ds-primary:focus-visible{outline:2px solid var(--cobalt,#a4b1ff);outline-offset:3px}.ds-primary:active:not(:disabled){transform:translateY(1px)}.ds-primary:disabled{background:var(--ledger,#1a2232);color:var(--paper-dim,#98a2b3);border-color:var(--line,#293141);cursor:not-allowed}"
     },
     {
       "name": "Secondary Button",
       "kind": "button",
       "refersTo": "button-secondary",
-      "description": "A quiet supporting action that gains periwinkle only when engaged.",
-      "html": "<button class=\"ds-btn-secondary\" type=\"button\">View details</button>",
-      "css": ".ds-btn-secondary { min-height: 2.75rem; border: 1px solid var(--line-strong, #303c50); border-radius: 4px; padding: 0 1.15rem; background: var(--ink-raised, #0f141c); color: var(--paper-muted, #a1adbf); font: 600 .82rem/1 var(--body, sans-serif); transition: border-color 120ms ease, color 120ms ease, transform 120ms ease; } .ds-btn-secondary:hover { border-color: var(--cobalt, #8292ff); color: var(--cobalt, #8292ff); } .ds-btn-secondary:focus-visible { outline: 2px solid var(--cobalt, #8292ff); outline-offset: 2px; } .ds-btn-secondary:active { transform: translateY(1px); }"
+      "description": "Supporting action retains its existing 4px shape.",
+      "html": "<button type=\"button\" class=\"ds-secondary\">View details</button>",
+      "css": ".ds-secondary{min-height:44px;border:1px solid var(--line-strong,#475467);border-radius:4px;padding:0 1.15rem;background:var(--ink-raised,#1a2232);color:var(--paper-muted,#b4bdcc);font:600 .82rem/1 var(--font-outfit, \"Outfit\"), sans-serif;transition:border-color 120ms ease,color 120ms ease,transform 120ms ease}.ds-secondary:hover:not(:disabled){border-color:var(--cobalt,#a4b1ff);color:var(--cobalt,#a4b1ff)}.ds-secondary:focus-visible{outline:2px solid var(--cobalt,#a4b1ff);outline-offset:3px}.ds-secondary:active:not(:disabled){transform:translateY(1px)}.ds-secondary:disabled{color:var(--paper-dim,#98a2b3);cursor:not-allowed}"
     },
     {
-      "name": "Ticker Input",
+      "name": "Ticker Field",
       "kind": "input",
       "refersTo": "input-default",
-      "description": "The embedded ledger field for company symbols and precise model inputs.",
-      "html": "<label class=\"ds-input-label\">TICKER<input class=\"ds-input\" value=\"AAPL\" aria-label=\"Ticker\" /></label>",
-      "css": ".ds-input-label { display: grid; gap: .45rem; color: var(--paper-dim, #758196); font: 650 .625rem/1 var(--body, sans-serif); letter-spacing: .07em; } .ds-input { min-height: 2.75rem; border: 1px solid var(--line-strong, #303c50); border-radius: 4px; padding: 0 1rem; background: var(--ink-raised, #0f141c); color: var(--paper, #e8edf6); font: 600 .82rem/1 var(--utility, monospace); letter-spacing: .04em; } .ds-input:hover { border-color: #59667a; } .ds-input:focus { border-color: var(--cobalt, #8292ff); box-shadow: 0 0 0 3px var(--cobalt-soft, rgba(130,146,255,.13)); outline: none; }"
+      "description": "Labeled live-model ticker input; no result data in the sample.",
+      "html": "<label class=\"ds-field-label\">Ticker<input class=\"ds-field\" placeholder=\"Company ticker\" aria-label=\"Ticker\"></label>",
+      "css": ".ds-field-label{display:grid;gap:8px;color:var(--paper-muted,#b4bdcc);font:400 13px/1.5 var(--font-outfit, \"Outfit\"), sans-serif}.ds-field{min-height:44px;padding:0 16px;border:1px solid var(--line-strong,#475467);border-radius:8px;background:#101828;color:#f2f4f7;font:400 14px/1.5 var(--font-outfit, \"Outfit\"), sans-serif;transition:border-color 120ms ease,box-shadow 120ms ease}.ds-field::placeholder{color:#98a2b3}.ds-field:focus{border-color:var(--cobalt,#a4b1ff);box-shadow:0 0 0 3px var(--cobalt-soft,rgba(130,146,255,.13))}.ds-field:focus-visible{outline:2px solid var(--cobalt,#a4b1ff);outline-offset:3px}.ds-field:disabled{background:var(--ledger,#1a2232);color:var(--paper-dim,#98a2b3);cursor:not-allowed}"
     },
     {
-      "name": "Active Navigation Link",
+      "name": "Current Route",
       "kind": "nav",
       "refersTo": "nav-active",
-      "description": "The selected route within the shared four-route desktop rail and mobile navigation.",
-      "html": "<a class=\"ds-nav-link ds-nav-link-active\" href=\"/workspace\"><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M4 19V9\"/><path d=\"M10 19V5\"/><path d=\"M16 19v-7\"/><path d=\"M22 19H2\"/></svg><span>Valuation</span></a>",
-      "css": ".ds-nav-link { display: inline-flex; min-height: 42px; align-items: center; gap: 11px; border: 1px solid transparent; border-radius: 4px; padding: 0 11px; color: #8490a4; font: 550 12px/1 var(--body, sans-serif); text-decoration: none; transition: border-color 140ms ease, background 140ms ease, color 140ms ease; } .ds-nav-link svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; } .ds-nav-link:hover { border-color: #273246; background: #101620; color: #dfe6f1; } .ds-nav-link-active { border-color: #354b79; background: #141d30; color: #8da1ff; } .ds-nav-link:focus-visible { outline: 2px solid var(--cobalt, #8292ff); outline-offset: 2px; }"
+      "description": "Exact route selection in the desktop sidebar and mobile drawer.",
+      "html": "<a class=\"ds-nav\" href=\"/workspace/cash-flows\" aria-current=\"page\"><svg viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M4 4v16h16 M8 16v-5 M13 16V7 M18 16V4\"/></svg><span>Cash flow forecast</span></a>",
+      "css": ".ds-nav{display:flex;align-items:center;min-height:44px;gap:12px;padding:10px 12px;border-radius:8px;color:#b4bdcc;font:400 14px/1.5 var(--font-outfit, \"Outfit\"), sans-serif;text-decoration:none;transition:background 140ms ease,color 140ms ease}.ds-nav svg{width:20px;height:20px;flex:none}.ds-nav:hover{background:#1a2232;color:#fff}.ds-nav[aria-current=page]{background:#465fff22;color:#a4b1ff}.ds-nav:focus-visible{outline:2px solid var(--cobalt,#a4b1ff);outline-offset:3px}@media(prefers-reduced-motion:reduce){.ds-nav{transition:none}}"
     },
     {
       "name": "Scenario Selector",
       "kind": "chip",
-      "refersTo": "button-secondary",
-      "description": "A shared-state Bear, Base, and Bull selector that avoids semantic case coloring.",
-      "html": "<div class=\"ds-scenarios\"><button class=\"ds-scenario\" type=\"button\">Bear</button><button class=\"ds-scenario ds-scenario-active\" type=\"button\">Base</button><button class=\"ds-scenario\" type=\"button\">Bull</button></div>",
-      "css": ".ds-scenarios { display: flex; gap: .4rem; padding: .25rem; background: var(--instrument, #0c1118); } .ds-scenario { min-height: 44px; flex: 1 1 0; border: 1px solid var(--instrument-edge, #263143); border-radius: 6px; background: var(--instrument-raised, #121923); color: var(--instrument-text-dim, #8491a6); font: 600 .74rem/1 var(--body, sans-serif); transition: border-color 150ms ease, color 150ms ease, background 150ms ease; } .ds-scenario:hover { border-color: var(--instrument-text-dim, #8491a6); color: var(--instrument-text, #edf2f9); } .ds-scenario-active { border-color: var(--cobalt, #8292ff); background: var(--cobalt-soft, rgba(130,146,255,.13)); color: var(--cobalt, #8292ff); } .ds-scenario:focus-visible { outline: 2px solid var(--cobalt, #8292ff); outline-offset: 2px; }"
+      "refersTo": "scenario-active",
+      "description": "Shared Base/Bear/Bull selection; pressed state is neutral rather than an outcome color.",
+      "html": "<div class=\"ds-scenarios\" role=\"group\" aria-label=\"Valuation scenario\"><button type=\"button\" aria-pressed=\"true\">Base</button><button type=\"button\" aria-pressed=\"false\">Bear</button><button type=\"button\" aria-pressed=\"false\">Bull</button></div>",
+      "css": ".ds-scenarios{display:flex;gap:4px;padding:4px;background:#101828;border-radius:8px}.ds-scenarios button{min-height:44px;padding:8px 16px;border:0;border-radius:6px;background:transparent;color:#b4bdcc;font:400 14px/1.5 var(--font-outfit, \"Outfit\"), sans-serif}.ds-scenarios button[aria-pressed=true]{background:#293141;color:#fff}.ds-scenarios button:focus-visible{outline:2px solid var(--cobalt,#a4b1ff);outline-offset:3px}"
     },
     {
-      "name": "Research Panel",
+      "name": "App Panel",
       "kind": "card",
       "refersTo": "panel-default",
-      "description": "The flat graphite container for summary, recent work, and supporting analysis.",
-      "html": "<section class=\"ds-panel\"><div class=\"ds-panel-heading\"><h3>Recent valuations</h3><span>Browser-local</span></div><div class=\"ds-panel-row\"><strong>AAPL</strong><span>$214.32</span><a href=\"#open\">Open</a></div></section>",
-      "css": ".ds-panel { border: 1px solid var(--line, #202938); border-radius: 5px; padding: 1.125rem; background: var(--ink-raised, #0f141c); color: var(--paper, #e8edf6); font-family: var(--body, sans-serif); } .ds-panel-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding-bottom: .75rem; border-bottom: 1px solid var(--line, #202938); } .ds-panel h3 { margin: 0; font: 650 .95rem/1.2 var(--display, sans-serif); letter-spacing: -.015em; } .ds-panel-heading span { color: var(--paper-dim, #758196); font-size: .625rem; } .ds-panel-row { display: grid; grid-template-columns: 1fr auto auto; gap: 1rem; padding-top: .85rem; color: var(--paper-muted, #a1adbf); font-size: .72rem; } .ds-panel-row strong, .ds-panel-row span { font-variant-numeric: tabular-nums; } .ds-panel-row a { color: var(--cobalt, #8292ff); text-decoration: none; } .ds-panel:hover { border-color: var(--line-strong, #303c50); } .ds-panel:focus-within { border-color: var(--cobalt, #8292ff); }"
+      "description": "Flat container for live-model analytical sections.",
+      "html": "<section class=\"ds-panel\"><h2>Valuation input provenance</h2><p>Source selection and cutoffs are reported by the valuation service.</p></section>",
+      "css": ".ds-panel{padding:24px;border:1px solid var(--line,#293141);border-radius:14px;background:var(--ink-raised,#1a2232);color:var(--paper,#f2f4f7);box-shadow:none;font-family:var(--font-outfit, \"Outfit\"), sans-serif}.ds-panel h2{margin:0 0 16px;font-size:19px;font-weight:500;letter-spacing:-.01em}.ds-panel p{margin:0;color:var(--paper-muted,#b4bdcc);font-size:13px;line-height:1.7;max-width:72ch}"
     },
     {
-      "name": "Annual Forecast Instrument",
+      "name": "Cash-Flow Chart Frame",
       "kind": "custom",
-      "refersTo": "instrument-panel",
-      "description": "The honest annual Revenue and Free Cash Flow dual-line chart with separate scales.",
-      "html": "<section class=\"ds-forecast\"><div class=\"ds-forecast-head\"><div><h3>Operating forecast</h3><p>Base case · five-year operating path</p></div><div class=\"ds-forecast-legend\"><span><i class=\"ds-revenue\"></i>Revenue $482B</span><span><i class=\"ds-fcf\"></i>Free cash flow $112B</span></div></div><svg class=\"ds-forecast-chart\" viewBox=\"0 0 520 190\" role=\"img\" aria-label=\"Annual Revenue and Free Cash Flow forecast\"><g class=\"ds-grid\"><path d=\"M54 22H466M54 62H466M54 102H466M54 142H466\"/><path d=\"M54 142V22M466 142V22\"/></g><polyline class=\"ds-line-revenue\" points=\"54,126 157,108 260,84 363,58 466,35\"/><polyline class=\"ds-line-fcf\" points=\"54,132 157,119 260,106 363,88 466,67\"/><line class=\"ds-crosshair\" x1=\"363\" y1=\"22\" x2=\"363\" y2=\"142\"/><g class=\"ds-years\"><text x=\"54\" y=\"166\">Y1</text><text x=\"157\" y=\"166\">Y2</text><text x=\"260\" y=\"166\">Y3</text><text x=\"363\" y=\"166\">Y4</text><text x=\"466\" y=\"166\">Y5</text></g></svg><p class=\"ds-forecast-note\">Annual forecast · left revenue / right free cash flow · hover to inspect</p></section>",
-      "css": ".ds-forecast { border: 1px solid var(--instrument-edge, #263143); border-radius: 5px; padding: 1.05rem 1.1rem .75rem; background: var(--instrument, #0c1118); color: var(--instrument-text, #edf2f9); font-family: var(--body, sans-serif); transition: border-color 150ms ease; } .ds-forecast:hover { border-color: var(--line-strong, #303c50); } .ds-forecast:focus-within { border-color: var(--cobalt, #8292ff); } .ds-forecast-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; } .ds-forecast h3 { margin: 0; font: 650 1rem/1.2 var(--display, sans-serif); letter-spacing: -.015em; } .ds-forecast-head p, .ds-forecast-note { margin: .25rem 0 0; color: var(--instrument-text-dim, #8491a6); font-size: .64rem; } .ds-forecast-legend { display: flex; gap: .8rem; color: var(--instrument-text-dim, #8491a6); font-size: .66rem; } .ds-forecast-legend span { display: inline-flex; align-items: center; gap: .35rem; } .ds-forecast-legend i { width: .8rem; height: 2px; } .ds-revenue { background: var(--cobalt, #8292ff); } .ds-fcf { background: #53b7dc; } .ds-forecast-chart { width: 100%; margin-top: .5rem; overflow: visible; } .ds-grid path { fill: none; stroke: var(--line, #202938); stroke-width: 1; stroke-dasharray: 2 4; } .ds-line-revenue, .ds-line-fcf { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; } .ds-line-revenue { stroke: var(--cobalt, #8292ff); } .ds-line-fcf { stroke: #53b7dc; } .ds-crosshair { stroke: #59667a; stroke-width: 1; stroke-dasharray: 4 4; } .ds-years { fill: #7f8ba0; font: 11px var(--body, sans-serif); text-anchor: middle; }"
+      "refersTo": "panel-default",
+      "description": "Projected Base FCFF chart container, separate from reported history; sample intentionally shows the data-unavailable state.",
+      "html": "<section class=\"ds-chart-panel\"><h2>Annual free cash flow</h2><p>Base-case projected FCFF \u00b7 USD \u00b7 Near-term and maturation forecast</p><div class=\"ds-chart-state\">Run a valuation to inspect projected cash flows.</div></section>",
+      "css": ".ds-chart-panel{padding:24px;border:1px solid var(--line,#293141);border-radius:14px;background:var(--ink-raised,#1a2232);color:var(--paper,#f2f4f7);font-family:var(--font-outfit, \"Outfit\"), sans-serif}.ds-chart-panel h2{margin:0;font-size:19px;font-weight:500;letter-spacing:-.01em}.ds-chart-panel p{margin:8px 0 16px;color:var(--paper-muted,#b4bdcc);font-size:13px;line-height:1.7}.ds-chart-state{padding:20px 0;color:var(--paper-muted,#b4bdcc);font-size:13px;line-height:1.7}"
     },
     {
-      "name": "Thesis Rail",
+      "name": "Independent Research Panel",
+      "kind": "card",
+      "refersTo": "research-panel",
+      "description": "Protected archived-study/methodology visual scope; retains rp-* tokens.",
+      "html": "<section class=\"ds-research-panel\"><h2>Archived study evidence</h2><p>Archived sensitivity study, separate from live valuation.</p></section>",
+      "css": ".ds-research-panel{padding:24px;border:1px solid var(--rp-line,rgba(158,177,207,.14));border-radius:13px;background:var(--rp-surface,#0f1929);color:var(--rp-text,#f4f7fc);font-family:var(--rp-interface,var(--font-outfit, \"Outfit\"), sans-serif)}.ds-research-panel h2{margin:0 0 12px;font-size:19px;font-weight:600}.ds-research-panel p{margin:0;color:var(--rp-slate,#a8b2c4);font-size:13px;line-height:1.7}"
+    },
+    {
+      "name": "Reported Financial History",
       "kind": "custom",
-      "refersTo": "instrument-panel",
-      "description": "The persistent decision companion for price, selected value, market gap, assumptions, and provenance.",
-      "html": "<aside class=\"ds-thesis\"><div class=\"ds-thesis-head\"><h3>Thesis</h3><span>Base</span></div><div class=\"ds-thesis-main\"><small>AAPL · Technology</small><strong>$228.40</strong><em>+6.6% above market</em></div><dl><div><dt>Market price</dt><dd>$214.32</dd></div><div><dt>WACC</dt><dd>8.42%</dd></div><div><dt>Terminal growth</dt><dd>2.50%</dd></div></dl><p class=\"ds-thesis-source\">Sources and assumptions remain visible with the decision.</p></aside>",
-      "css": ".ds-thesis { border: 1px solid var(--instrument-edge, #263143); border-radius: 5px; padding: .9rem; background: var(--instrument, #0c1118); color: var(--instrument-text, #edf2f9); font-family: var(--body, sans-serif); transition: border-color 150ms ease; } .ds-thesis:hover { border-color: var(--line-strong, #303c50); } .ds-thesis:focus-within { border-color: var(--cobalt, #8292ff); } .ds-thesis-head { display: flex; justify-content: space-between; gap: .75rem; padding-bottom: .55rem; border-bottom: 1px solid var(--instrument-edge, #263143); } .ds-thesis h3 { margin: 0; font: 650 .95rem/1.2 var(--display, sans-serif); } .ds-thesis-head span { padding: .3rem .45rem; border-radius: 999px; background: var(--cobalt-soft, rgba(130,146,255,.13)); color: var(--cobalt, #8292ff); font-size: .58rem; font-weight: 650; } .ds-thesis-main { padding: .65rem 0; border-bottom: 1px solid var(--instrument-edge, #263143); } .ds-thesis-main small { display: block; color: var(--instrument-text-dim, #8491a6); font-size: .62rem; } .ds-thesis-main strong { display: block; margin-top: .2rem; font: 600 1.65rem/1.05 var(--display, sans-serif); font-variant-numeric: tabular-nums; } .ds-thesis-main em { display: block; margin-top: .2rem; color: var(--positive, #48cfa2); font-style: normal; font-size: .72rem; } .ds-thesis dl { display: grid; margin: 0; } .ds-thesis dl div { display: flex; justify-content: space-between; gap: 1rem; padding: .4rem 0; border-bottom: 1px solid var(--instrument-edge, #263143); font-size: .68rem; } .ds-thesis dt { color: var(--instrument-text-dim, #8491a6); } .ds-thesis dd { margin: 0; font-family: var(--display, sans-serif); font-variant-numeric: tabular-nums; } .ds-thesis-source { margin: .7rem 0 0; padding: .65rem; border-radius: 4px; background: var(--instrument-raised, #121923); color: var(--instrument-text-dim, #8491a6); font-size: .62rem; line-height: 1.45; }"
+      "refersTo": "panel-default",
+      "description": "Reported source context, labeled metric selection, and honest unavailable state; full figures and provider dates appear when data is supplied.",
+      "html": "<section class=\"ds-history\"><div class=\"ds-history-heading\"><div><h2>Reported financial history</h2><p>Statement currency unavailable; amounts as supplied</p></div><label>Chart<select aria-label=\"Historical chart metric\"><option>Revenue</option><option>Operating cash flow</option><option>Cash CapEx</option><option selected>Historical FCF</option></select></label></div><p>No annual statement history was returned by the selected source. Historical values have not been substituted with forecasts.</p></section>",
+      "css": ".ds-history{padding:24px;border:1px solid var(--line,#293141);border-radius:14px;background:var(--ink-raised,#1a2232);color:var(--paper,#f2f4f7);font-family:var(--font-outfit,\"Outfit\"),sans-serif}.ds-history-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;flex-wrap:wrap}.ds-history h2{margin:0;font-size:19px;font-weight:500;letter-spacing:-.01em}.ds-history p{margin:8px 0 16px;color:var(--paper-muted,#b4bdcc);font-size:13px;line-height:1.7}.ds-history label{display:flex;align-items:center;gap:12px;color:var(--paper-muted,#b4bdcc);font-size:13px}.ds-history select{min-height:44px;padding:10px;border:1px solid var(--line-strong,#475467);border-radius:8px;background:var(--ink,#101828);color:var(--paper,#f2f4f7);font:inherit}.ds-history select:focus-visible{outline:2px solid var(--cobalt,#a4b1ff);outline-offset:3px}"
     }
   ],
   "narrative": {
-    "northStar": "The Graphite Research Instrument",
-    "overview": "Valuation Engine is an edge-to-edge institutional charting workspace: near-black chrome and canvas hold dense blue-gray surfaces, cool-white data, and a single restrained periwinkle interaction voice. It should feel like a real, publicly reviewable equity-research model with a private operator layer—not a generic market-data terminal, a decorative admin template, or a neon trading product.\n\nThe user-pinned TailAdmin V2, TailAdmin V1, and NextAdmin images in `.impeccable/references/tailadmin-stock-dashboard.md` are the permanent visual benchmark. They govern persistent navigation, compact controls, clear grouping, dashboard density, spatial rhythm, and decision-first scanning. The user's later direction deliberately translates that composition into a darker, sharper, flatter world. Fine rules, tonal layering, tabular figures, and exact state feedback carry the hierarchy; ornament does not. Source visibility and honest financial distinctions remain part of the interface's visual discipline.\n\nPublic entry is deliberately direct: signed-out and signed-in root visits, sign-ins without a preserved destination, the brand link, and old `/overview` bookmarks all open the valuation workspace. The former intermediary research-home dashboard is retired. Authentication appears only when someone enters portfolio, trades, risk, backtests, paper-trading telemetry, or another operator-data surface.",
+    "northStar": "The Dark Research Workspace",
+    "overview": "The live application uses the user-approved dark preview direction recorded in `frontend/design-preview` in the primary checkout. Deep navy chrome, blue-gray panels, Outfit typography, and saturated blue actions support a clear route index and spacious analytical groups. The preview defines visual direction; live company values come from the valuation service.\n\n**Scope:** the app system applies where `AppHeader` renders `[data-app-chrome]`. `frontend/src/app/dark-workspace.css`, imported after `globals.css`, supplies the scoped overrides; `AppHeader.module.css` owns navigation. The live workspace comprises `/workspace`, `/workspace/valuation`, `/workspace/cash-flows`, `/workspace/projections`, `/workspace/evidence`, and `/workspace/assumptions`. Operator pages receive the shared chrome and generic scoped tokens while retaining their existing internal layouts.\n\n`AppHeader` is absent from `/research/*`, `/methodology/*`, and `/login`. The archived MSFT study and methodology retain the independent research shell in `FlagshipResearchPrototype.module.css`, its `--rp-*` tokens, navigation, and bundled evidence conventions. Research-prefixed frontmatter tokens describe that protected system. They are not replacements for app tokens. The older unscoped foundations in `globals.css` also remain intact; its earlier 220px/64px app offsets are superseded only on app-chrome routes.",
     "keyCharacteristics": [
-      "A near-black 220px desktop rail and 64px utility bar meet the canvas edge-to-edge; the rail holds four task routes and no session footer.",
-      "Blue-gray panels use fine borders, 4–5px structural corners, and no resting shadow.",
-      "Cool-white data ink and restrained supporting copy make dense research legible without becoming loud.",
-      "Periwinkle identifies actions, focus, active navigation, selected scenarios, and the primary forecast series.",
-      "Green, amber, and red appear only for genuine favorable, cautionary, and unfavorable meaning.",
-      "Annual revenue and free cash flow appear as honest line series with separate labeled axes, a restrained grid, and an inspection crosshair."
+      "A fixed 290px sidebar and 77px top bar meet the viewport edges.",
+      "Panels use 14px corners, one-pixel rules, 24px padding, and no resting shadow.",
+      "Outfit carries app headings, copy, navigation, controls, and tabular financial figures.",
+      "Blue primary actions, lighter periwinkle links and focus, and blue chart totals have distinct roles.",
+      "At 820px and below, a native modal navigation drawer replaces the sidebar; the top bar remains 77px.",
+      "Model provenance, cautions, scenario validity, historical/custom assumptions, and base-case cash-flow labels remain visible."
     ],
     "rules": [
       {
-        "name": "The One Interaction Voice Rule",
-        "body": "Periwinkle owns action and selection. Cash-flow cyan belongs only to its chart series; semantic colors never substitute for active state.",
-        "section": "colors"
-      },
-      {
         "name": "The Semantic Restraint Rule",
-        "body": "Green, amber, and red must correspond to actual model, market, connectivity, caution, or error meaning. Never use them to decorate neutral categories.",
+        "body": "Use green, amber, and red only for actual outcomes, signed contributions, cautions, connectivity, or errors. Scenario names are not outcome colors.",
         "section": "colors"
       },
       {
         "name": "The Figure-as-Evidence Rule",
-        "body": "Use mono or explicitly tabular numerals where comparison matters; do not turn all prose and navigation into faux-terminal typography.",
+        "body": "Preserve tabular numerals on monetary values, percentages, equations, and chart axes. The app uses Outfit figures; the independent research shell retains its existing mono treatment.",
         "section": "typography"
       },
       {
         "name": "The One-Title Rule",
-        "body": "A section gets one clear heading. Do not stack an eyebrow or kicker above a title when both say the same thing.",
+        "body": "Give each analytical section one useful heading; avoid an ornamental label that repeats it.",
         "section": "typography"
       },
       {
-        "name": "The Decision-First Rule",
-        "body": "Keep the next action, selected scenario, primary value, and supporting evidence in the first operating field. Supporting schedules may stack or move behind tabs, but they do not outrank the decision surface.",
-        "section": "layout"
-      },
-      {
-        "name": "The Edge-to-Edge Shell Rule",
-        "body": "Persistent chrome meets the viewport edges. Do not wrap the product in an artificial white sheet, floating desktop frame, or oversized outer radius.",
-        "section": "layout"
-      },
-      {
-        "name": "The Direct-to-Work Rule",
-        "body": "The public default is the valuation workspace. Do not place a summary dashboard, login wall, or Overview route between entry and the visitor's primary task.",
+        "name": "The Scope Rule",
+        "body": "Apply app tokens only to app-chrome surfaces. Preserve the research shell, methodology, login, archived data, and evidence conventions as separate scopes.",
         "section": "layout"
       },
       {
         "name": "The Flat-by-Default Rule",
-        "body": "A border and a tonal step define every resting surface. Shadows are transient context, never the page's structural grammar.",
+        "body": "Resting app panels use a border and tonal step. Shadows belong to transient overlays; the independent research shell retains its existing treatment.",
         "section": "elevation"
-      },
-      {
-        "name": "The Structural Corner Rule",
-        "body": "Default to 4–5px. Use a pill only when the element is literally a compact tag or status indicator.",
-        "section": "shapes"
       }
     ],
     "dos": [
-      "Do preserve the near-black edge-to-edge shell, blue-gray surfaces, cool-white ink, fine rules, and 4–5px structural corners.",
-      "Do use periwinkle consistently for action, focus, active navigation, selected scenarios, and the Revenue line.",
-      "Do keep financial values tabular, source and assumption provenance visible, and absolute valuation distinct from sector-relative context.",
-      "Do show Revenue and Free Cash Flow as honest annual dual-axis lines with a restrained grid and inspection crosshair.",
-      "Do preserve 44px primary touch targets, fixed mobile navigation, and usability without page-level overflow at 320px.",
-      "Do open public entry, fallback sign-in, the brand link, and old `/overview` bookmarks in the valuation workspace; keep the working model public and operator data session-protected."
+      "Do use the scoped app palette, Outfit typography, 290px sidebar, 77px top bar, 14px panels, and 8px primary controls.",
+      "Do preserve the mobile drawer, keyboard focus, labeled local scrolling, and page usability through 320px.",
+      "Do keep tabular figures, provenance, quality cautions, scenario validity, and base-case forecast labels visible.",
+      "Do keep model execution explicit, restore validated browser-local results without fetching, and show saved-result age and market price at run.",
+      "Do preserve independent research tokens, archived-study disclosures, methodology, and the public-model/private-data boundary."
     ],
     "donts": [
-      "Don't reintroduce a light palette because TailAdmin or NextAdmin were used as information-architecture references.",
-      "Don't add resting shadows, gradients, glass, blur, glow, neon accents, or rounded floating-card stacks.",
-      "Don't add redundant eyebrow or kicker copy above page, panel, or instrument titles.",
-      "Don't add halos around status dots or use semantic color as decoration.",
-      "Don't color Bear, Base, and Bull as favorable or unfavorable outcomes.",
-      "Don't fabricate candlesticks, intraday history, volume bars, or any chart encoding not supported by the annual model data.",
-      "Don't hide loading, empty, error, caution, or provenance states to make the workspace look populated.",
-      "Don't reintroduce the intermediary Overview dashboard, an Overview navigation item, or the paper-environment/sign-out sidebar footer."
+      "Don't reinstate the old 220px/64px app shell or mobile bottom navigation as the current app system.",
+      "Don't apply app-chrome overrides to the independent research shell or mistake archived study figures for live valuation results.",
+      "Don't fabricate values, market observations, issuer reconciliation, or chart drama to fill an empty state.",
+      "Don't color scenario names as outcomes, hide cautions, or plot comparisons withheld by valuation quality.",
+      "Don't change model calculations, base cash flows, sources, authentication, backend contracts, or archives to fit the visual system.",
+      "Don't add resting panel shadows, decorative glow, or redundant title kickers to the app workspace."
     ]
   }
 }
