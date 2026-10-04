@@ -5,13 +5,10 @@ import type { FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-import MarketBrief, { type MarketBriefStatus } from "@/components/home/MarketBrief";
 import HomeMetricCard from "@/components/home/HomeMetricCard";
 import ModelOverview from "@/components/home/ModelOverview";
 import RecentValuations from "@/components/home/RecentValuations";
 import { formatPercent, formatPreciseCurrency } from "@/components/valuation/format";
-import { DEFAULT_OVERVIEW_TICKER } from "@/lib/default-route";
-import type { TickerSentiment } from "@/lib/sentiment";
 import { readValuationHistory, type ValuationHistoryEntry } from "@/lib/valuation-history";
 import styles from "./ResearchHome.module.css";
 
@@ -19,8 +16,6 @@ export default function ResearchHomeClient() {
   const router = useRouter();
   const [tickerInput, setTickerInput] = useState("MSFT");
   const [history, setHistory] = useState<ValuationHistoryEntry[] | null>(null);
-  const [sentiment, setSentiment] = useState<TickerSentiment | null>(null);
-  const [briefStatus, setBriefStatus] = useState<MarketBriefStatus>("loading");
 
   useEffect(() => {
     function loadHistory() {
@@ -30,28 +25,6 @@ export default function ResearchHomeClient() {
   }, []);
 
   const mostRecent = history?.[0] ?? null;
-  const newsTicker = mostRecent?.ticker ?? DEFAULT_OVERVIEW_TICKER;
-
-  useEffect(() => {
-    if (history === null) return;
-    let cancelled = false;
-    async function loadBrief() {
-      setBriefStatus("loading");
-      try {
-        const response = await fetch(`/api/sentiment/${encodeURIComponent(newsTicker)}`);
-        if (!response.ok) throw new Error("sentiment request failed");
-        const data: TickerSentiment = await response.json();
-        if (!cancelled) {
-          setSentiment(data);
-          setBriefStatus("ready");
-        }
-      } catch {
-        if (!cancelled) setBriefStatus("error");
-      }
-    }
-    loadBrief();
-    return () => { cancelled = true; };
-  }, [history, newsTicker]);
 
   function handleValuationSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -95,7 +68,6 @@ export default function ResearchHomeClient() {
 
         <section className={styles.mainGrid}>
           <RecentValuations entries={(history ?? []).slice(0, 4)} styles={styles} />
-          <MarketBrief ticker={newsTicker} status={briefStatus} sentiment={sentiment} styles={styles} />
         </section>
 
         <ModelOverview styles={styles} />
