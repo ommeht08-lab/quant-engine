@@ -24,7 +24,7 @@
 .metricTagMarket { background:#34281c; color:#edb96d; }
 .positive { color:#55d3a8!important; }
 .negative { color:#ff817a!important; }
-.mainGrid { display:grid; grid-template-columns:minmax(0,1.7fr) minmax(310px,.8fr); gap:18px; align-items:start; }
+.mainGrid { display:grid; grid-template-columns:minmax(0,1fr); gap:18px; align-items:start; }
 .panel { min-width:0; padding:19px 20px; border:1px solid var(--dash-border); border-radius:5px; background:var(--dash-surface); }
 .panelHeading { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:13px; }
 .panelHeading h2 { color:var(--dash-text); font:650 15px/1.2 var(--display); letter-spacing:-.015em; }
