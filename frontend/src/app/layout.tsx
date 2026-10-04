@@ -40,8 +40,8 @@ const outfit = Outfit({
 });
 
 export const metadata: Metadata = {
-  title: "Valuation Engine | Om Mehta Equity Research",
-  description: "A public intrinsic-value model with private operator research and paper-portfolio data.",
+  title: "Valuation Workspace | DCF Valuation Model",
+  description: "Explore a discounted cash flow model with company financial history, explicit assumptions, and Bear/Base/Bull scenarios.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

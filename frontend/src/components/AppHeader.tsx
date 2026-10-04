@@ -13,7 +13,7 @@ export default function AppHeader(){
  useEffect(()=>{dialog.current?.close();},[pathname]);
  useEffect(()=>{const m=window.matchMedia('(min-width: 821px)');const close=()=>{if(m.matches)dialog.current?.close()};m.addEventListener('change',close);return()=>m.removeEventListener('change',close)},[]);
  if(pathname==='/login'||pathname==='/methodology'||pathname.startsWith('/methodology/')||pathname==='/research'||pathname.startsWith('/research/'))return null;
- const brand=<Link href="/workspace" className={styles.brand}><span className={styles.brandMark}><Icon name="chart"/></span><strong>Valuation Engine</strong></Link>;
+ const brand=<Link href="/workspace" className={styles.brand}><span className={styles.brandMark}><Icon name="chart"/></span><strong>Valuation Workspace</strong></Link>;
  const nav=<nav className={styles.nav} aria-label="Main navigation">{items.map(([href,label,icon])=><Link key={href} href={href} aria-current={pathname===href?'page':undefined} className={styles.navLink}><Icon name={icon}/><span>{label}</span></Link>)}</nav>;
  return <div className={styles.chrome} data-app-chrome>
   <aside className={styles.sidebar}>{brand}<p className={styles.navLabel}>Workspace</p>{nav}<div className={styles.sidebarNote}><strong>Equity research workspace</strong><p>Company fundamentals, valuation assumptions and source evidence.</p></div></aside>

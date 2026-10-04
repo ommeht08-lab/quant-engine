@@ -1,5 +1,5 @@
 ---
-name: Valuation Engine
+name: Valuation Workspace
 description: A dark workspace for auditable company valuation, with a separate archived-research shell.
 colors:
   app-canvas: "#101828"
@@ -126,7 +126,7 @@ components:
     rounded: "{rounded.research-panel}"
 ---
 
-# Design System: Valuation Engine
+# Design System: Valuation Workspace
 
 ## Overview
 

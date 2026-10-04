@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import MsftSensitivityPrototype from "@/components/research/MsftSensitivityPrototype";
 
 export const metadata: Metadata = {
-  title: "MSFT Sensitivity Case | Valuation Engine",
+  title: "MSFT Sensitivity Case | Valuation Workspace",
   description: "Archived MSFT assumption-sensitivity experiment — illustrative, not investment advice.",
 };
 

@@ -325,7 +325,7 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
             {view === "evidence" && <section className="panel model-analysis"><h2>Valuation input provenance</h2><dl className="model-evidence"><div><dt>Source</dt><dd>{result.valuation_input_provenance.source === "sec" ? "SEC filings" : "Yahoo statements"}</dd></div><div><dt>Selection reason</dt><dd>{result.valuation_input_provenance.source_selection_reason}</dd></div><div><dt>Statement period end</dt><dd>{result.valuation_input_provenance.statement_period_end}</dd></div><div><dt>Knowledge cutoff</dt><dd>{result.valuation_input_provenance.knowledge_cutoff}</dd></div><div><dt>Policy version</dt><dd>{result.valuation_input_provenance.policy_version}</dd></div><div><dt>Ingestion batches</dt><dd>{result.valuation_input_provenance.ingestion_batch_ids.length ? result.valuation_input_provenance.ingestion_batch_ids.join(", ") : "None reported by the service"}</dd></div></dl><p>Source selection and cutoffs are reported by the valuation service. They do not establish that every issuer line has been independently reconciled.</p></section>}
           </div>
         )}
-        <footer className="model-footer"><span>Valuation Engine</span></footer>
+        <footer className="model-footer"><span>Valuation Workspace</span></footer>
       </div>
     </main>
   );

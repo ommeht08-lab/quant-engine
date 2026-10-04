@@ -4,7 +4,7 @@ import FlagshipResearchPrototype from "@/components/research/FlagshipResearchPro
 import { AAPL_RESEARCH_FIXTURE } from "@/lib/research-fixture";
 
 export const metadata: Metadata = {
-  title: "AAPL Forecast | Valuation Engine",
+  title: "AAPL Forecast | Valuation Workspace",
   description: "Five-year operating forecast for the AAPL point-in-time research case.",
 };
 
