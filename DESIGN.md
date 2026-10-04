@@ -236,7 +236,7 @@ Inputs use canvas fill, strong rules, 8px corners, primary ink, and dim placehol
 
 The sidebar has 44px icon-and-label rows with 8px corners. Inline stroke SVGs share a consistent weight. Hover adds the surface field and white text; exact current-route selection uses a translucent blue field and periwinkle text with `aria-current="page"`.
 
-The route index includes workspace Overview, Valuation, Cash flow forecast, Projection detail, MSFT Study, Evidence & sources, and Model assumptions. Portfolio, Backtests, and Trade log are absent from this workspace navigation; their physical routes and private-data protection remain. Overview here names `/workspace`; it does not restore the retired `/overview` intermediary dashboard. MSFT Study opens the archived sensitivity study and identifies that separate scope. The brand opens `/workspace`.
+The route index includes workspace Overview, Valuation, Cash flow forecast, Projection detail, Evidence & sources, and Model assumptions. Portfolio, Backtests, and Trade log are absent from this workspace navigation; their physical routes and private-data protection remain. Overview here names `/workspace`; it does not restore the retired `/overview` intermediary dashboard. Archived MSFT study links are absent from workspace navigation, footer and Evidence; direct archived URLs remain preserved. The brand opens `/workspace`.
 
 The top bar contains company search and operator identity. The responsive drawer uses the same links and native modal focus behavior. The loopback development preview opens page shells without a password when explicitly enabled and blocks private APIs before their handlers. Production operator routes retain session protection. There is no Private session link in the sidebar.
 
@@ -250,7 +250,7 @@ The standard flat analytical panel appears on Overview and Cash flow forecast. I
 
 Bars use chart blue, a common zero baseline, provider-supplied fiscal period-end dates, and tabular figures. The keyboard-focusable, labeled chart region scrolls locally. Missing cells remain unavailable and render N/A or Not reported; zero remains a numerical value. If the selected metric has no reported values, explain the absence and retain the metric control and full-amount table. The table includes every supported metric, row and column headers, and a caption identifying reported inputs and calculated cash FCF.
 
-The data comes from the same selected SEC or Yahoo statement frames used by valuation. Historical cash FCF is calculated as operating cash flow minus cash CapEx; both inputs must be available. Cash CapEx preserves signed spending semantics, including negative spending for a source cash inflow. Keep the definition and its distinction from projected unlevered FCFF visible. Missing history is an explicit empty state, never filled with projections.
+The data comes from the same selected SEC or Yahoo statement frames used by valuation. Yahoo periods are annual; SEC periods are trailing twelve months, explicitly labeled as overlapping periods that must not be summed. Historical cash FCF is calculated as operating cash flow minus cash CapEx; both inputs must be available. Cash CapEx preserves signed spending semantics, including negative spending for a source cash inflow. Keep the definition and its distinction from projected unlevered FCFF visible. Missing history is an explicit empty state, never filled with projections.
 
 ### Cash-Flow Evidence
 

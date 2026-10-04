@@ -1,6 +1,6 @@
-"""Display-only annual history from the exact statements selected for valuation."""
+"""Display-only twelve-month history from the exact statements selected for valuation."""
 import math
-from typing import Optional
+from typing import Literal, Optional
 
 import pandas as pd
 from pydantic import BaseModel
@@ -16,6 +16,7 @@ class HistoricalFinancialPeriod(BaseModel):
 
 class HistoricalFinancials(BaseModel):
     currency: Optional[str] = None
+    period_basis: Literal["annual", "trailing_twelve_months"] = "annual"
     periods: list[HistoricalFinancialPeriod]
 
 
@@ -79,4 +80,5 @@ def annual_history(financial_data: dict) -> HistoricalFinancials:
     currency = financial_data.get("reporting_currency")
     if not isinstance(currency, str) or len(currency) != 3 or not currency.isalpha():
         currency = None
-    return HistoricalFinancials(currency=currency.upper() if currency else None, periods=periods[-5:])
+    return HistoricalFinancials(currency=currency.upper() if currency else None,
+        period_basis=financial_data.get("statement_period_basis", "annual"), periods=periods[-5:])

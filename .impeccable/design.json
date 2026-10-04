@@ -556,6 +556,10 @@
         ],
         "reviewDisposition": "Ship at the correction scope; no redesign, research run, valuation run, deployment, or broader audit."
       }
+    },
+    "workspaceDataFollowUp": {
+      "navigation": "Six public workspace pages; archived MSFT links removed from workspace chrome, footer and Evidence. Archived URLs remain intact.",
+      "statementPeriods": "Yahoo annual; SEC trailing twelve months, with overlap disclosure. Old SEC results without period_basis use TTM labels."
     }
   },
   "components": [
