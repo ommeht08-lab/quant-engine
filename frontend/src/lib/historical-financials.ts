@@ -7,6 +7,7 @@ export interface HistoricalFinancialPeriod {
 }
 export interface HistoricalFinancials {
   currency: string | null;
+  period_basis?: "annual" | "trailing_twelve_months";
   periods: HistoricalFinancialPeriod[];
 }
 export const historicalMetrics = [
@@ -18,7 +19,7 @@ export const historicalMetrics = [
 export type HistoricalMetric = typeof historicalMetrics[number][0];
 export function isHistoricalFinancials(value: unknown): value is HistoricalFinancials {
   const h = value as HistoricalFinancials | null;
-  return Boolean(h && (h.currency === null || /^[A-Z]{3}$/.test(h.currency)) && Array.isArray(h.periods) && h.periods.length <= 5 && h.periods.every((row, index) =>
+  return Boolean(h && (h.period_basis === undefined || h.period_basis === "annual" || h.period_basis === "trailing_twelve_months") && (h.currency === null || /^[A-Z]{3}$/.test(h.currency)) && Array.isArray(h.periods) && h.periods.length <= 5 && h.periods.every((row, index) =>
     /^\d{4}-\d{2}-\d{2}$/.test(row?.period_end) && (!index || row.period_end > h.periods[index - 1].period_end) && historicalMetrics.every(([key]) => row[key] === null || (typeof row[key] === "number" && Number.isFinite(row[key]))) &&
     (row.free_cash_flow === null || (row.operating_cash_flow !== null && row.capital_expenditures !== null && Math.abs(row.free_cash_flow - (row.operating_cash_flow - row.capital_expenditures)) <= Math.max(0.01, Math.abs(row.free_cash_flow) * 1e-8))),
   ));

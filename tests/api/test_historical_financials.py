@@ -32,3 +32,9 @@ def test_signed_cash_flows_are_preserved(ocf, signed_capex, expected):
 def test_absent_statements_are_empty_and_currency_is_not_assumed():
     assert annual_history({}).periods == []
     assert annual_history({}).currency is None
+
+
+def test_trailing_period_history_retains_its_basis_instead_of_claiming_annual_periods():
+    history = annual_history({"statement_period_basis": "trailing_twelve_months"})
+    assert history.period_basis == "trailing_twelve_months"
+    assert annual_history({}).period_basis == "annual"
