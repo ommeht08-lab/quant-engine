@@ -56,6 +56,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
 from src.api.sector_median_thresholds import SectorMedianUnavailableCode
+from src.api.historical_financials import HistoricalFinancials, annual_history
 from src.api.sector_medians import get_live_sector_median_price_to_intrinsic
 from src.data_ingestion.fetch_financials import (
     fetch_company_financials,
@@ -632,6 +633,7 @@ class ValuationInputProvenanceModel(BaseModel):
 
 
 class EvaluationResponse(BaseModel):
+    historical_financials: Optional[HistoricalFinancials] = None
     """Response payload for GET /api/evaluate/{ticker}."""
 
     ticker: str
@@ -1095,6 +1097,7 @@ def evaluate_ticker(
     )
 
     return EvaluationResponse(
+        historical_financials=annual_history(financial_data),
         ticker=financial_data["ticker"],
         current_price=current_price,
         wacc=result["wacc"],
