@@ -313,3 +313,127 @@ class TestLayeredTimeoutOrdering:
         # build and return a controlled response before ITS OWN 60s
         # function limit would kill it too.
         assert route_limit_ms - frontend_wait_ms == 15_000
+
+
+MONTE_CARLO_API_DIR = REPO_ROOT / "frontend" / "src" / "app" / "api" / "monte-carlo"
+MONTE_CARLO_ROUTE_FILES = (
+    MONTE_CARLO_API_DIR / "route.ts",
+    MONTE_CARLO_API_DIR / "[ticker]" / "route.ts",
+    MONTE_CARLO_API_DIR / "snapshots" / "[snapshotId]" / "route.ts",
+)
+MONTE_CARLO_PROXY_LIB = REPO_ROOT / "frontend" / "src" / "lib" / "monte-carlo-proxy.ts"
+
+
+class TestMonteCarloRoutesShareTheLayeredTimeoutContract:
+    """
+    The three Monte Carlo proxy routes obey the same hard-duration ordering as
+    `/api/evaluate`: backend platform stop (40 s) < upstream wait (45 s) <
+    route function limit (60 s). The upstream wait lives once, in
+    `monte-carlo-proxy.ts`, and every route file must declare its own literal
+    `maxDuration` (Next.js reads it statically, so it cannot be imported).
+    """
+
+    def _backend_ms(self) -> int:
+        return _load(ROOT_VERCEL_JSON)["functions"]["src/api/main.py"]["maxDuration"] * 1000
+
+    def _upstream_wait_ms(self) -> int:
+        match = re.search(r"MONTE_CARLO_BACKEND_REQUEST_TIMEOUT_MS = ([\d_]+);", MONTE_CARLO_PROXY_LIB.read_text())
+        assert match, "MONTE_CARLO_BACKEND_REQUEST_TIMEOUT_MS = <N>; not found"
+        return int(match.group(1).replace("_", ""))
+
+    def test_every_route_file_exists_and_declares_max_duration_and_dynamic(self):
+        for route in MONTE_CARLO_ROUTE_FILES:
+            assert route.is_file(), f"Route file not found: {route}"
+            text = route.read_text()
+            assert re.search(r"export const maxDuration = \d+;", text), route
+            assert 'export const dynamic = "force-dynamic";' in text, route
+
+    def test_full_three_layer_ordering_for_each_route(self):
+        for route in MONTE_CARLO_ROUTE_FILES:
+            match = re.search(r"export const maxDuration = (\d+);", route.read_text())
+            route_ms = int(match.group(1)) * 1000
+            assert self._backend_ms() < self._upstream_wait_ms() < route_ms, route
+
+    def test_matches_the_evaluate_route_values_exactly(self):
+        evaluate = EVALUATE_ROUTE_TS.read_text()
+        wait = int(re.search(r"VALUATION_BACKEND_REQUEST_TIMEOUT_MS = ([\d_]+);", evaluate).group(1).replace("_", ""))
+        route_limit = int(re.search(r"export const maxDuration = (\d+);", evaluate).group(1))
+        assert self._upstream_wait_ms() == wait == 45_000
+        for route in MONTE_CARLO_ROUTE_FILES:
+            assert int(re.search(r"export const maxDuration = (\d+);", route.read_text()).group(1)) == route_limit == 60
+
+    def test_the_service_token_is_read_server_side_only(self):
+        proxy = (MONTE_CARLO_API_DIR / "proxy.ts").read_text()
+        assert "process.env.VALUATION_API_TOKEN" in proxy
+        for client_file in (
+            REPO_ROOT / "frontend" / "src" / "components" / "valuation" / "MonteCarloPanel.tsx",
+            REPO_ROOT / "frontend" / "src" / "app" / "workspace" / "uncertainty" / "page.tsx",
+        ):
+            assert "VALUATION_API_TOKEN" not in client_file.read_text(), client_file
+
+
+class TestMonteCarloDeploymentImportGraph:
+    """
+    `src/api/main.py` is deployed with several paths excluded (see
+    `excludeFiles`). The Monte Carlo modules are reachable from it, so their
+    transitive imports must not touch anything excluded. Walks the real
+    source with `ast` (no execution), following `src.` imports only.
+    """
+
+    EXCLUDED_PREFIXES = (
+        "src/trading/",
+        "src/risk/",
+        "src/backtesting/",
+        "src/utils/db.py",
+        "src/utils/database_heartbeat.py",
+    )
+
+    @staticmethod
+    def _module_file(module: str):
+        relative = Path(*module.split("."))
+        for candidate in (REPO_ROOT / relative.with_suffix(".py"), REPO_ROOT / relative / "__init__.py"):
+            if candidate.is_file():
+                return candidate
+        return None
+
+    def _reachable(self, start: Path) -> set:
+        import ast
+
+        seen, pending = set(), [start]
+        while pending:
+            path = pending.pop()
+            if path in seen:
+                continue
+            seen.add(path)
+            for node in ast.walk(ast.parse(path.read_text())):
+                modules = []
+                if isinstance(node, ast.Import):
+                    modules = [alias.name for alias in node.names]
+                elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                    modules = [node.module] + [f"{node.module}.{alias.name}" for alias in node.names]
+                for module in modules:
+                    if module.startswith("src"):
+                        found = self._module_file(module)
+                        if found is not None:
+                            pending.append(found)
+        return seen
+
+    def test_monte_carlo_modules_reach_no_excluded_path(self):
+        starts = [REPO_ROOT / "src" / "api" / "monte_carlo_api.py", *sorted((REPO_ROOT / "src" / "dcf_model").glob("monte_carlo*.py"))]
+        assert len(starts) >= 9
+        for start in starts:
+            for path in self._reachable(start):
+                relative = path.relative_to(REPO_ROOT).as_posix()
+                assert not relative.startswith(self.EXCLUDED_PREFIXES), f"{start.name} reaches excluded {relative}"
+
+    def test_the_monte_carlo_files_are_not_excluded_from_the_bundle(self):
+        exclude = _load(ROOT_VERCEL_JSON)["functions"]["src/api/main.py"]["excludeFiles"]
+        assert "src/dcf_model" not in exclude and "src/api/monte_carlo" not in exclude
+        assert "src/dcf_model/**" not in exclude and "src/api/**" not in exclude
+
+    def test_scipy_is_a_declared_dependency_and_is_imported_lazily(self):
+        requirements = (REPO_ROOT / "requirements.txt").read_text()
+        assert re.search(r"^scipy==", requirements, re.MULTILINE)
+        sampling = (REPO_ROOT / "src" / "dcf_model" / "monte_carlo_sampling.py").read_text()
+        top_level_imports = [line for line in sampling.splitlines() if line.startswith(("import scipy", "from scipy"))]
+        assert top_level_imports == []  # only imported inside _special(), so non-simulating requests never pay for it

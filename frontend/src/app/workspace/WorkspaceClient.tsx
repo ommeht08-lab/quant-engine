@@ -213,6 +213,8 @@ export default function WorkspaceClient({ initialTicker }: WorkspaceClientProps)
 
   const pageTitle: Record<string,string> = { overview: "Valuation workspace", valuation: "Valuation", "cash-flows": "Cash flow forecast", projections: "Projection detail", evidence: "Evidence & sources", assumptions: "Model assumptions" };
   const selected = result?.scenarios[selectedScenario];
+  // The uncertainty page renders its own shell; this persistent client renders nothing for it.
+  if (view === "uncertainty") return null;
   return (
     <main className="page-shell dark-workspace">
       <div className="shell-container pb-16">

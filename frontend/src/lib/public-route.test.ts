@@ -20,6 +20,10 @@ test("the valuation model, curated research cases, and methodology are public", 
   assert.equal(isPublicRoute("/overview/MSFT"), true);
   assert.equal(isPublicRoute("/api/evaluate/AAPL"), true);
   assert.equal(isPublicRoute("/api/market-history/AAPL"), true);
+  assert.equal(isPublicRoute("/api/monte-carlo"), true);
+  assert.equal(isPublicRoute("/api/monte-carlo/AAPL"), true);
+  assert.equal(isPublicRoute("/api/monte-carlo/snapshots/abc"), true);
+  assert.equal(isPublicRoute("/workspace/uncertainty"), true);
   assert.equal(isPublicRoute("/research"), true);
   assert.equal(isPublicRoute("/research/aapl"), true);
   assert.equal(isPublicRoute("/research/aapl/statements"), true);
@@ -35,6 +39,8 @@ test("lookalikes and operator data routes remain private", () => {
   assert.equal(isPublicRoute("/workspaces"), false);
   assert.equal(isPublicRoute("/api/evaluated/AAPL"), false);
   assert.equal(isPublicRoute("/api/market-histories/AAPL"), false);
+  assert.equal(isPublicRoute("/api/monte-carlos/AAPL"), false);
+  assert.equal(isPublicRoute("/api/monte-carlo-private"), false);
   assert.equal(isPublicRoute("/portfolio"), false);
   assert.equal(isPublicRoute("/trades"), false);
   assert.equal(isPublicRoute("/backtests"), false);

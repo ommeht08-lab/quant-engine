@@ -5,7 +5,7 @@ import Link from "next/link";
 import SearchBar from "@/components/SearchBar";
 import styles from "./AppHeader.module.css";
 const items=[
- ['/workspace','Overview','dashboard'],['/workspace/valuation','Valuation','chart'],['/workspace/cash-flows','Cash flow forecast','chart'],['/workspace/projections','Projection detail','table'],['/workspace/evidence','Evidence & sources','study'],['/workspace/assumptions','Model assumptions','settings']
+ ['/workspace','Overview','dashboard'],['/workspace/valuation','Valuation','chart'],['/workspace/cash-flows','Cash flow forecast','chart'],['/workspace/projections','Projection detail','table'],['/workspace/evidence','Evidence & sources','study'],['/workspace/assumptions','Model assumptions','settings'],['/workspace/uncertainty','Uncertainty','chart']
 ] as const;
 function Icon({name}:{name:string}){const paths:Record<string,string>={dashboard:'M3 3h7v7H3z M14 3h7v7h-7z M3 14h7v7H3z M14 14h7v7h-7z',chart:'M4 4v16h16 M8 16v-5 M13 16V7 M18 16V4',table:'M3 4h18v16H3z M3 10h18 M10 4v16',portfolio:'M3 8h18v12H3z M8 8V4h8v4 M3 13h18',trades:'M4 7h16l-4-4 M20 17H4l4 4',study:'M4 3h7v18H4z M13 3h7v18h-7z',settings:'M3 6h18 M3 12h18 M3 18h18 M8 3v6 M16 9v6 M10 15v6',lock:'M5 10h14v11H5z M8 10V6a4 4 0 0 1 8 0v4',menu:'M4 6h16 M4 12h16 M4 18h16',close:'M6 6l12 12 M6 18 18 6'};return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[name]??paths.chart}/></svg>}
 export default function AppHeader(){

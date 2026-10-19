@@ -67,6 +67,7 @@ from src.dcf_model.dcf import DCFAssumptions, MultiStageForecastPolicy, run_dcf_
 from src.dcf_model.quality import ValuationQuality, assess_valuation_quality
 from src.dcf_model.scenarios import ScenarioInputs, ScenarioResult, compute_dcf_scenarios
 from src.dcf_model.sensitivity import compute_dcf_sensitivity
+from src.api.monte_carlo_api import router as monte_carlo_router
 from src.fundamentals.issuer_manifest import IssuerValuationPolicy
 from src.fundamentals.store import PostgresFundamentalsRepository
 from src.fundamentals.valuation_integration import ValuationMarketObservations
@@ -689,6 +690,10 @@ class MarketHistoryResponse(BaseModel):
     source: Literal["Yahoo Finance"]
     asOf: str
     points: List[MarketHistoryPoint]
+
+
+# Monte Carlo DCF: same bearer-token protection as /api/evaluate.
+app.include_router(monte_carlo_router, dependencies=[Depends(require_service_token)])
 
 
 @app.get("/")
