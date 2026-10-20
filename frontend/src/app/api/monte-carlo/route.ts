@@ -8,6 +8,7 @@ import { applyRateLimit } from "./proxy";
 // backend is never started for it. The backend remains authoritative: it enforces the allowlist and reports the
 // identity of its own settings with each result. Same light rate limit as before.
 export const dynamic = "force-dynamic";
+export const maxDuration = 60; // the layered timeout contract (tests/test_vercel_config.py) covers every Monte Carlo route
 
 export async function GET(request: Request) {
   if (new URL(request.url).search !== "") {
