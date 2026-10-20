@@ -165,7 +165,7 @@ def describe_monte_carlo(service: MonteCarloService = Depends(get_service)) -> d
 
 
 @router.post("/diagnostics/replay")
-async def replay_exported_bundle(request: Request) -> JSONResponse:
+async def replay_exported_bundle(request: Request, full: bool = False) -> JSONResponse:
     """Preview-only: replay a posted bundle on this runtime. 404 unless diagnostics are enabled."""
     if not diagnostics.enabled():
         raise HTTPException(status_code=404, detail="Not found")
@@ -179,6 +179,8 @@ async def replay_exported_bundle(request: Request) -> JSONResponse:
     except (ValueError, SnapshotError) as error:
         raise HTTPException(status_code=422, detail={"code": "bundle_invalid", "message": str(error)[:200]})
     result = outcome.pop("result")
+    if full:  # the whole recomputed result, for cross-platform comparison
+        outcome["recomputed_result"] = result
     outcome["recomputed"] = {
         "status": result.get("status"),
         "baseline": result.get("baseline"),
