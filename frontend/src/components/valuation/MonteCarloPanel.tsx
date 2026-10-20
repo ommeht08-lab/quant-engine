@@ -24,7 +24,6 @@ import {
 } from "@/lib/monte-carlo-display";
 import {
   EXPERIMENT_NAMES,
-  isMonteCarloDescription,
   isMonteCarloResponse,
   readBaselineProvenance,
   type ExperimentName,
@@ -32,7 +31,7 @@ import {
   type MonteCarloDescription,
   type MonteCarloResponse,
 } from "@/lib/monte-carlo-types";
-import { readCachedDescription, reconcileTicker, writeCachedDescription } from "@/lib/monte-carlo-description-cache";
+import { settingsMismatch, type SettingsMismatch } from "@/lib/monte-carlo-metadata";
 import { formatPercent, formatPreciseCurrency } from "./format";
 import styles from "./MonteCarloPanel.module.css";
 import ScrollHintTable from "./ScrollHintTable";
@@ -646,55 +645,26 @@ export function MonteCarloResults({
 
 // ------------------------------------------------------------ main panel ----
 
-export default function MonteCarloPanel() {
-  const [description, setDescription] = useState<MonteCarloDescription | null>(null);
-  const [descriptionError, setDescriptionError] = useState<string | null>(null);
-  // The settings request can be slow when the service has been idle; say so instead of leaving disabled controls unexplained.
-  const [settingsSlow, setSettingsSlow] = useState(false);
-  const [ticker, setTicker] = useState("");
+export default function MonteCarloPanel({ metadata }: { metadata: MonteCarloDescription }) {
+  const [ticker, setTicker] = useState(metadata.tickers[0] ?? "");
   const [seedText, setSeedText] = useState("");
   const [result, setResult] = useState<MonteCarloResponse | null>(null);
   const [error, setError] = useState<MonteCarloRequestError | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  // The controls need no service, but a run does, and an idle service can take several seconds to start.
+  const [startSlow, setStartSlow] = useState(false);
+  const [mismatch, setMismatch] = useState<SettingsMismatch | null>(null);
   const [selected, setSelected] = useState<ExperimentName>("combined");
   const sequence = useRef(0);
 
   useEffect(() => {
-    const controller = new AbortController();
-    // Repeat visits show the controls at once from the last settings this browser saw, then revalidate.
-    // Applied in a microtask (still before the first paint) so the server and client first renders match.
-    const cached = readCachedDescription(window.localStorage);
-    if (cached) {
-      queueMicrotask(() => {
-        if (controller.signal.aborted) return;
-        setDescription(cached);
-        setTicker((current) => reconcileTicker(current, cached.tickers));
-      });
-    }
-    // The page also starts this request at HTML parse time (see the page's preload), so it normally overlaps
-    // the script download; fetch() reuses that response.
-    fetch("/api/monte-carlo", { signal: controller.signal })
-      .then(async (response) => {
-        const body: unknown = await response.json().catch(() => null);
-        if (!response.ok || !isMonteCarloDescription(body)) {
-          if (!cached) setDescriptionError(describeRequestError(response.status, body).message);
-          return;
-        }
-        setDescriptionError(null);
-        setDescription(body);
-        setTicker((current) => reconcileTicker(current, body.tickers));
-        writeCachedDescription(window.localStorage, body);
-      })
-      .catch((reason: unknown) => {
-        if (reason instanceof DOMException && reason.name === "AbortError") return;
-        if (!cached) setDescriptionError("The simulation service did not respond.");
-      });
-    const slowTimer = window.setTimeout(() => setSettingsSlow(true), 3000);
+    if (!isLoading) return;
+    const timer = window.setTimeout(() => setStartSlow(true), 3000);
     return () => {
-      controller.abort();
-      window.clearTimeout(slowTimer);
+      window.clearTimeout(timer);
+      setStartSlow(false);
     };
-  }, []);
+  }, [isLoading]);
 
   async function run(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -722,6 +692,7 @@ export default function MonteCarloPanel() {
         return;
       }
       setResult(body);
+      setMismatch(settingsMismatch(metadata, body));
       setSelected("combined");
     } catch {
       if (id === sequence.current) setError({ kind: "unavailable", message: "The simulation service did not respond." });
@@ -730,22 +701,21 @@ export default function MonteCarloPanel() {
     }
   }
 
-  const target = description ? Number(description.config.target_valid) : null;
+  const target = Number(metadata.config.target_valid);
   return (
     <div className={styles.stack}>
       <section className={`panel ${styles.panel}`} aria-labelledby="mc-controls">
         <h2 id="mc-controls">Run a simulation</h2>
         <p className={styles.lede}>
-          Draws {target !== null && Number.isFinite(target) ? `${target.toLocaleString("en-US")} valid valuations` : "valid valuations"} for each of
+          Draws {Number.isFinite(target) ? `${target.toLocaleString("en-US")} valid valuations` : "valid valuations"} for each of
           four experiments — growth only, operating margin only (Yahoo EBIT basis), discount rate only, and all three together — around one frozen snapshot of
           the company&apos;s statements and price.
         </p>
         <form className={styles.controls} onSubmit={run}>
           <label className={styles.field}>
             Company
-            <select value={ticker} onChange={(e) => setTicker(e.target.value)} disabled={!description || isLoading}>
-              {!description && <option value="">{descriptionError ? "Unavailable" : "Loading companies…"}</option>}
-              {(description?.tickers ?? []).map((t) => (
+            <select value={ticker} onChange={(e) => setTicker(e.target.value)} disabled={isLoading}>
+              {metadata.tickers.map((t) => (
                 <option key={t} value={t}>{t}</option>
               ))}
             </select>
@@ -755,25 +725,24 @@ export default function MonteCarloPanel() {
             <input
               inputMode="numeric"
               autoComplete="off"
-              placeholder={description ? String(description.default_seed) : "default"}
+              placeholder={String(metadata.default_seed)}
               value={seedText}
               onChange={(e) => setSeedText(e.target.value)}
               disabled={isLoading}
             />
           </label>
-          <button className={`button-primary ${styles.runButton}`} type="submit" disabled={!description || !ticker || isLoading}>
+          <button className={`button-primary ${styles.runButton}`} type="submit" disabled={!ticker || isLoading}>
             {isLoading ? "Running…" : "Run simulation"}
           </button>
           <p className={styles.hint}>
             The simulation runs only when you select Run simulation. The same snapshot, seed and settings always reproduce the same numbers.
           </p>
         </form>
-        {descriptionError && <p className="status-error mt-4" role="alert">{descriptionError}</p>}
-        {!description && !descriptionError && (
+        {isLoading && (
           <p className={styles.hint} role="status">
-            {settingsSlow
-              ? "Still loading the simulation settings. The service may be starting up, which can take a few seconds."
-              : "Loading the simulation settings…"}
+            {startSlow
+              ? "Still starting the simulation service. It may have been idle, which can add several seconds before the simulation begins."
+              : "Starting the simulation…"}
           </p>
         )}
       </section>
@@ -787,7 +756,12 @@ export default function MonteCarloPanel() {
           {result && <span className="mt-1 block">The previous result below is unchanged.</span>}
         </div>
       )}
-      {isLoading && <p className="sr-only" role="status">Running the simulation…</p>}
+      {mismatch && (
+        <div className="status-warning" role="alert">
+          <strong className="block text-[var(--paper)]">Settings out of date</strong>
+          <span className="mt-1 block">{mismatch.message}</span>
+        </div>
+      )}
 
       {result && (
         <div className={styles.stack} aria-busy={isLoading}>

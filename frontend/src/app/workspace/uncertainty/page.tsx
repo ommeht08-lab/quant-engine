@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import { preload } from "react-dom";
 
 import MonteCarloPanel from "@/components/valuation/MonteCarloPanel";
+import { MONTE_CARLO_METADATA } from "@/lib/monte-carlo-metadata";
 
 export const metadata: Metadata = {
   title: "Valuation Uncertainty | Valuation Workspace",
@@ -9,11 +9,9 @@ export const metadata: Metadata = {
 };
 
 // The workspace layout's persistent client steps aside for this view (see
-// WorkspaceClient), so this page renders its own shell.
+// WorkspaceClient), so this page renders its own shell. The controls are built from bundled metadata, so they
+// are in the first HTML and never wait for the valuation backend.
 export default function UncertaintyPage() {
-  // Start the settings request while the scripts download. The controls need it, and on an idle deployment it
-  // is the slowest thing on the page (service cold starts), so it should not wait for hydration.
-  preload("/api/monte-carlo", { as: "fetch", crossOrigin: "anonymous" });
   return (
     <main className="page-shell dark-workspace">
       <div className="shell-container pb-16">
@@ -26,7 +24,7 @@ export default function UncertaintyPage() {
             </p>
           </div>
         </header>
-        <MonteCarloPanel />
+        <MonteCarloPanel metadata={MONTE_CARLO_METADATA} />
         <footer className="model-footer">
           <span>Valuation Workspace</span>
         </footer>

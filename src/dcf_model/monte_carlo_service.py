@@ -35,7 +35,8 @@ from src.dcf_model.monte_carlo_config import (
     sha256_hex,
     validate_seed,
 )
-from src.dcf_model.monte_carlo import DISCLOSURES, canonical_payload
+from src.dcf_model.monte_carlo import canonical_payload
+from src.dcf_model.monte_carlo_metadata import build_description
 from src.dcf_model.monte_carlo_snapshot import (
     SnapshotError,
     build_replay_bundle,
@@ -154,15 +155,7 @@ class MonteCarloService:
             raise ServiceError(503, "monte_carlo_misconfigured", str(exc)) from exc
 
     def describe(self) -> dict:
-        return {
-            "model_version": MONTE_CARLO_MODEL_VERSION,
-            "tickers": list(self.allowlist()),
-            "experiments": list(EXPERIMENT_NAMES),
-            "default_seed": DEFAULT_SEED,
-            "config": self._config.to_canonical_dict(),
-            "config_hash": config_hash(self._config),
-            "disclosures": DISCLOSURES,
-        }
+        return build_description(self.allowlist(), self._config)
 
     def get_result(self, ticker: str, seed: Optional[int] = None) -> dict:
         started = self._monotonic()
@@ -184,6 +177,8 @@ class MonteCarloService:
             "snapshot_cache": snapshot_cache,
             "computed_at": stored_meta["computed_at"],
             "served_at": self._clock().isoformat(),
+            # Identity of the settings this service is running with; the page compares it with the settings it shows.
+            "metadata_id": self.describe()["metadata_id"],
             "environment": stored_meta["environment"],
             "timings_ms": {
                 "snapshot": round((snapshot_done - started) * 1000, 1),

@@ -68,6 +68,7 @@ export function makeResponse(overrides: Partial<MonteCarloResponse> = {}): Monte
       snapshot_cache: "miss",
       computed_at: "2026-10-20T15:30:01+00:00",
       served_at: "2026-10-20T15:30:01+00:00",
+      metadata_id: "m".repeat(64),
       environment: { python: "3.11.9" },
       timings_ms: { total: 12.5 },
     },

@@ -45,7 +45,7 @@ function jsonError(status: number, code: string, error: string, headers: Record<
   return NextResponse.json({ code, error }, { status, headers: { ...NO_STORE, ...headers } });
 }
 
-async function applyRateLimit(request: Request, kind: MonteCarloRateLimitKind): Promise<NextResponse | null> {
+export async function applyRateLimit(request: Request, kind: MonteCarloRateLimitKind): Promise<NextResponse | null> {
   let decision: PublicEvaluationRateLimitDecision = "allow";
   try {
     const rawClientIdentifier = firstForwardedClientIdentifier(request.headers.get("x-forwarded-for"));

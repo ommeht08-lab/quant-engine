@@ -154,7 +154,7 @@ export function describeRequestError(status: number, body: unknown): MonteCarloR
     return { kind: "limited", message: message ?? "Too many simulation requests. Please try again in a few minutes." };
   }
   if (status === 404 && code === "ticker_not_supported") {
-    return { kind: "input", message: "That company is not enabled for this simulation." };
+    return { kind: "input", message: "The simulation service does not have that company enabled. The company list on this page may be out of date; reload the page." };
   }
   if (status === 400 || status === 422) {
     return { kind: "input", message: message ?? "The simulation could not be run for that input." };

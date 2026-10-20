@@ -204,6 +204,8 @@ export interface McMeta {
   snapshot_cache: "hit" | "miss" | "waited";
   computed_at: string;
   served_at: string;
+  /** Identity of the settings the service ran with; compared with the page's own (see monte-carlo-metadata). */
+  metadata_id?: string;
   environment: Record<string, string | null>;
   timings_ms: Record<string, number | null>;
 }
@@ -246,6 +248,8 @@ export interface MonteCarloDescription {
   config: Record<string, unknown>;
   config_hash: string;
   disclosures: { id: string; text: string }[];
+  /** Hash of everything the controls show: allowlist, default seed, configuration and wording. */
+  metadata_id: string;
 }
 
 type Obj = Record<string, unknown>;
@@ -332,6 +336,7 @@ export function isMonteCarloResponse(value: unknown): value is MonteCarloRespons
 
   const meta = value.meta;
   if (!isObj(meta) || (meta.cache !== "hit" && meta.cache !== "miss") || !isStr(meta.computed_at)) return false;
+  if (meta.metadata_id !== undefined && !isStr(meta.metadata_id)) return false;
 
   const edges = value.histogram_edges;
   let binCount: number | null = null;
@@ -357,6 +362,7 @@ export function isMonteCarloDescription(value: unknown): value is MonteCarloDesc
     isCount(value.default_seed) &&
     isObj(value.config) &&
     isStr(value.config_hash) &&
+    isStr(value.metadata_id) &&
     validDisclosures(value.disclosures)
   );
 }

@@ -183,7 +183,15 @@ tests under exactly the deployed set, and every run records the versions it used
 All routes require the service token (as `/api/evaluate`).
 
 * `GET /api/monte-carlo`: allowlist (`MONTE_CARLO_TICKERS`, 1-5 tickers),
-  configuration, disclosures.
+  configuration, disclosures, and `metadata_id`, the hash of everything the
+  controls show (allowlist, default seed, configuration, wording).
+  The Next.js app does not call this route for the uncertainty page: it serves the same description from
+  metadata generated from this code (`scripts/generate_monte_carlo_metadata.py` ->
+  `frontend/src/generated/`, kept in sync by `tests/dcf/test_monte_carlo_metadata.py`), so the controls
+  never wait for the Python service to start. The service stays authoritative: it enforces the allowlist and
+  validates every request, and every result's `meta.metadata_id` is compared with the page's copy. A
+  difference (for example `MONTE_CARLO_TICKERS` overridden on the service) is shown to the user as
+  "Settings out of date"; a ticker the service rejects says the page's list may be out of date.
 * `GET /api/monte-carlo/{ticker}?seed=N`: the four experiments (200, including
   partial results with per-experiment refusals). Errors: 404 unsupported ticker,
   422 invalid seed/incomplete input, 409 retryable `*_in_progress`, 503 cache

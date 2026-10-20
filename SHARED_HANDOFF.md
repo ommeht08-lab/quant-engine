@@ -59,3 +59,13 @@ recovery, store-outage 503, export, offline replay with the network blocked, and
 4. Production-mode Next: fail-closed rate limiter with the real store, `assertSafeValuationApiUrl` with the real https origin, `MONTE_CARLO_REQUIRE_SHARED_STORE` default on Vercel.
 5. Real-device and production-mode UI check.
 6. Proposed, not implemented: record the quote time (`regularMarketTime`) and the risk-free lookup path in future snapshots; both need an ingestion/snapshot change.
+
+## Load-time investigation of /workspace/uncertainty (done, October 20, 2026)
+Pushed to draft PR #67 as f5f5def (CI green: pytest, pytest-deployed-pins, frontend; both previews built). Full report: `Documents/Valuation Engine Evidence/monte-carlo-dcf/load-investigation-20261020T0352Z/REPORT.md`.
+* Causes: the workspace layout shipped the whole valuation workspace (about 120 KB of 279 KB JS) on this page; the settings request started only after hydration; service cold starts (idle backend 5.4 s, idle frontend 1.8 s). One app request on load, no simulation or provider fetch.
+* Fixes: lazy `WorkspaceShell`, preload of the settings request, cached last-seen settings on repeat visits, loading and slow-start messages. Cold starts themselves are NOT fixed (idle-cold visit on the new build: controls usable at about 7 s).
+* Medians, n=5: mobile-first controls 2591 -> 2054 ms, mobile-repeat 452 -> 251, desktop-first 324 -> 275, desktop-repeat 259 -> 85; JS 279 -> 152 KB.
+* Open decisions (not done, they touch production config or cost): keep-warm pings, smaller backend bundle (scipy added about 20 MB), or a static fallback company list.
+
+## Static simulation metadata (October 20, 2026)
+The uncertainty page's controls no longer call the Python backend. Metadata is generated from `src/dcf_model` (`scripts/generate_monte_carlo_metadata.py`, committed under `frontend/src/generated/`, drift-checked by pytest) and carries a `metadata_id`. The backend reports its own `metadata_id` in `meta` on each result; the page warns on any mismatch (model version, configuration hash, list/wording). Only the Run click wakes the backend, with a "Starting the simulation..." state and a slow-start message after 3 s. The only known divergence source is a `MONTE_CARLO_TICKERS` override on the backend project; it is detected, not prevented. Numerical code, digests and replay policy are untouched.

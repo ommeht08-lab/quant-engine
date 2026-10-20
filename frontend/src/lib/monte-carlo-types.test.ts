@@ -83,11 +83,12 @@ test("a valid result with no histogram is accepted only when there are no edges"
 test("description validation", () => {
   const description = {
     model_version: "mc-dcf-v1", tickers: ["AAPL", "KO"], experiments: ["growth"], default_seed: 1,
-    config: {}, config_hash: "x", disclosures: [{ id: "a", text: "b" }],
+    config: {}, config_hash: "x", disclosures: [{ id: "a", text: "b" }], metadata_id: "m",
   };
   assert.equal(isMonteCarloDescription(description), true);
   assert.equal(isMonteCarloDescription({ ...description, tickers: [] }), false);
   assert.equal(isMonteCarloDescription({ ...description, tickers: [1] }), false);
+  assert.equal(isMonteCarloDescription({ ...description, metadata_id: undefined }), false);
   assert.equal(isMonteCarloDescription(null), false);
 });
 

@@ -79,6 +79,7 @@ class MonteCarloMeta(_Model):
     snapshot_cache: Literal["hit", "miss", "waited"]
     computed_at: str
     served_at: str
+    metadata_id: str
     environment: Dict[str, Optional[str]]
     timings_ms: Dict[str, Optional[float]]
 
@@ -112,6 +113,7 @@ class MonteCarloDescription(_Model):
     config: Dict[str, Any]
     config_hash: str
     disclosures: List[Dict[str, str]]
+    metadata_id: str
 
 
 # --------------------------------------------------------------------------
