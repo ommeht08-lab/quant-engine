@@ -434,6 +434,9 @@ class TestMonteCarloDeploymentImportGraph:
     def test_scipy_is_a_declared_dependency_and_is_imported_lazily(self):
         requirements = (REPO_ROOT / "requirements.txt").read_text()
         assert re.search(r"^scipy==", requirements, re.MULTILINE)
+        # Vercel installs pyproject.toml's dependencies, not requirements.txt, so scipy must be there too.
+        pyproject = (REPO_ROOT / "pyproject.toml").read_text()
+        assert re.search(r'^\s*"scipy==[0-9.]+",', pyproject, re.MULTILINE)
         sampling = (REPO_ROOT / "src" / "dcf_model" / "monte_carlo_sampling.py").read_text()
         top_level_imports = [line for line in sampling.splitlines() if line.startswith(("import scipy", "from scipy"))]
         assert top_level_imports == []  # only imported inside _special(), so non-simulating requests never pay for it
