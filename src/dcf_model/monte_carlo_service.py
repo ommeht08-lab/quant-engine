@@ -26,7 +26,6 @@ from typing import Callable, Optional, Sequence, Tuple
 from src.dcf_model.monte_carlo_config import (
     DEFAULT_CONFIG,
     DEFAULT_SEED,
-    EXPERIMENT_NAMES,
     MONTE_CARLO_MODEL_VERSION,
     MonteCarloConfig,
     MonteCarloRefusal,
