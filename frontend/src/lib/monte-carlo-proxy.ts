@@ -64,6 +64,25 @@ export function forwardedMonteCarloHeaders(upstream: { get(name: string): string
   return retryAfter !== null && /^[0-9]{1,4}$/.test(retryAfter) ? { "Retry-After": retryAfter } : {};
 }
 
+export const PROTECTION_BYPASS_ENV_VAR = "MONTE_CARLO_BACKEND_PROTECTION_BYPASS";
+
+/**
+ * Headers for the backend request. A protected Vercel preview backend also needs its automation
+ * bypass secret; it is sent only outside production, only when it looks like one, and is never
+ * logged.
+ */
+export function backendRequestHeaders(
+  serviceToken: string,
+  bypassSecret: string | undefined,
+  isProduction: boolean,
+): Record<string, string> {
+  const headers: Record<string, string> = { Authorization: `Bearer ${serviceToken}` };
+  if (!isProduction && bypassSecret !== undefined && /^[A-Za-z0-9]{16,64}$/.test(bypassSecret)) {
+    headers["x-vercel-protection-bypass"] = bypassSecret;
+  }
+  return headers;
+}
+
 export const REPLAY_BUNDLE_SCHEMA = "mc-dcf-replay-bundle-v1";
 
 /**

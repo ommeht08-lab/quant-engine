@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  PROTECTION_BYPASS_ENV_VAR,
+  backendRequestHeaders,
   MONTE_CARLO_BACKEND_REQUEST_TIMEOUT_MS,
   exportFilename,
   forwardedMonteCarloHeaders,
@@ -96,4 +98,17 @@ test("why export is a passthrough: a JavaScript round trip rewrites numbers that
   const backendText = '{"revenue":133050000000.0,"margin":0.31970799762591884}';
   assert.notEqual(JSON.stringify(JSON.parse(backendText)), backendText);
   assert.equal(JSON.stringify(JSON.parse(backendText)), '{"revenue":133050000000,"margin":0.31970799762591884}');
+});
+
+test("backend headers add the protection bypass only outside production and only for a well-formed secret", () => {
+  const bypass = "AbCdEf0123456789AbCdEf0123456789";
+  assert.equal(PROTECTION_BYPASS_ENV_VAR, "MONTE_CARLO_BACKEND_PROTECTION_BYPASS");
+  assert.deepEqual(backendRequestHeaders("tok", undefined, false), { Authorization: "Bearer tok" });
+  assert.deepEqual(backendRequestHeaders("tok", bypass, false), {
+    Authorization: "Bearer tok",
+    "x-vercel-protection-bypass": bypass,
+  });
+  assert.deepEqual(backendRequestHeaders("tok", bypass, true), { Authorization: "Bearer tok" });
+  assert.deepEqual(backendRequestHeaders("tok", "short", false), { Authorization: "Bearer tok" });
+  assert.deepEqual(backendRequestHeaders("tok", "bad value with spaces and more chars!", false), { Authorization: "Bearer tok" });
 });

@@ -7,6 +7,8 @@ import { firstForwardedClientIdentifier } from "@/lib/client-identifier";
 import {
   MONTE_CARLO_BACKEND_REQUEST_TIMEOUT_MS,
   exportFilename,
+  PROTECTION_BYPASS_ENV_VAR,
+  backendRequestHeaders,
   forwardedMonteCarloHeaders,
   isReplayBundleText,
   monteCarloBackendPath,
@@ -132,7 +134,7 @@ export async function proxyMonteCarlo(
   try {
     response = await fetchWithTimeout(
       targetUrl,
-      { headers: { Authorization: `Bearer ${serviceToken}` } },
+      { headers: backendRequestHeaders(serviceToken, process.env[PROTECTION_BYPASS_ENV_VAR], isProductionEnvironment()) },
       MONTE_CARLO_BACKEND_REQUEST_TIMEOUT_MS,
     );
   } catch (error) {
