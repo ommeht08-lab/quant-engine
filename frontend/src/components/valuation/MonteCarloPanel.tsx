@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, useSyncExternalStore } from "react";
 
 import {
   EXPERIMENT_LABELS,
@@ -645,7 +645,12 @@ export function MonteCarloResults({
 
 // ------------------------------------------------------------ main panel ----
 
+const subscribeNever = () => () => {};
+
 export default function MonteCarloPanel({ metadata }: { metadata: MonteCarloDescription }) {
+  // The controls are in the server-rendered HTML but do nothing until React attaches (a click then would submit the
+  // form natively and reload the page), so they stay disabled until hydration. false on the server and during hydration.
+  const hydrated = useSyncExternalStore(subscribeNever, () => true, () => false);
   const [ticker, setTicker] = useState(metadata.tickers[0] ?? "");
   const [seedText, setSeedText] = useState("");
   const [result, setResult] = useState<MonteCarloResponse | null>(null);
@@ -714,7 +719,7 @@ export default function MonteCarloPanel({ metadata }: { metadata: MonteCarloDesc
         <form className={styles.controls} onSubmit={run}>
           <label className={styles.field}>
             Company
-            <select value={ticker} onChange={(e) => setTicker(e.target.value)} disabled={isLoading}>
+            <select value={ticker} onChange={(e) => setTicker(e.target.value)} disabled={isLoading || !hydrated}>
               {metadata.tickers.map((t) => (
                 <option key={t} value={t}>{t}</option>
               ))}
@@ -728,10 +733,10 @@ export default function MonteCarloPanel({ metadata }: { metadata: MonteCarloDesc
               placeholder={String(metadata.default_seed)}
               value={seedText}
               onChange={(e) => setSeedText(e.target.value)}
-              disabled={isLoading}
+              disabled={isLoading || !hydrated}
             />
           </label>
-          <button className={`button-primary ${styles.runButton}`} type="submit" disabled={!ticker || isLoading}>
+          <button className={`button-primary ${styles.runButton}`} type="submit" disabled={!ticker || isLoading || !hydrated}>
             {isLoading ? "Running…" : "Run simulation"}
           </button>
           <p className={styles.hint}>
