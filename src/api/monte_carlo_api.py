@@ -13,10 +13,11 @@ locking lives in `src.dcf_model.monte_carlo_*`.
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -161,6 +162,29 @@ def describe_monte_carlo(service: MonteCarloService = Depends(get_service)) -> d
         return service.describe()
     except ServiceError as error:
         _raise_http(error)
+
+
+@router.post("/diagnostics/replay")
+async def replay_exported_bundle(request: Request) -> JSONResponse:
+    """Preview-only: replay a posted bundle on this runtime. 404 unless diagnostics are enabled."""
+    if not diagnostics.enabled():
+        raise HTTPException(status_code=404, detail="Not found")
+    from src.dcf_model.monte_carlo_snapshot import SnapshotError, replay_bundle
+
+    raw = await request.body()
+    if len(raw) > 1_000_000:
+        raise HTTPException(status_code=413, detail="Bundle too large")
+    try:
+        outcome = replay_bundle(json.loads(raw))
+    except (ValueError, SnapshotError) as error:
+        raise HTTPException(status_code=422, detail={"code": "bundle_invalid", "message": str(error)[:200]})
+    result = outcome.pop("result")
+    outcome["recomputed"] = {
+        "status": result.get("status"),
+        "baseline": result.get("baseline"),
+        "statistics": {name: exp.get("statistics") for name, exp in result.get("experiments", {}).items()},
+    }
+    return JSONResponse(outcome)
 
 
 # Registered before "/{ticker}" so "snapshots" is never read as a ticker.

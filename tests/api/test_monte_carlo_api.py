@@ -231,3 +231,36 @@ class TestProviderDiagnosticsHeader:
         assert json.loads(first.headers["x-mc-provider-diagnostics"])["http_requests"] == 0
         second = client.get("/api/monte-carlo/AAPL")  # snapshot cached: no provider call
         assert "x-mc-provider-diagnostics" not in second.headers
+
+
+class TestPreviewReplayEndpoint:
+    def _bundle_text(self, client):
+        result = client.get("/api/monte-carlo/AAPL").json()
+        return client.get(f"/api/monte-carlo/snapshots/{result['identity']['snapshot_id']}?seed={result['seed']}").text
+
+    def test_hidden_unless_diagnostics_are_enabled(self, client):
+        text = self._bundle_text(client)
+        assert client.post("/api/monte-carlo/diagnostics/replay", content=text).status_code == 404
+
+    def test_replays_an_exported_bundle_and_requires_the_token(self, client, monkeypatch):
+        from src.dcf_model import monte_carlo_diagnostics as diag
+
+        text = self._bundle_text(client)
+        monkeypatch.setenv(diag.FLAG_ENV_VAR, "1")
+        assert TestClient(api_main.app).post("/api/monte-carlo/diagnostics/replay", content=text).status_code == 401
+        response = client.post("/api/monte-carlo/diagnostics/replay", content=text)
+        assert response.status_code == 200
+        body = response.json()
+        assert body["bundle_integrity_ok"] is True and body["matches_expected"] is True
+        assert "result" not in body and set(body["recomputed"]["statistics"]) == {"growth", "margin", "wacc", "combined"}
+
+    def test_tampered_or_malformed_bundles_are_refused(self, client, monkeypatch):
+        from src.dcf_model import monte_carlo_diagnostics as diag
+
+        text = self._bundle_text(client)
+        monkeypatch.setenv(diag.FLAG_ENV_VAR, "1")
+        assert client.post("/api/monte-carlo/diagnostics/replay", content="not json").status_code == 422
+        bundle = json.loads(text)
+        bundle["replay"]["seed"] += 1  # edited after export: the bundle digest must refuse it
+        response = client.post("/api/monte-carlo/diagnostics/replay", content=json.dumps(bundle))
+        assert response.status_code == 422 and response.json()["detail"]["code"] == "bundle_invalid"
