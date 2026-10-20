@@ -38,7 +38,7 @@ export default function ProjectedCashFlows({ rows, forecastPath }: ProjectedCash
           These annual rates and cash flows belong to Base. Bear and Bull retain the same stage timing
           with their own assumption changes.
         </p>
-        <ScrollHintTable>
+        <ScrollHintTable label="Projected annual rates and cash flows">
           <table className="data-table w-full min-w-[880px] border-collapse text-sm">
             <thead>
               <tr className="border-b border-[var(--line)] text-left">

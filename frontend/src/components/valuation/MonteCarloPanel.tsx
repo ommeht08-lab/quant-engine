@@ -240,7 +240,7 @@ function ComparisonTable({ result }: { result: MonteCarloResponse }) {
   return (
     <section className={`panel ${styles.panel}`} aria-labelledby="mc-compare">
       <h2 id="mc-compare">Which input moves the estimate most?</h2>
-      <ScrollHintTable>
+      <ScrollHintTable label="Experiment comparison">
         <table className={styles.table}>
           <caption>
             Each row varies only the listed input(s) over the selected ranges. These show sensitivity under those ranges —
