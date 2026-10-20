@@ -43,6 +43,15 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
+      - name: Record numerical environment
+        run: |
+          python - <<'PY'
+          import platform, sys
+          import numpy, pandas, scipy
+          print("platform", platform.platform(), platform.machine())
+          print("python", sys.version.split()[0], "numpy", numpy.__version__, "pandas", pandas.__version__, "scipy", scipy.__version__)
+          PY
+
       - name: Compile check
         run: python -m compileall -q src tests
 
@@ -71,6 +80,41 @@ jobs:
           python -m pytest -q tests/fundamentals/test_store_postgres.py
           tests/fundamentals/test_incremental_publication_postgres.py
           tests/fundamentals/test_segment_publication_command.py
+
+  # The Vercel backend installs pyproject.toml (Python 3.12, numpy 2.0.2, pandas 2.3.3, yfinance 1.2.0), not
+  # requirements.txt (this repository's CI and local versions). The two sets are different on purpose, so the
+  # Monte Carlo tests and the manifest contract tests also run under exactly the deployed pins. Test-only
+  # packages (pytest, httpx for the API test client, and what tests/conftest.py imports) are added on top
+  # without being allowed to move the pinned numerical libraries; the step fails if they move.
+  pytest-deployed-pins:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Install the deployed dependency set plus test-only packages
+        run: |
+          python - <<'PY' > deployed-requirements.txt
+          import tomllib
+          print("\n".join(tomllib.load(open("pyproject.toml", "rb"))["project"]["dependencies"]))
+          PY
+          pip install -r deployed-requirements.txt alpaca-py==0.44.0 "uvicorn[standard]==0.52.4" pytest==8.3.3 httpx
+          python - <<'PY'
+          import numpy, pandas, platform, scipy, sys
+          print("platform", platform.platform(), platform.machine())
+          print("python", sys.version.split()[0], "numpy", numpy.__version__, "pandas", pandas.__version__, "scipy", scipy.__version__)
+          assert numpy.__version__ == "2.0.2" and pandas.__version__ == "2.3.3", "test-only packages moved the deployed pins"
+          PY
+
+      - name: Monte Carlo and manifest tests under the deployed pins
+        run: >
+          python -m pytest -q tests/dcf/test_monte_carlo*.py tests/api/test_monte_carlo_api.py
+          tests/test_vercel_config.py tests/test_pyproject_config.py
 
   frontend:
     runs-on: ubuntu-latest

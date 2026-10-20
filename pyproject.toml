@@ -69,12 +69,14 @@ dependencies = [
     # tests/api/test_deployment.py::TestImportsWithoutOptionalHeavyDependencies,
     # which only imports the module and never calls the endpoint.
     "psycopg2-binary==2.9.12",
+    # Needed by the Monte Carlo sampler (src/dcf_model/monte_carlo_sampling.py), which imports
+    # scipy.special lazily inside the first simulation. Vercel installs THIS list, not
+    # requirements.txt, so the dependency has to be declared here.
+    "scipy==1.17.1",
 ]
 # Deliberately NOT here:
-#   - scipy: only used by src/risk/hedging.py, which src.api.main's
-#     import graph never reaches (confirmed by walking the import
-#     graph) — excluded from the Vercel bundle via vercel.json's
-#     excludeFiles regardless.
+#   - (scipy was excluded here when only src/risk/hedging.py used it. The Monte Carlo
+#     sampler now needs it, so it is declared above.)
 #   - alpaca-py: this service never imports src.trading.
 #   - uvicorn: Vercel's Python runtime invokes the ASGI `app` callable
 #     directly; it does not run `uvicorn.run()` the way the Docker image

@@ -7,6 +7,7 @@ const PUBLIC_ROUTE_PREFIXES = [
   "/overview",
   "/api/evaluate",
   "/api/market-history",
+  "/api/monte-carlo",
   "/research",
   "/methodology",
 ] as const;

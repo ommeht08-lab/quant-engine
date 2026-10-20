@@ -1159,6 +1159,12 @@ input {
   overflow-x: auto;
 }
 
+/* Keyboard focus on an overflowing table: drawn inside the box so a narrow parent cannot clip it. */
+.table-scroll:focus-visible {
+  outline: 2px solid var(--cobalt);
+  outline-offset: -2px;
+}
+
 .table-scroll-hint {
   display: none;
 }

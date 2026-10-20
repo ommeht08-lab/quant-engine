@@ -1,0 +1,654 @@
+{
+ "baseline": {
+  "base_revenue": 125000.0,
+  "capex_pct_revenue": 0.04,
+  "cash_and_equivalents": 15000.0,
+  "enterprise_value": 434555.1651720654,
+  "equity_value": 429555.1651720654,
+  "forecast_method": "maturation",
+  "forecast_path": [
+   {
+    "operating_margin": 0.25534178743961355,
+    "revenue_growth_rate": 0.07719906855116387,
+    "stage": "near_term",
+    "year": 1
+   },
+   {
+    "operating_margin": 0.25534178743961355,
+    "revenue_growth_rate": 0.07719906855116387,
+    "stage": "near_term",
+    "year": 2
+   },
+   {
+    "operating_margin": 0.25534178743961355,
+    "revenue_growth_rate": 0.06146604570077592,
+    "stage": "maturation",
+    "year": 3
+   },
+   {
+    "operating_margin": 0.25534178743961355,
+    "revenue_growth_rate": 0.04573302285038796,
+    "stage": "maturation",
+    "year": 4
+   },
+   {
+    "operating_margin": 0.25534178743961355,
+    "revenue_growth_rate": 0.03,
+    "stage": "maturation",
+    "year": 5
+   }
+  ],
+  "intrinsic_value_per_share": 429.55516517206536,
+  "operating_margin": 0.25534178743961355,
+  "revenue_growth_rate": 0.07719906855116387,
+  "revenue_growth_rate_was_capped": false,
+  "risk_free_rate": 0.04,
+  "shares_outstanding": 1000.0,
+  "tax_rate": 0.18,
+  "total_debt": 20000.0,
+  "wacc": 0.09301764705882354,
+  "wacc_pre_clamp": 0.09301764705882354,
+  "wacc_was_clamped": false
+ },
+ "config": {
+  "distributions": {
+   "growth": "truncated_normal_inverse_cdf",
+   "margin": "truncated_normal_inverse_cdf",
+   "wacc": "uniform"
+  },
+  "forecast_mode": "maturation",
+  "growth_bounds": [
+   -0.1,
+   0.25
+  ],
+  "histogram": {
+   "bins": 40,
+   "high_percentile": 99.5,
+   "low_percentile": 0.5,
+   "min_basis_draws": 100
+  },
+  "history": {
+   "fiscal_gap_days": [
+    335,
+    395
+   ],
+   "min_growth_observations": 3,
+   "min_margin_observations": 3,
+   "sd_convention": "sample_ddof1"
+  },
+  "independence": true,
+  "margin_bounds": [
+   0.0,
+   0.6
+  ],
+  "mature_growth_ceiling": 0.03,
+  "min_admissible_mass": 1e-06,
+  "near_term_years": 2,
+  "percentile_method": "linear",
+  "projection_years": 5,
+  "retry_policy": {
+   "max_extra_attempts": 500,
+   "max_retry_rounds": 3
+  },
+  "target_valid": 10000,
+  "terminal_growth_rate": 0.025,
+  "wacc": {
+   "half_width": 0.01,
+   "min_interval_width": 0.0001,
+   "min_spread_over_terminal_growth": 0.01,
+   "model_bounds": [
+    0.05,
+    0.2
+   ]
+  }
+ },
+ "config_hash": "153bafe3ece16a190a1759a3f471c739950113a503a2dab5123b1a1113e68547",
+ "experiments": {
+  "combined": {
+   "above_market": {
+    "count": 10000,
+    "denominator": 10000,
+    "fraction": 1.0
+   },
+   "attempted": 10000,
+   "distributions": {
+    "growth": {
+     "admissible_mass": 1.0,
+     "center": 0.07719906855116387,
+     "degenerate": false,
+     "distribution": "truncated_normal",
+     "lower": -0.1,
+     "sd": 0.011322825246212781,
+     "untruncated_mass_above_upper": 6.924052956115114e-53,
+     "untruncated_mass_below_lower": 1.668366872021484e-55,
+     "upper": 0.25
+    },
+    "margin": {
+     "admissible_mass": 1.0,
+     "center": 0.25534178743961355,
+     "degenerate": false,
+     "distribution": "truncated_normal",
+     "lower": 0.0,
+     "sd": 0.01028422001017893,
+     "untruncated_mass_above_upper": 1.5423737299431592e-246,
+     "untruncated_mass_below_lower": 2.207245564947603e-136,
+     "upper": 0.6
+    },
+    "wacc": {
+     "baseline_applied_wacc": 0.09301764705882354,
+     "baseline_was_clamped_to_model_bounds": false,
+     "binding_constraints": [],
+     "degenerate": false,
+     "distribution": "uniform",
+     "interval_width": 0.01999999999999999,
+     "lower": 0.08301764705882354,
+     "requested_half_width": 0.01,
+     "upper": 0.10301764705882353
+    }
+   },
+   "failed_by_code": {
+    "growth_le_neg_100": 0,
+    "nonfinite_discounting": 0,
+    "nonfinite_equity": 0,
+    "nonfinite_projection": 0,
+    "nonfinite_terminal_value": 0,
+    "wacc_not_above_terminal_growth": 0
+   },
+   "failed_total": 0,
+   "fixed_inputs_at_baseline": {},
+   "histogram": {
+    "counts": [
+     40,
+     80,
+     79,
+     150,
+     184,
+     213,
+     260,
+     316,
+     351,
+     407,
+     408,
+     412,
+     415,
+     389,
+     381,
+     417,
+     368,
+     380,
+     372,
+     351,
+     363,
+     333,
+     318,
+     322,
+     295,
+     270,
+     318,
+     252,
+     234,
+     259,
+     197,
+     140,
+     154,
+     98,
+     97,
+     92,
+     74,
+     57,
+     28,
+     26
+    ],
+    "overflow": 50,
+    "underflow": 50
+   },
+   "negative_value_count": 0,
+   "refusal_code": null,
+   "refusal_message": null,
+   "rejected_proposals": 0,
+   "sampled_input_summary": {
+    "growth": {
+     "max": 0.12257002642521764,
+     "mean": 0.07714113880511742,
+     "min": 0.03366237888463142
+    },
+    "margin": {
+     "max": 0.2942485752409113,
+     "mean": 0.2554949553767492,
+     "min": 0.2181696640734157
+    },
+    "wacc": {
+     "max": 0.1030126194524543,
+     "mean": 0.09313228701849728,
+     "min": 0.08301839328039445
+    }
+   },
+   "sampled_inputs": [
+    "growth",
+    "margin",
+    "wacc"
+   ],
+   "statistics": {
+    "max": 586.0189270697316,
+    "mean": 432.37589153331726,
+    "min": 315.06297179882824,
+    "p10": 377.341547902852,
+    "p50": 428.949799038848,
+    "p90": 492.5767489715405
+   },
+   "status": "complete",
+   "target": 10000,
+   "valid": 10000
+  },
+  "growth": {
+   "above_market": {
+    "count": 10000,
+    "denominator": 10000,
+    "fraction": 1.0
+   },
+   "attempted": 10000,
+   "distributions": {
+    "growth": {
+     "admissible_mass": 1.0,
+     "center": 0.07719906855116387,
+     "degenerate": false,
+     "distribution": "truncated_normal",
+     "lower": -0.1,
+     "sd": 0.011322825246212781,
+     "untruncated_mass_above_upper": 6.924052956115114e-53,
+     "untruncated_mass_below_lower": 1.668366872021484e-55,
+     "upper": 0.25
+    }
+   },
+   "failed_by_code": {
+    "growth_le_neg_100": 0,
+    "nonfinite_discounting": 0,
+    "nonfinite_equity": 0,
+    "nonfinite_projection": 0,
+    "nonfinite_terminal_value": 0,
+    "wacc_not_above_terminal_growth": 0
+   },
+   "failed_total": 0,
+   "fixed_inputs_at_baseline": {
+    "margin": 0.25534178743961355,
+    "wacc": 0.09301764705882354
+   },
+   "histogram": {
+    "counts": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     1,
+     6,
+     11,
+     45,
+     139,
+     271,
+     541,
+     842,
+     1188,
+     1461,
+     1512,
+     1345,
+     1067,
+     742,
+     426,
+     227,
+     99,
+     50,
+     18,
+     5,
+     2,
+     2,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "overflow": 0,
+    "underflow": 0
+   },
+   "negative_value_count": 0,
+   "refusal_code": null,
+   "refusal_message": null,
+   "rejected_proposals": 0,
+   "sampled_input_summary": {
+    "growth": {
+     "max": 0.12257002642521764,
+     "mean": 0.07714113880511742,
+     "min": 0.03366237888463142
+    }
+   },
+   "sampled_inputs": [
+    "growth"
+   ],
+   "statistics": {
+    "max": 483.5092000310265,
+    "mean": 429.6322132781716,
+    "min": 381.9953936386303,
+    "p10": 412.9204656892675,
+    "p50": 429.41108915179086,
+    "p90": 446.2769331460575
+   },
+   "status": "complete",
+   "target": 10000,
+   "valid": 10000
+  },
+  "margin": {
+   "above_market": {
+    "count": 10000,
+    "denominator": 10000,
+    "fraction": 1.0
+   },
+   "attempted": 10000,
+   "distributions": {
+    "margin": {
+     "admissible_mass": 1.0,
+     "center": 0.25534178743961355,
+     "degenerate": false,
+     "distribution": "truncated_normal",
+     "lower": 0.0,
+     "sd": 0.01028422001017893,
+     "untruncated_mass_above_upper": 1.5423737299431592e-246,
+     "untruncated_mass_below_lower": 2.207245564947603e-136,
+     "upper": 0.6
+    }
+   },
+   "failed_by_code": {
+    "growth_le_neg_100": 0,
+    "nonfinite_discounting": 0,
+    "nonfinite_equity": 0,
+    "nonfinite_projection": 0,
+    "nonfinite_terminal_value": 0,
+    "wacc_not_above_terminal_growth": 0
+   },
+   "failed_total": 0,
+   "fixed_inputs_at_baseline": {
+    "growth": 0.07719906855116387,
+    "wacc": 0.09301764705882354
+   },
+   "histogram": {
+    "counts": [
+     0,
+     0,
+     0,
+     1,
+     4,
+     5,
+     11,
+     33,
+     70,
+     93,
+     183,
+     300,
+     468,
+     654,
+     782,
+     955,
+     1025,
+     1037,
+     1111,
+     888,
+     772,
+     520,
+     413,
+     273,
+     197,
+     102,
+     48,
+     23,
+     20,
+     9,
+     1,
+     2,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "overflow": 0,
+    "underflow": 0
+   },
+   "negative_value_count": 0,
+   "refusal_code": null,
+   "refusal_message": null,
+   "rejected_proposals": 0,
+   "sampled_input_summary": {
+    "margin": {
+     "max": 0.2942485752409113,
+     "mean": 0.2554949553767492,
+     "min": 0.2181696640734157
+    }
+   },
+   "sampled_inputs": [
+    "margin"
+   ],
+   "statistics": {
+    "max": 499.2164074786442,
+    "mean": 429.829407004542,
+    "min": 362.9997788449429,
+    "p10": 406.39774656934526,
+    "p50": 429.85171958305926,
+    "p90": 453.72359788720456
+   },
+   "status": "complete",
+   "target": 10000,
+   "valid": 10000
+  },
+  "wacc": {
+   "above_market": {
+    "count": 10000,
+    "denominator": 10000,
+    "fraction": 1.0
+   },
+   "attempted": 10000,
+   "distributions": {
+    "wacc": {
+     "baseline_applied_wacc": 0.09301764705882354,
+     "baseline_was_clamped_to_model_bounds": false,
+     "binding_constraints": [],
+     "degenerate": false,
+     "distribution": "uniform",
+     "interval_width": 0.01999999999999999,
+     "lower": 0.08301764705882354,
+     "requested_half_width": 0.01,
+     "upper": 0.10301764705882353
+    }
+   },
+   "failed_by_code": {
+    "growth_le_neg_100": 0,
+    "nonfinite_discounting": 0,
+    "nonfinite_equity": 0,
+    "nonfinite_projection": 0,
+    "nonfinite_terminal_value": 0,
+    "wacc_not_above_terminal_growth": 0
+   },
+   "failed_total": 0,
+   "fixed_inputs_at_baseline": {
+    "growth": 0.07719906855116387,
+    "margin": 0.25534178743961355
+   },
+   "histogram": {
+    "counts": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     1,
+     534,
+     518,
+     461,
+     472,
+     449,
+     471,
+     424,
+     402,
+     416,
+     401,
+     384,
+     404,
+     377,
+     371,
+     343,
+     337,
+     351,
+     309,
+     314,
+     325,
+     336,
+     289,
+     319,
+     264,
+     275,
+     285,
+     168,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "overflow": 0,
+    "underflow": 0
+   },
+   "negative_value_count": 0,
+   "refusal_code": null,
+   "refusal_message": null,
+   "rejected_proposals": 0,
+   "sampled_input_summary": {
+    "wacc": {
+     "max": 0.1030126194524543,
+     "mean": 0.09313228701849728,
+     "min": 0.08301839328039445
+    }
+   },
+   "sampled_inputs": [
+    "wacc"
+   ],
+   "statistics": {
+    "max": 505.26526074150917,
+    "mean": 432.0301628038707,
+    "min": 373.291040617619,
+    "p10": 382.68258955394015,
+    "p50": 428.6480533839716,
+    "p90": 487.1416154597822
+   },
+   "status": "complete",
+   "target": 10000,
+   "valid": 10000
+  }
+ },
+ "histogram_edges": [
+  343.53916181991383,
+  348.4992899790823,
+  353.4594181382508,
+  358.41954629741923,
+  363.3796744565877,
+  368.3398026157562,
+  373.29993077492463,
+  378.2600589340931,
+  383.2201870932616,
+  388.18031525243003,
+  393.14044341159854,
+  398.100571570767,
+  403.06069972993544,
+  408.0208278891039,
+  412.9809560482724,
+  417.94108420744084,
+  422.90121236660934,
+  427.8613405257778,
+  432.82146868494624,
+  437.7815968441147,
+  442.7417250032832,
+  447.70185316245164,
+  452.66198132162015,
+  457.6221094807886,
+  462.58223763995704,
+  467.5423657991255,
+  472.502493958294,
+  477.4626221174625,
+  482.42275027663095,
+  487.3828784357994,
+  492.34300659496785,
+  497.3031347541363,
+  502.2632629133048,
+  507.2233910724733,
+  512.1835192316418,
+  517.1436473908102,
+  522.1037755499786,
+  527.0639037091471,
+  532.0240318683157,
+  536.9841600274841,
+  541.9442881866526
+ ],
+ "histogram_edges_basis": "combined",
+ "history": {
+  "growth_center_cagr": 0.07719906855116387,
+  "growth_sd": 0.011322825246212781,
+  "margin_center": 0.25534178743961355,
+  "margin_periods": [
+   "2024-12-31",
+   "2023-12-31",
+   "2022-12-31",
+   "2021-12-31"
+  ],
+  "margin_sd": 0.01028422001017893,
+  "margins": [
+   0.264,
+   0.24347826086956523,
+   0.2638888888888889,
+   0.25
+  ],
+  "n_growth": 3,
+  "n_margin": 4,
+  "revenue_periods": [
+   "2021-12-31",
+   "2022-12-31",
+   "2023-12-31",
+   "2024-12-31"
+  ],
+  "revenues": [
+   100000.0,
+   108000.0,
+   115000.0,
+   125000.0
+  ],
+  "sd_convention": "sample_ddof1",
+  "status": "ok",
+  "yoy_growths": [
+   0.08000000000000007,
+   0.06481481481481488,
+   0.08695652173913038
+  ]
+ },
+ "identity": {},
+ "kernel_baseline_check": {
+  "absolute_difference": 0.0,
+  "exactly_equal": true,
+  "kernel_value_per_share": 429.55516517206536,
+  "scalar_value_per_share": 429.55516517206536
+ },
+ "market_price": 150.0,
+ "model_version": "mc-dcf-v1",
+ "schema": "mc-dcf-result-v1",
+ "seed": 20261101,
+ "status": "complete"
+}

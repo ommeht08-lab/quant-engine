@@ -39,10 +39,16 @@ PYPROJECT_PATH = REPO_ROOT / "pyproject.toml"
 # itself stays lazy (never at module import time), which is what keeps
 # it compatible with
 # tests/api/test_deployment.py::TestImportsWithoutOptionalHeavyDependencies.
+#
+# scipy is included deliberately as of the Monte Carlo DCF: its sampler
+# (src/dcf_model/monte_carlo_sampling.py) imports scipy.special lazily inside
+# the first simulation. Without it the deployed /api/monte-carlo/{ticker}
+# returned 500 ("No module named scipy") on the preview backend, because Vercel
+# installs this file's dependencies, not requirements.txt.
 EXPECTED_DEPENDENCY_NAMES = {
-    "fastapi", "pandas", "numpy", "requests", "yfinance", "python-dotenv", "upstash-redis", "psycopg2-binary",
+    "fastapi", "pandas", "numpy", "requests", "yfinance", "python-dotenv", "upstash-redis", "psycopg2-binary", "scipy",
 }
-FORBIDDEN_DEPENDENCY_NAMES = {"scipy", "alpaca-py", "alpaca", "uvicorn"}
+FORBIDDEN_DEPENDENCY_NAMES = {"alpaca-py", "alpaca", "uvicorn"}
 
 
 def _load_pyproject() -> dict:
@@ -92,7 +98,7 @@ class TestMinimalDependencySet:
 
     def test_dependency_names_match_exactly(self):
         """Not just "contains the required ones" -- an EXACT match, so an
-        accidentally reintroduced scipy/psycopg2/alpaca-py/uvicorn entry
+        accidentally reintroduced alpaca-py/uvicorn entry
         (or any other unreviewed addition) fails this test immediately
         rather than silently bloating the deployed bundle."""
         config = _load_pyproject()
