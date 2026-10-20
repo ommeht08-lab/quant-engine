@@ -213,3 +213,21 @@ class TestExistingRoutesAreUntouched:
         monkeypatch.setattr(monte_carlo_api, "_service", None)
         service = monte_carlo_api.get_service()
         assert isinstance(service, MonteCarloService) and monte_carlo_api.get_service() is service
+
+
+class TestProviderDiagnosticsHeader:
+    def test_absent_by_default(self, client):
+        response = client.get("/api/monte-carlo/AAPL")
+        assert response.status_code == 200
+        assert "x-mc-provider-diagnostics" not in response.headers
+
+    def test_present_only_on_the_fetching_call_when_enabled(self, client, monkeypatch):
+        from src.dcf_model import monte_carlo_diagnostics as diag
+
+        monkeypatch.setenv(diag.FLAG_ENV_VAR, "1")
+        monkeypatch.setattr(diag, "_default_session_class", lambda: type("Unused", (), {"request": lambda *a, **k: None}))
+        first = client.get("/api/monte-carlo/AAPL")
+        assert first.status_code == 200
+        assert json.loads(first.headers["x-mc-provider-diagnostics"])["http_requests"] == 0
+        second = client.get("/api/monte-carlo/AAPL")  # snapshot cached: no provider call
+        assert "x-mc-provider-diagnostics" not in second.headers

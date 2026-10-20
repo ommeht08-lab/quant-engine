@@ -16,11 +16,12 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from src.data_ingestion.fetch_financials import fetch_company_financials
+from src.dcf_model import monte_carlo_diagnostics as diagnostics
 from src.dcf_model.monte_carlo_service import MonteCarloService, ServiceError
 from src.utils.macro import get_risk_free_rate
 from src.valuation_input import (
@@ -122,11 +123,12 @@ def _provide_snapshot_inputs(ticker: str) -> Tuple[object, float]:
     loader = ValuationInputLoader(
         yahoo_adapter=YahooValuationInputAdapter(fetcher=lambda t: fetch_company_financials(t))
     )
-    outcome = loader.load(ticker, now, now, ValuationInputSource.YAHOO)
-    if not outcome.is_complete:
-        issue = outcome.issues[0]
-        raise ServiceError(422, "input_incomplete", issue.message)
-    return outcome.valuation_input, get_risk_free_rate()
+    with diagnostics.count_provider_requests(ticker):  # no-op unless explicitly enabled in a preview
+        outcome = loader.load(ticker, now, now, ValuationInputSource.YAHOO)
+        if not outcome.is_complete:
+            issue = outcome.issues[0]
+            raise ServiceError(422, "input_incomplete", issue.message)
+        return outcome.valuation_input, get_risk_free_rate()
 
 
 _service: Optional[MonteCarloService] = None
@@ -181,10 +183,15 @@ def export_snapshot(
 @router.get("/{ticker}", response_model=MonteCarloResponse, response_model_by_alias=True)
 def run_monte_carlo_for_ticker(
     ticker: str,
+    response: Response,
     seed: Optional[int] = Query(None, description="Non-negative integer seed (defaults to the fixed v1 seed)."),
     service: MonteCarloService = Depends(get_service),
 ) -> dict:
     try:
-        return service.get_result(ticker, seed)
+        result = service.get_result(ticker, seed)
     except ServiceError as error:
         _raise_http(error)
+    summary = diagnostics.take_last_summary()
+    if summary is not None:  # only set when diagnostics are enabled and this call fetched from the provider
+        response.headers[diagnostics.HEADER_NAME] = diagnostics.header_value(summary)
+    return result
