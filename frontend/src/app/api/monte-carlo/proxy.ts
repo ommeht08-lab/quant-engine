@@ -134,7 +134,7 @@ export async function proxyMonteCarlo(
   try {
     response = await fetchWithTimeout(
       targetUrl,
-      { headers: backendRequestHeaders(serviceToken, process.env[PROTECTION_BYPASS_ENV_VAR], isProductionEnvironment()) },
+      { headers: backendRequestHeaders(serviceToken, process.env[PROTECTION_BYPASS_ENV_VAR], process.env.VERCEL_ENV === "production") },
       MONTE_CARLO_BACKEND_REQUEST_TIMEOUT_MS,
     );
   } catch (error) {
