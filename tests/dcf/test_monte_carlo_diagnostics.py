@@ -132,3 +132,12 @@ def test_header_value_is_compact_json(monkeypatch):
         session().request("GET", "https://fc.yahoo.com/")
     value = diag.header_value(diag.take_last_summary())
     assert " " not in value and json.loads(value)["http_requests"] == 1
+
+
+def test_older_yfinance_without_an_http_module_falls_back_to_curl_cffi(monkeypatch):
+    import sys
+
+    from curl_cffi import requests as curl_requests
+
+    monkeypatch.setitem(sys.modules, "yfinance._http", None)  # `from yfinance._http import ...` raises ImportError
+    assert diag._default_session_class() is curl_requests.Session

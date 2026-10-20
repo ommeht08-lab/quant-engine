@@ -115,8 +115,13 @@ def install(session_cls: Any) -> None:
 
 
 def _default_session_class() -> Any:
-    # The HTTP backend yfinance actually selected (curl_cffi, or plain requests when that is unavailable).
-    from yfinance._http import requests as yahoo_backend  # imported lazily: only needed when enabled
+    # Imported lazily: only needed when enabled.
+    try:
+        # Newer yfinance picks its HTTP backend here (curl_cffi, or plain requests as a fallback).
+        from yfinance._http import requests as yahoo_backend
+    except ImportError:
+        # Older pins (the Vercel backend installs yfinance 1.2.0) use curl_cffi directly.
+        from curl_cffi import requests as yahoo_backend
 
     return yahoo_backend.Session
 
