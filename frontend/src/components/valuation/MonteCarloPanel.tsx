@@ -32,6 +32,7 @@ import {
   type MonteCarloDescription,
   type MonteCarloResponse,
 } from "@/lib/monte-carlo-types";
+import { readCachedDescription, reconcileTicker, writeCachedDescription } from "@/lib/monte-carlo-description-cache";
 import { formatPercent, formatPreciseCurrency } from "./format";
 import styles from "./MonteCarloPanel.module.css";
 import ScrollHintTable from "./ScrollHintTable";
@@ -660,19 +661,33 @@ export default function MonteCarloPanel() {
 
   useEffect(() => {
     const controller = new AbortController();
+    // Repeat visits show the controls at once from the last settings this browser saw, then revalidate.
+    // Applied in a microtask (still before the first paint) so the server and client first renders match.
+    const cached = readCachedDescription(window.localStorage);
+    if (cached) {
+      queueMicrotask(() => {
+        if (controller.signal.aborted) return;
+        setDescription(cached);
+        setTicker((current) => reconcileTicker(current, cached.tickers));
+      });
+    }
+    // The page also starts this request at HTML parse time (see the page's preload), so it normally overlaps
+    // the script download; fetch() reuses that response.
     fetch("/api/monte-carlo", { signal: controller.signal })
       .then(async (response) => {
         const body: unknown = await response.json().catch(() => null);
         if (!response.ok || !isMonteCarloDescription(body)) {
-          setDescriptionError(describeRequestError(response.status, body).message);
+          if (!cached) setDescriptionError(describeRequestError(response.status, body).message);
           return;
         }
+        setDescriptionError(null);
         setDescription(body);
-        setTicker((current) => current || body.tickers[0]);
+        setTicker((current) => reconcileTicker(current, body.tickers));
+        writeCachedDescription(window.localStorage, body);
       })
       .catch((reason: unknown) => {
         if (reason instanceof DOMException && reason.name === "AbortError") return;
-        setDescriptionError("The simulation service did not respond.");
+        if (!cached) setDescriptionError("The simulation service did not respond.");
       });
     const slowTimer = window.setTimeout(() => setSettingsSlow(true), 3000);
     return () => {
