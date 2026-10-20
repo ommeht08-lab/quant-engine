@@ -648,6 +648,8 @@ export function MonteCarloResults({
 export default function MonteCarloPanel() {
   const [description, setDescription] = useState<MonteCarloDescription | null>(null);
   const [descriptionError, setDescriptionError] = useState<string | null>(null);
+  // The settings request can be slow when the service has been idle; say so instead of leaving disabled controls unexplained.
+  const [settingsSlow, setSettingsSlow] = useState(false);
   const [ticker, setTicker] = useState("");
   const [seedText, setSeedText] = useState("");
   const [result, setResult] = useState<MonteCarloResponse | null>(null);
@@ -672,7 +674,11 @@ export default function MonteCarloPanel() {
         if (reason instanceof DOMException && reason.name === "AbortError") return;
         setDescriptionError("The simulation service did not respond.");
       });
-    return () => controller.abort();
+    const slowTimer = window.setTimeout(() => setSettingsSlow(true), 3000);
+    return () => {
+      controller.abort();
+      window.clearTimeout(slowTimer);
+    };
   }, []);
 
   async function run(event: FormEvent<HTMLFormElement>) {
@@ -723,6 +729,7 @@ export default function MonteCarloPanel() {
           <label className={styles.field}>
             Company
             <select value={ticker} onChange={(e) => setTicker(e.target.value)} disabled={!description || isLoading}>
+              {!description && <option value="">{descriptionError ? "Unavailable" : "Loading companies…"}</option>}
               {(description?.tickers ?? []).map((t) => (
                 <option key={t} value={t}>{t}</option>
               ))}
@@ -747,6 +754,13 @@ export default function MonteCarloPanel() {
           </p>
         </form>
         {descriptionError && <p className="status-error mt-4" role="alert">{descriptionError}</p>}
+        {!description && !descriptionError && (
+          <p className={styles.hint} role="status">
+            {settingsSlow
+              ? "Still loading the simulation settings. The service may be starting up, which can take a few seconds."
+              : "Loading the simulation settings…"}
+          </p>
+        )}
       </section>
 
       {error && (
