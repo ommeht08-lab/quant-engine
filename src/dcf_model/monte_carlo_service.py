@@ -35,7 +35,7 @@ from src.dcf_model.monte_carlo_config import (
     sha256_hex,
     validate_seed,
 )
-from src.dcf_model.monte_carlo import DISCLOSURES
+from src.dcf_model.monte_carlo import DISCLOSURES, canonical_payload
 from src.dcf_model.monte_carlo_snapshot import (
     SnapshotError,
     build_replay_bundle,
@@ -211,11 +211,14 @@ class MonteCarloService:
             ) from exc
         digest = None
         provenance = None
+        reference = None
         if cached is not None and "result" in cached:
             digest = cached["result"]["result_digest"]
             provenance = cached["result"].get("baseline_provenance")
+            reference = canonical_payload(cached["result"])
         return build_replay_bundle(
-            snapshot, seed, self._config, expected_result_digest=digest, baseline_provenance=provenance
+            snapshot, seed, self._config, expected_result_digest=digest, baseline_provenance=provenance,
+            reference_result=reference,
         )
 
     # ---- validation -----------------------------------------------------

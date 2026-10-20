@@ -33,6 +33,7 @@ from src.dcf_model.monte_carlo_kernel import (
     KernelInputs,
     evaluate_valuations,
 )
+from src.dcf_model.monte_carlo_equivalence import TOLERANCES, within
 from tests.dcf.monte_carlo_fixtures import make_financial_data
 
 FIXTURES = {
@@ -47,6 +48,15 @@ FIXTURES = {
     "high_beta": make_financial_data(beta=6.0),
 }
 MODES = ("maturation", "constant")
+
+
+def _close(kernel_value: float, scalar_value: float) -> bool:
+    """Kernel and scalar paths agree within the numerical policy (per-share value class).
+
+    They are bit-identical on one platform for the same operations, but the vectorised and scalar code
+    are free to differ in the last bits across CPUs and numpy builds (observed: one ULP on Linux CI).
+    """
+    return within(kernel_value, scalar_value, TOLERANCES["value_per_share"])
 
 
 def _scalar_chain(baseline, config, growth, margin, wacc):
@@ -89,12 +99,12 @@ class TestZeroUncertaintyMatchesDeterministicValuation:
         )
         assert np.all(codes == OK)
         expected = run_dcf_valuation(FIXTURES[name], dcf_assumptions_for(config, 0.04))["intrinsic_value_per_share"]
-        assert np.all(values == expected)
+        assert all(_close(float(v), expected) for v in values), (values, expected)
 
 
 @pytest.mark.parametrize("mode", MODES)
 class TestRandomizedScalarVsVector:
-    def test_500_random_in_bounds_triples_match_the_scalar_pipeline_exactly(self, mode):
+    def test_500_random_in_bounds_triples_match_the_scalar_pipeline(self, mode):
         config = MonteCarloConfig(forecast_mode=mode)
         baseline = resolve_baseline(FIXTURES["steady"], 0.04, config)
         rng = np.random.default_rng(20261101)
@@ -105,7 +115,7 @@ class TestRandomizedScalarVsVector:
         assert np.all(codes == OK)
         for i in range(500):
             scalar = _scalar_chain(baseline, config, float(growth[i]), float(margin[i]), float(wacc[i]))
-            assert values[i] == scalar, f"draw {i} differs: kernel={values[i]!r} scalar={scalar!r}"
+            assert _close(float(values[i]), scalar), f"draw {i} differs: kernel={values[i]!r} scalar={scalar!r}"
 
     def test_results_do_not_depend_on_batch_composition(self, mode):
         config = MonteCarloConfig(forecast_mode=mode)

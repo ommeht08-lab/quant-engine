@@ -2,6 +2,7 @@
 
 import copy
 import json
+import os
 
 import numpy as np
 import pytest
@@ -22,14 +23,17 @@ from src.dcf_model.monte_carlo_config import (
     MonteCarloConfig,
     MonteCarloRefusal,
     canonical_json,
+    sha256_hex,
 )
 from src.dcf_model.monte_carlo_history import HistoricalSpreads
 from src.dcf_model.monte_carlo_kernel import NONFINITE_PROJECTION, evaluate_valuations
 from src.dcf_model.monte_carlo_sampling import build_truncated_normal_spec, build_wacc_spec
+from src.dcf_model.monte_carlo_equivalence import compare_results
 from tests.dcf.monte_carlo_fixtures import make_financial_data
 
 RF = 0.04
 CONFIG = MonteCarloConfig()
+GOLDEN_PAYLOAD_PATH = os.path.join(os.path.dirname(__file__), "golden", "steady_default_seed_payload.json")
 
 
 def _run(data=None, config=CONFIG, seed=20261101):
@@ -367,14 +371,33 @@ class TestCrossEnvironmentStability:
         rng.shuffle(shuffled)
         assert mc._exact_mean(values) == mc._exact_mean(shuffled) == __import__("math").fsum(values.tolist()) / values.size
 
-    # Golden digest of the steady fixture at the default seed. It is identical on
-    # Python 3.9/numpy 2.0 and Python 3.11/numpy 2.4 (macOS arm64). A mismatch means
-    # sampling or arithmetic changed (or a platform computes it differently): bump
-    # MONTE_CARLO_MODEL_VERSION and this value only after understanding why.
-    # The digest covers the numerical payload only (not provenance or disclosure
-    # copy); the digest recorded before that scope change is pinned in
-    # test_monte_carlo_provenance.py and must stay reproducible.
+    # The steady fixture at the default seed is pinned two separate ways, because "the same hash" and
+    # "the same numbers" are different claims once the CPU, math library or numpy build changes:
+    #
+    # * integrity: tests/dcf/golden/steady_default_seed_payload.json is the recorded numerical payload. It must
+    #   still hash to GOLDEN_STEADY_DIGEST, byte for byte, on every platform (it is a stored file, not a
+    #   recomputation), so the recorded reference cannot drift or be edited unnoticed.
+    # * numerical reference: a fresh run must be numerically equivalent to that payload under the versioned
+    #   policy in monte_carlo_equivalence. Floating-point output is not bit-identical across platforms (observed
+    #   macOS arm64 vs Linux x86-64 differences of a few ULP), so a hash of a fresh run is not a portable test.
+    #
+    # The digest covers the numerical payload only (not provenance or disclosure copy); the digest recorded
+    # before that scope change is pinned in test_monte_carlo_provenance.py.
     GOLDEN_STEADY_DIGEST = "01437171336f6e78f9f7a2457567719fd790e8687716773ba8c89d88419126d4"
 
-    def test_golden_digest_for_the_steady_fixture(self):
-        assert _run()["result_digest"] == self.GOLDEN_STEADY_DIGEST
+    @staticmethod
+    def _golden_payload():
+        with open(GOLDEN_PAYLOAD_PATH, "r", encoding="utf-8") as handle:
+            return json.load(handle)
+
+    def test_the_recorded_reference_payload_still_hashes_to_the_golden_digest(self):
+        assert sha256_hex(canonical_json(self._golden_payload())) == self.GOLDEN_STEADY_DIGEST
+
+    def test_a_fresh_run_is_numerically_equivalent_to_the_recorded_reference(self):
+        report = compare_results(self._golden_payload(), mc.canonical_payload(_run()))
+        assert report["numerically_equivalent"], report["violations"]
+
+    def test_a_fresh_run_reproduces_the_golden_digest_where_the_platform_allows_it(self):
+        # Informational: bit-exact on the platform that recorded the reference, not required elsewhere.
+        if _run()["result_digest"] != self.GOLDEN_STEADY_DIGEST:
+            pytest.skip("this platform's floating-point output differs in the last bits; equivalence is tested above")

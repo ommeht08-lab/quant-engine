@@ -629,8 +629,10 @@ export function MonteCarloResults({
         </dl>
         <p className={styles.lede}>
           The replay bundle holds the frozen statements and price, the seed and the full configuration. Replaying it offline
-          (<span className={styles.mono}>python -m src.dcf_model.monte_carlo --bundle FILE</span>) recomputes the same numerical payload and
-          compares its digest.
+          (<span className={styles.mono}>python -m src.dcf_model.monte_carlo --bundle FILE</span>) first checks that nothing in the bundle
+          was altered, then recomputes the numbers. On the same kind of computer the result digest matches exactly; on a different one
+          the last digits can differ, so the report instead says the numbers agree within a stated tolerance, with every count identical.
+          It never calls a replay exact when it is not.
         </p>
         <a className={`button-secondary ${styles.exportLink}`} href={`/api/monte-carlo/snapshots/${encodeURIComponent(result.identity.snapshot_id)}?seed=${result.seed}`} download>
           Download replay bundle

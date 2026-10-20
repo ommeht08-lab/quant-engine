@@ -38,8 +38,12 @@ discount. Sampled WACC replaces the CAPM-derived rate.
 
 Every run first values the baseline with the kernel and compares it with the
 scalar result (`kernel_baseline_check`); a relative disagreement above 1e-9
-refuses the run. Tests assert **exact** float64 equality (no ULP tolerance) at
-zero uncertainty and over 500 random in-bounds triples, in both forecast modes.
+refuses the run. Tests assert agreement within the numerical policy's per-share
+tolerance (relative 1e-12, absolute 1e-9 USD) at zero uncertainty and over 500
+random in-bounds triples, in both forecast modes. The two paths are bit-identical
+on most platforms, but the vectorised and scalar arithmetic are not required to be:
+one ULP of difference was observed on Linux CI, so `exactly_equal` is recorded as a
+diagnostic only and is not compared across platforms.
 
 ## Distributions
 
@@ -105,11 +109,74 @@ A **snapshot** (`mc-dcf-snapshot-v1`) freezes the three statements, quote fields
 risk-free rate, provenance, capture time and capture environment; its id is the
 SHA-256 of its canonical content. Simulations always run from the decoded
 snapshot. A **replay bundle** (`mc-dcf-replay-bundle-v1`) adds the seed, the full
-configuration, its hash, the model version and the expected digest:
+configuration, its hash, the model version, the expected digests and, in bundles
+exported since policy v1, the recorded numerical payload (`reference_result`):
 
-    python -m src.dcf_model.monte_carlo --bundle FILE [--output RESULT.json]
+    python -m src.dcf_model.monte_carlo --bundle FILE [--output RESULT.json] [--reference-result RESULT.json]
 
-recomputes the result and exits non-zero if the digest differs.
+### Three different claims
+
+| claim | meaning | how it is checked |
+|---|---|---|
+| **integrity verified** | nothing stored was altered | exact SHA-256 over the snapshot (id), the replay section, the provenance block, the recorded result payload (it must hash to `expected_result_digest`) and the bundle digest |
+| **exact replay** | recomputing here reproduced the recorded numbers bit for bit | the recomputed `result_digest` (and `provenance_digest`) equal the recorded ones |
+| **numerically equivalent replay** | recomputing here reproduced the recorded numbers within the versioned policy | field-by-field comparison against the recorded payload; every count, status, key and configuration value must match exactly |
+
+`verification_level` is the strongest claim established: `exact_replay`,
+`numerically_equivalent_replay`, `numerical_mismatch`, `integrity_verified_only` (the digest differs
+and there are no recorded numbers to compare, so the difference is unexplained, not proven) or
+`unverified`. Exit status: 0 exact or equivalent, 1 integrity failure or numerical mismatch, 2 numbers
+unconfirmed. Archived bundles without `reference_result` still verify (including `legacy_v1` digests);
+on another platform they can be checked with `--reference-result`, which is accepted only if it hashes
+to the bundle's recorded digest.
+
+Floating-point results are not bit-identical across CPUs, math libraries and numpy builds, so a hash of
+recomputed floats is **not** a portable test. Integrity hashes are never relaxed and financial outputs
+are never rounded to make hashes match.
+
+### Numerical equivalence policy `mc-dcf-numerical-equivalence-v1`
+
+Implemented in `src/dcf_model/monte_carlo_equivalence.py`. A comparison passes when:
+
+* **Exactly equal:** every integer, string, boolean, null, key set and list length; statuses and refusal
+  codes; counts (`valid`, `attempted`, `failed_by_code`, `rejected_proposals`, `negative_value_count`,
+  `above_market.count`/`denominator`, histogram `counts`/`underflow`/`overflow`); the identity block;
+  the whole `config`; `seed`; `market_price`; and `above_market.fraction` (a ratio of exact integers).
+  A difference in any of these is never excused by a floating-point tolerance: a draw that crosses the market
+  price or a bin edge on another platform is a finding to investigate, not noise.
+* **Within tolerance** `|a - b| <= atol + rtol * max(|a|, |b|)`, `rtol = 1e-12` throughout:
+
+  | class | fields | atol |
+  |---|---|---|
+  | `value_per_share` | experiment statistics, histogram edges, baseline intrinsic value, kernel/scalar values | 1e-9 USD |
+  | `amount` | enterprise/equity value, revenue, cash, debt, share count, historical revenues | 1e-6 |
+  | `rate` | growth, margin, WACC, tax and capex rates, distribution parameters, sampled-input summaries, history | 1e-15 |
+  | `tail_mass` | untruncated and admissible probability masses (down to about 1e-80) | 0 (relative only) |
+  | `provenance_numeric` | numeric fields of `baseline_provenance` | 1e-12 |
+
+* **Not compared:** `provenance_digest` (a hash of floats whose inputs are compared field by field),
+  `kernel_baseline_check.exactly_equal` and `.absolute_difference` (platform-dependent diagnostics; the
+  recomputed result must still show kernel and scalar baselines agreeing within 1e-9 relative, the same
+  threshold at which the run itself refuses).
+* **Fails closed:** a float no rule classifies is a violation, so a new field cannot be silently skipped.
+
+Why these values. Differences observed between Vercel Linux x86-64 (numpy 2.0.2), macOS arm64 numpy 2.0.2 and
+macOS arm64 numpy 2.4.6, for AAPL, KO and JNJ, six pairwise comparisons: all counts, statuses, flags and keys
+were identical. Float differences: `value_per_share` at most 1.2e-15 relative (9 ULP); `amount` 2.2e-16
+(1 ULP); `tail_mass` 2.9e-15 (21 ULP); `provenance_numeric` 1.9e-16 (1 ULP); `rate` 1.4e-13 relative, which is
+a near-cancellation (a sampled margin minimum of about 2e-4 differing by 2.8e-17, 1024 ULP, but 2.8e-17
+absolute). So 1e-12 relative leaves roughly 300x headroom over the worst non-cancelling case, and the
+`rate` absolute floor of 1e-15 absorbs the cancellation case. Both are far below any change that matters:
+tests show a 1e-10 relative change in the valuation kernel (below the run's own refusal threshold), a 1e-9
+change in any class and a 1e-4 change in the discounting are rejected. A change smaller than about 1e-12
+relative is not detectable by the policy (a test states this); the exact digest still detects it on one
+platform. Changing any tolerance, class or rule requires a new policy version string.
+
+Runtime versions. CI (`pytest`) runs Python 3.11 with `requirements.txt` (numpy 2.4.6, pandas 3.0.5, scipy
+1.17.1). The deployed backend installs `pyproject.toml` (Python 3.12, numpy 2.0.2, pandas 2.3.3, scipy
+1.17.1, yfinance 1.2.0). The difference is intentional (the deployed set is the smaller, older one that was
+verified for the serverless function), so the CI job `pytest-deployed-pins` runs the Monte Carlo and manifest
+tests under exactly the deployed set, and every run records the versions it used.
 
 ## API
 
@@ -160,8 +227,9 @@ store is a 503; locally an in-process store is used.
 * The market price is the quote captured with the snapshot; the provider gives
   no quote time, so the price time is reported as unknown (capture time is never
   shown as a quote time).
-* Exact reproduction is guaranteed only within the recorded software
-  environment (`meta.environment`, `capture_environment`).
+* Exact (bit-for-bit) reproduction is expected only within the recorded software and hardware
+  environment (`meta.environment`, `capture_environment`); elsewhere the claim is numerical equivalence
+  under the policy above.
 
 ## Margin definition: v1 decision and findings
 

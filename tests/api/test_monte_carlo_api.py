@@ -264,3 +264,29 @@ class TestPreviewReplayEndpoint:
         bundle["replay"]["seed"] += 1  # edited after export: the bundle digest must refuse it
         response = client.post("/api/monte-carlo/diagnostics/replay", content=json.dumps(bundle))
         assert response.status_code == 422 and response.json()["detail"]["code"] == "bundle_invalid"
+
+
+class TestExportCarriesTheRecordedNumbers:
+    def test_the_bundle_includes_a_reference_result_that_hashes_to_the_expected_digest(self, client):
+        from src.dcf_model.monte_carlo_config import canonical_json, sha256_hex
+        from src.dcf_model.monte_carlo_snapshot import replay_bundle
+
+        result = client.get("/api/monte-carlo/AAPL").json()
+        bundle = json.loads(client.get(
+            f"/api/monte-carlo/snapshots/{result['identity']['snapshot_id']}?seed={result['seed']}"
+        ).text)
+        assert sha256_hex(canonical_json(bundle["reference_result"])) == bundle["replay"]["expected_result_digest"] == result["result_digest"]
+        assert "meta" not in bundle["reference_result"] and "disclosures" not in bundle["reference_result"]
+        assert bundle["replay"]["numerical_policy_version"] == "mc-dcf-numerical-equivalence-v1"
+        outcome = replay_bundle(bundle)
+        assert outcome["verification_level"] == "exact_replay" and outcome["integrity_verified"] is True
+
+    def test_the_replay_endpoint_reports_the_three_claims_separately(self, client, monkeypatch):
+        from src.dcf_model import monte_carlo_diagnostics as diag
+
+        monkeypatch.setenv(diag.FLAG_ENV_VAR, "1")
+        result = client.get("/api/monte-carlo/KO").json()
+        text = client.get(f"/api/monte-carlo/snapshots/{result['identity']['snapshot_id']}?seed={result['seed']}").text
+        body = client.post("/api/monte-carlo/diagnostics/replay", content=text).json()
+        assert body["integrity_verified"] is True and body["exact_replay"] is True
+        assert body["numerically_equivalent_replay"] is True and body["verification_level"] == "exact_replay"

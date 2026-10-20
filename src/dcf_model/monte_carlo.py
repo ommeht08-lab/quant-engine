@@ -680,24 +680,61 @@ def results_identical(a: Mapping, b: Mapping) -> bool:
 # Offline replay CLI
 # --------------------------------------------------------------------------
 
+_LEVEL_MEANING = {
+    "exact_replay": "Integrity verified, and recomputing here reproduced the recorded result digest bit for bit.",
+    "numerically_equivalent_replay": (
+        "Integrity verified. The recomputed numbers are not bit-identical to the recorded ones (different CPU, math library or "
+        "numpy build) but agree within the versioned numerical policy, and every count, status and key is equal."
+    ),
+    "numerical_mismatch": "Integrity verified, but the recomputed numbers differ from the recorded ones beyond the numerical policy.",
+    "integrity_verified_only": (
+        "Integrity verified, but the recomputed digest differs and the bundle carries no recorded numbers to compare with. "
+        "Pass --reference-result with the original result, or replay on the platform that exported it."
+    ),
+    "unverified": "No integrity digest and no matching recorded result: nothing about this replay is established.",
+}
+
+
 def _main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Replay a Monte Carlo DCF replay bundle offline and compare its result digest."
+        description=(
+            "Replay a Monte Carlo DCF replay bundle offline. Reports integrity, exact replay and numerical "
+            "equivalence separately. Exit status: 0 exact or numerically equivalent; 1 integrity failure or "
+            "numerical mismatch; 2 integrity verified but the numbers could not be confirmed."
+        )
     )
     parser.add_argument("--bundle", required=True, help="Path to a replay bundle JSON file.")
     parser.add_argument("--output", help="Write the recomputed result JSON here.")
+    parser.add_argument(
+        "--reference-result",
+        help="Original result JSON to compare against (for bundles exported without recorded numbers). "
+        "It must hash to the bundle's recorded result digest.",
+    )
     args = parser.parse_args(argv)
 
-    from src.dcf_model.monte_carlo_snapshot import replay_bundle
+    from src.dcf_model.monte_carlo_snapshot import SnapshotError, replay_bundle
 
     with open(args.bundle, "r", encoding="utf-8") as handle:
         bundle = json.load(handle)
-    outcome = replay_bundle(bundle)
+    reference = None
+    if args.reference_result:
+        with open(args.reference_result, "r", encoding="utf-8") as handle:
+            reference = json.load(handle)
+    try:
+        outcome = replay_bundle(bundle, reference_result=reference)
+    except SnapshotError as error:
+        print(json.dumps({"verification_level": "integrity_failed", "integrity_verified": False, "reason": str(error)}, indent=2))
+        return 1
     if args.output:
         with open(args.output, "w", encoding="utf-8") as handle:
             json.dump(outcome["result"], handle, sort_keys=True, allow_nan=False)
-    print(json.dumps({k: v for k, v in outcome.items() if k != "result"}, indent=2, sort_keys=True))
-    return 0 if outcome["matches_expected"] is not False else 1
+    report = {k: v for k, v in outcome.items() if k != "result"}
+    report["meaning"] = _LEVEL_MEANING[outcome["verification_level"]]
+    print(json.dumps(report, indent=2, sort_keys=True))
+    level = outcome["verification_level"]
+    if level in ("exact_replay", "numerically_equivalent_replay"):
+        return 0
+    return 1 if level == "numerical_mismatch" else 2
 
 
 if __name__ == "__main__":

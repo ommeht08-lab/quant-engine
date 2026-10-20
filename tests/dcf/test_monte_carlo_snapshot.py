@@ -228,4 +228,11 @@ class TestReplayBundle:
 
         broken = self._bundle(snapshot, digest="f" * 64)
         path.write_text(json.dumps(broken))
-        assert _main(["--bundle", str(path)]) == 1
+        capsys.readouterr()
+        # A differing digest with no recorded numbers cannot be told from a platform difference: integrity holds,
+        # the numbers are unconfirmed (exit 2), and the report says so rather than claiming a mismatch.
+        assert _main(["--bundle", str(path)]) == 2
+        unconfirmed = json.loads(capsys.readouterr().out)
+        assert unconfirmed["verification_level"] == "integrity_verified_only"
+        assert unconfirmed["integrity_verified"] is True and unconfirmed["exact_replay"] is False
+        assert unconfirmed["numerically_equivalent_replay"] is None
