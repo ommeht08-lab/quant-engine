@@ -213,6 +213,15 @@ a 409 with `Retry-After`. The provider is called once per snapshot, never per
 draw. On Vercel (or with `MONTE_CARLO_REQUIRE_SHARED_STORE=1`) a missing shared
 store is a 503; locally an in-process store is used.
 
+The shared store is configured with its own credentials,
+`MONTE_CARLO_UPSTASH_REDIS_REST_URL` and `MONTE_CARLO_UPSTASH_REDIS_REST_TOKEN`
+(backend only). The generic `UPSTASH_REDIS_REST_*` pair is never read here: it
+belongs to `src.utils.cache`, and setting it turns on the existing valuation,
+price, risk-free-rate and sector-median caches. The two are independent, so a
+missing or half-set Monte Carlo pair fails closed (503) on Vercel even when the
+generic pair is present, and Monte Carlo credentials alone leave generic caching
+off. The frontend rate limiter keeps using the generic pair.
+
 ## Known limitations
 
 * The growth spread is year-to-year volatility but is applied as one persistent

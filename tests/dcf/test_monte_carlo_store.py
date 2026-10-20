@@ -181,8 +181,8 @@ class TestSharedClientIsBuiltOnceUnderConcurrency:
                 built.append(self)
 
         monkeypatch.setitem(sys.modules, "upstash_redis", types.SimpleNamespace(Redis=SlowRedis))
-        monkeypatch.setenv("UPSTASH_REDIS_REST_URL", "http://redis.invalid")
-        monkeypatch.setenv("UPSTASH_REDIS_REST_TOKEN", "not-a-real-token")
+        monkeypatch.setenv("MONTE_CARLO_UPSTASH_REDIS_REST_URL", "http://redis.invalid")
+        monkeypatch.setenv("MONTE_CARLO_UPSTASH_REDIS_REST_TOKEN", "not-a-real-token")
         monkeypatch.setattr(store_module, "_client", None)
         monkeypatch.setattr(store_module, "_client_checked", False)
 
@@ -203,10 +203,83 @@ class TestSharedClientIsBuiltOnceUnderConcurrency:
         assert len({id(s._client) for s in stores}) == 1
 
     def test_missing_credentials_mean_no_client_and_are_not_retried_forever(self, monkeypatch):
-        monkeypatch.delenv("UPSTASH_REDIS_REST_URL", raising=False)
-        monkeypatch.delenv("UPSTASH_REDIS_REST_TOKEN", raising=False)
+        for name in ("MONTE_CARLO_UPSTASH_REDIS_REST_URL", "MONTE_CARLO_UPSTASH_REDIS_REST_TOKEN"):
+            monkeypatch.delenv(name, raising=False)
         monkeypatch.setattr(store_module, "_client", None)
         monkeypatch.setattr(store_module, "_client_checked", False)
         assert store_module._shared_client() is None
+        with pytest.raises(StoreUnavailable):
+            default_store({"VERCEL": "1"})
+
+
+class TestCredentialIsolation:
+    """The Monte Carlo store and the generic cache helper are configured independently."""
+
+    @staticmethod
+    def _fake_upstash(monkeypatch):
+        import sys
+        import types
+
+        built = []
+
+        class RecordingRedis:
+            def __init__(self, url, token):
+                built.append((url, token))
+
+        monkeypatch.setitem(sys.modules, "upstash_redis", types.SimpleNamespace(Redis=RecordingRedis))
+        monkeypatch.setattr(store_module, "_client", None)
+        monkeypatch.setattr(store_module, "_client_checked", False)
+        return built
+
+    @staticmethod
+    def _fresh_generic_cache(monkeypatch):
+        from src.utils import cache
+
+        monkeypatch.setattr(cache, "load_dotenv", lambda *a, **k: None)
+        monkeypatch.setattr(cache, "_redis_client", None)
+        monkeypatch.setattr(cache, "_client_initialized", False)
+        return cache
+
+    def test_monte_carlo_credentials_alone_do_not_activate_the_generic_cache(self, monkeypatch):
+        built = self._fake_upstash(monkeypatch)
+        monkeypatch.delenv("UPSTASH_REDIS_REST_URL", raising=False)
+        monkeypatch.delenv("UPSTASH_REDIS_REST_TOKEN", raising=False)
+        monkeypatch.setenv("MONTE_CARLO_UPSTASH_REDIS_REST_URL", "http://mc.invalid")
+        monkeypatch.setenv("MONTE_CARLO_UPSTASH_REDIS_REST_TOKEN", "mc-token")
+        cache = self._fresh_generic_cache(monkeypatch)
+
+        assert isinstance(default_store({"VERCEL": "1"}), UpstashStore)
+        assert built == [("http://mc.invalid", "mc-token")]
+        assert cache._get_redis_client() is None  # generic caching stays a passthrough
+        assert built == [("http://mc.invalid", "mc-token")]  # and built no second client
+
+    def test_generic_credentials_alone_do_not_satisfy_the_required_store(self, monkeypatch):
+        built = self._fake_upstash(monkeypatch)
+        monkeypatch.delenv("MONTE_CARLO_UPSTASH_REDIS_REST_URL", raising=False)
+        monkeypatch.delenv("MONTE_CARLO_UPSTASH_REDIS_REST_TOKEN", raising=False)
+        monkeypatch.setenv("UPSTASH_REDIS_REST_URL", "http://generic.invalid")
+        monkeypatch.setenv("UPSTASH_REDIS_REST_TOKEN", "generic-token")
+
+        with pytest.raises(StoreUnavailable):
+            default_store({"VERCEL": "1"})
+        assert built == []
+
+    @pytest.mark.parametrize("present", ["url", "token"])
+    def test_half_configured_monte_carlo_credentials_fail_closed(self, monkeypatch, present):
+        built = self._fake_upstash(monkeypatch)
+        monkeypatch.delenv("MONTE_CARLO_UPSTASH_REDIS_REST_URL", raising=False)
+        monkeypatch.delenv("MONTE_CARLO_UPSTASH_REDIS_REST_TOKEN", raising=False)
+        monkeypatch.setenv(
+            "MONTE_CARLO_UPSTASH_REDIS_REST_URL" if present == "url" else "MONTE_CARLO_UPSTASH_REDIS_REST_TOKEN", "x"
+        )
+        with pytest.raises(StoreUnavailable):
+            default_store({"VERCEL": "1"})
+        assert built == []
+
+    def test_missing_credentials_fail_closed_on_vercel_without_the_override(self, monkeypatch):
+        self._fake_upstash(monkeypatch)
+        for name in ("MONTE_CARLO_UPSTASH_REDIS_REST_URL", "MONTE_CARLO_UPSTASH_REDIS_REST_TOKEN"):
+            monkeypatch.delenv(name, raising=False)
+        monkeypatch.delenv("MONTE_CARLO_REQUIRE_SHARED_STORE", raising=False)
         with pytest.raises(StoreUnavailable):
             default_store({"VERCEL": "1"})

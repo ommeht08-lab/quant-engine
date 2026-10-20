@@ -1,8 +1,8 @@
 """
 Key-value store and ownership-token locks for the Monte Carlo service.
 
-Two implementations share one small interface: `UpstashStore` (the shared
-Upstash Redis the rest of the backend already uses) and `InMemoryStore`
+Two implementations share one small interface: `UpstashStore` (a shared
+Upstash Redis reached only through the Monte Carlo-specific credentials below) and `InMemoryStore`
 (process-local; tests and local development only).
 
 Locks are `SET key token NX EX ttl` with a random per-acquisition token and an
@@ -25,6 +25,12 @@ RELEASE_LOCK_SCRIPT = (
 )
 
 REQUIRE_SHARED_STORE_ENV_VAR = "MONTE_CARLO_REQUIRE_SHARED_STORE"
+
+# Dedicated credentials. The generic UPSTASH_REDIS_REST_* pair belongs to `src.utils.cache`, which turns on
+# valuation, price, risk-free-rate and sector-median caching when it is set; this store must neither read it
+# (so a generic database is never used for Monte Carlo by accident) nor, by being configured, switch it on.
+URL_ENV_VAR = "MONTE_CARLO_UPSTASH_REDIS_REST_URL"
+TOKEN_ENV_VAR = "MONTE_CARLO_UPSTASH_REDIS_REST_TOKEN"
 
 
 class StoreUnavailable(Exception):
@@ -145,8 +151,8 @@ def _shared_client():
     global _client, _client_checked
     with _client_lock:
         if not _client_checked:
-            url = os.environ.get("UPSTASH_REDIS_REST_URL")
-            token = os.environ.get("UPSTASH_REDIS_REST_TOKEN")
+            url = os.environ.get(URL_ENV_VAR)
+            token = os.environ.get(TOKEN_ENV_VAR)
             if url and token:
                 try:
                     from upstash_redis import Redis
